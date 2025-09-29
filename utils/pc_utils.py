@@ -3,11 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import gc
+import numpy as np
 from torch.amp import autocast
 from contextlib import nullcontext
 from predictive_coding.config import GPTConfig
 from utils.attention_utils import apply_flash_attention, apply_standard_attention
-
+from jax import numpy as jnp
+from ngclearn.components import GaussianErrorCell as ErrorCell
 def compute_DVL(attn_v, requires_update):
     B, H, T, D = attn_v.shape
     device = attn_v.device
@@ -40,7 +42,6 @@ def get_head_similarity(mu_heads):
     
 def x_init(batch_size: int, seq_len: int, embedding_size: int, device: torch.device = None) -> torch.Tensor:
     return torch.randn(batch_size, seq_len, embedding_size, device = device)
-
 def step_embed(t, T, target, layer, layer_type, input_ids, position_ids, local_lr, clamp_value, energy_fn_name, is_holding_error, requires_update, layer_norm, mu_word_cache=None, mu_pos_cache=None):
     """
     Perform a predictive coding update step for the embedding layer.
@@ -64,6 +65,7 @@ def step_embed(t, T, target, layer, layer_type, input_ids, position_ids, local_l
     """
     word_layer = layer["word"]
     pos_layer = layer["pos"]
+    device = target.device 
     
     use_amp = target.is_cuda
     autocast_ctx = autocast('cuda') if use_amp else nullcontext()
@@ -88,11 +90,51 @@ def step_embed(t, T, target, layer, layer_type, input_ids, position_ids, local_l
         mu = mu_word + mu_pos
         mu_norm=layer_norm(mu)
     
-        error = target - mu_norm
+        # Convert PyTorch tensors to JAX arrays for ngclearn
+        target_jax = jnp.array(target.detach().cpu().numpy())
+        mu_norm_jax = jnp.array(mu_norm.detach().cpu().numpy())
+        
+
+        
+       # Flatten sequence and embedding dimensions for GaussianErrorCell
+        target_jax_flat = target_jax.reshape(target.size(0), -1)  # Shape: (8, 64*12)
+        mu_norm_jax_flat = mu_norm_jax.reshape(mu_norm.size(0), -1)  # Shape: (8, 64*12)
+        
+        # Initialize GaussianErrorCell
+        error_cell = ErrorCell(
+            "embed_error",
+            n_units=target.size(1) * mu_norm.size(-1),  # 64 * 12 = 768
+            batch_size=target.size(0)  # 8
+        )
+        
+        # Set inputs for GaussianErrorCell
+        error_cell.mu.set(mu_norm_jax_flat)  # Shape: (8, 768)
+        error_cell.target.set(target_jax_flat)  # Shape: (8, 768)
+        error_cell.Sigma.set(jnp.ones((1, 1)))  # Scalar Sigma = 1.0
+        error_cell.modulator.set(jnp.ones_like(mu_norm_jax_flat))  # Shape: (8, 768)
+        error_cell.mask.set(jnp.ones_like(mu_norm_jax_flat))  # Shape: (8, 768)
+        
+         # Compute error using GaussianErrorCell, passing required arguments
+        error_cell.advance_state(
+            dt=1.0,
+            mu=error_cell.mu.value,
+            target=error_cell.target.value,
+            Sigma=error_cell.Sigma.value,
+            modulator=error_cell.modulator.value,
+            mask=error_cell.mask.value
+        )
+        
+        # Get error (dmu = target - mu) and convert back to PyTorch
+        error = torch.from_numpy(np.array(error_cell.dmu.value)).to(device)
+        error = error.view(target.size(0), target.size(1), mu_norm.size(-1))  
+        
+      
+        
         if not requires_update:
             if t == T - 1:
                 finalize_step(mu, target, mu - mu, t, layer_type, energy_fn_name, is_holding_error)
             return mu, mu_word, mu_pos, error
+        
 
         
     if requires_update: 
@@ -110,7 +152,7 @@ def step_embed(t, T, target, layer, layer_type, input_ids, position_ids, local_l
            finalize_step(mu, target, error, t, layer_type, energy_fn_name, is_holding_error)
   
     return mu, mu_word, mu_pos, error
-    
+
 def step_linear(t, T, target, x, layer, W_latents, layer_type, local_lr, clamp_value, use_lateral, is_holding_error, energy_fn_name, update_bias, requires_update, td_err, layer_norm):
     """
     Perform a predictive coding update step for a linear (fully connected) layer.

@@ -16,3 +16,6 @@ psutil==7.0.0
 torch==2.5.0
 numpy
 transformers==4.45.2
+ngclearn==2.0.0
+jax==0.6.2
+

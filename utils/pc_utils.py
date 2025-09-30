@@ -9,7 +9,7 @@ from contextlib import nullcontext
 from predictive_coding.config import GPTConfig
 from utils.attention_utils import apply_flash_attention, apply_standard_attention
 from jax import numpy as jnp
-from ngclearn.components import GaussianErrorCell as ErrorCell
+from ngclearn.components import GaussianErrorCell as ErrorCell,HebbianSynapse
 def compute_DVL(attn_v, requires_update):
     B, H, T, D = attn_v.shape
     device = attn_v.device
@@ -42,79 +42,84 @@ def get_head_similarity(mu_heads):
     
 def x_init(batch_size: int, seq_len: int, embedding_size: int, device: torch.device = None) -> torch.Tensor:
     return torch.randn(batch_size, seq_len, embedding_size, device = device)
+
+
 def step_embed(t, T, target, layer, layer_type, input_ids, position_ids, local_lr, clamp_value, energy_fn_name, is_holding_error, requires_update, layer_norm, mu_word_cache=None, mu_pos_cache=None):
     """
-    Perform a predictive coding update step for the embedding layer.
-    Now supports vectorized updates and caching of mu_word/mu_pos for inference.
+    Perform a predictive coding update step for the embedding layer using GaussianErrorCell and HebbianSynapse.
+    Uses HebbianSynapse for weight updates and supports vectorized updates and caching for inference.
+
     Args:
         t (int): Current inference step.
         T (int): Total number of inference steps.
-        target (torch.Tensor): Target activity tensor.
+        target (torch.Tensor): Target activity tensor, shape [batch_size, seq_len, n_embed].
         layer (dict): Dictionary with 'word' and 'pos' embedding layers.
         layer_type (str): Layer type string.
-        input_ids (torch.Tensor): Input token IDs.
-        position_ids (torch.Tensor): Position IDs.
+        input_ids (torch.Tensor): Input token IDs, shape [batch_size, seq_len].
+        position_ids (torch.Tensor): Position IDs, shape [batch_size, seq_len].
         local_lr (float): Local learning rate.
         clamp_value (float): Value to clamp updates.
         energy_fn_name (str): Name of energy function.
         is_holding_error (bool): Whether to accumulate errors.
         requires_update (bool): Whether to update weights.
+        layer_norm: Layer normalization module (nn.Module instance).
         mu_word_cache, mu_pos_cache: Optional cached values for inference.
+
     Returns:
-        tuple: (mu, mu_word, mu_pos)
+        tuple: (mu, mu_word, mu_pos, error)
     """
     word_layer = layer["word"]
     pos_layer = layer["pos"]
-    device = target.device 
+    device = target.device
     
     use_amp = target.is_cuda
     autocast_ctx = autocast('cuda') if use_amp else nullcontext()
 
     # Clip input_ids and position_ids to valid ranges
-    vocab_size = word_layer.weight.size(0)
+    vocab_size = word_layer.weight.size(0)  # 50259
+    max_pos = pos_layer.weight.size(0)  # Should be 64
     if input_ids.max() >= vocab_size:
         input_ids = torch.clamp(input_ids, max=vocab_size-1)
-        
-    max_pos = pos_layer.weight.size(0)
     if position_ids.max() >= max_pos:
         position_ids = torch.clamp(position_ids, max=max_pos-1)
-        
+    
+    batch_size, seq_len = input_ids.shape  # e.g., [8, 36]
+    embed_dim = target.size(-1)  # 12
+    n_units = seq_len * embed_dim  # e.g., 36 * 12 = 432
     
     with autocast_ctx:
         if requires_update or mu_word_cache is None or mu_pos_cache is None:
-            mu_word = word_layer(input_ids)
-            mu_pos = pos_layer(position_ids)
+            mu_word = word_layer(input_ids)  # [8, 36, 12]
+            mu_pos = pos_layer(position_ids)  # [8, 36, 12]
         else:
             mu_word = mu_word_cache
             mu_pos = mu_pos_cache
-        mu = mu_word + mu_pos
-        mu_norm=layer_norm(mu)
+        mu = mu_word + mu_pos  # [8, 36, 12]
+        mu_norm = layer_norm(mu)  # [8, 36, 12]
     
-        # Convert PyTorch tensors to JAX arrays for ngclearn
-        target_jax = jnp.array(target.detach().cpu().numpy())
-        mu_norm_jax = jnp.array(mu_norm.detach().cpu().numpy())
+        # Convert to JAX for ErrorCell
+        target_jax = jnp.array(target.detach().cpu().numpy())  # [8, 36, 12]
+        mu_norm_jax = jnp.array(mu_norm.detach().cpu().numpy())  # [8, 36, 12]
         
-
-        
-       # Flatten sequence and embedding dimensions for GaussianErrorCell
-        target_jax_flat = target_jax.reshape(target.size(0), -1)  # Shape: (8, 64*12)
-        mu_norm_jax_flat = mu_norm_jax.reshape(mu_norm.size(0), -1)  # Shape: (8, 64*12)
+        # Flatten for ErrorCell
+        target_jax_flat = target_jax.reshape(batch_size, -1)  # [8, 432]
+        mu_norm_jax_flat = mu_norm_jax.reshape(batch_size, -1)  # [8, 432]
         
         # Initialize GaussianErrorCell
         error_cell = ErrorCell(
             "embed_error",
-            n_units=target.size(1) * mu_norm.size(-1),  # 64 * 12 = 768
-            batch_size=target.size(0)  # 8
+            n_units=n_units,  # 36 * 12 = 432
+            batch_size=batch_size
         )
         
-        # Set inputs for GaussianErrorCell
-        error_cell.mu.set(mu_norm_jax_flat)  # Shape: (8, 768)
-        error_cell.target.set(target_jax_flat)  # Shape: (8, 768)
-        error_cell.Sigma.set(jnp.ones((1, 1)))  # Scalar Sigma = 1.0
-        error_cell.modulator.set(jnp.ones_like(mu_norm_jax_flat))  # Shape: (8, 768)
-        error_cell.mask.set(jnp.ones_like(mu_norm_jax_flat))  # Shape: (8, 768)
+        # Set inputs for ErrorCell
+        error_cell.mu.set(mu_norm_jax_flat)
+        error_cell.target.set(target_jax_flat)
+        error_cell.Sigma.set(jnp.ones((1, 1)))
+        error_cell.modulator.set(jnp.ones_like(mu_norm_jax_flat))
+        error_cell.mask.set(jnp.ones_like(mu_norm_jax_flat))
         
-         # Compute error using GaussianErrorCell, passing required arguments
+        # Compute error
         error_cell.advance_state(
             dt=1.0,
             mu=error_cell.mu.value,
@@ -124,34 +129,136 @@ def step_embed(t, T, target, layer, layer_type, input_ids, position_ids, local_l
             mask=error_cell.mask.value
         )
         
-        # Get error (dmu = target - mu) and convert back to PyTorch
+        # Convert error back to PyTorch
         error = torch.from_numpy(np.array(error_cell.dmu.value)).to(device)
-        error = error.view(target.size(0), target.size(1), mu_norm.size(-1))  
+        error = error.view(batch_size, seq_len, embed_dim)  # [8, 36, 12]
         
-      
+        # Debug shapes
+        # print("input_ids shape:", input_ids.shape)
+        # print("mu_word shape:", mu_word.shape)
+        # print("mu_pos shape:", mu_pos.shape)
+        # print("mu shape:", mu.shape)
+        # print("mu_norm shape:", mu_norm.shape)
+        # print("target shape:", target.shape)
+        # print("target_jax_flat shape:", target_jax_flat.shape)
+        # print("mu_norm_jax_flat shape:", mu_norm_jax_flat.shape)
+        # print("error shape:", error.shape)
         
         if not requires_update:
             if t == T - 1:
-                finalize_step(mu, target, mu - mu, t, layer_type, energy_fn_name, is_holding_error)
+                finalize_step(mu, target, error, t, layer_type, energy_fn_name, is_holding_error)
             return mu, mu_word, mu_pos, error
         
-
-        
-    if requires_update: 
-        with torch.no_grad():
-            flat_input_ids = input_ids.reshape(-1)
-            flat_update = error.reshape(-1, error.size(-1))
-
-            flat_position_ids = position_ids.reshape(-1)
-            delta = local_lr * flat_update
-            delta = torch.clamp(delta, -0.01, 0.01)
-            word_layer.weight.data.index_add_(0, flat_input_ids, delta)
-            pos_layer.weight.data.index_add_(0, flat_position_ids, delta)
+        if requires_update:
+            # Convert input_ids and position_ids to one-hot
+            input_one_hot = F.one_hot(input_ids, num_classes=vocab_size).float()  # [8, 36, 50259]
+            position_one_hot = F.one_hot(position_ids, num_classes=max_pos).float()  # [8, 36, 64]
             
-    if t == T - 1:
-           finalize_step(mu, target, error, t, layer_type, energy_fn_name, is_holding_error)
+            # Debug one-hot sizes
+            # print("input_one_hot shape:", input_one_hot.shape)
+            # print("input_one_hot size:", input_one_hot.numel())
+            # print("position_one_hot shape:", position_one_hot.shape)
+            # print("position_one_hot size:", position_one_hot.numel())
+            
+            # Flatten for HebbianSynapse
+            input_one_hot_flat = input_one_hot.reshape(batch_size * seq_len, -1)  # [288, 50259]
+            position_one_hot_flat = position_one_hot.reshape(batch_size * seq_len, -1)  # [288, 64]
+            error_flat = error.reshape(batch_size * seq_len, embed_dim)  # [288, 12]
+            
+            # Initialize HebbianSynapse
+            word_synapse = HebbianSynapse(
+                name="word_hebb",
+                shape=(vocab_size, embed_dim),  # [50259, 12]
+                eta=local_lr,
+                preact="identity",
+                postact="identity",
+                bias_init=None  # Disable biases
+            )
+            pos_synapse = HebbianSynapse(
+                name="pos_hebb",
+                shape=(max_pos, embed_dim),  # [64, 12]
+                eta=local_lr,
+                preact="identity",
+                postact="identity",
+                bias_init=None  # Disable biases
+            )
+            
+            # Initialize weights directly
+            word_weights_init = jnp.array(word_layer.weight.data.detach().cpu().numpy())
+            pos_weights_init = jnp.array(pos_layer.weight.data.detach().cpu().numpy())
+            
+            # Set pre and post inputs
+            input_one_hot_flat_jax = jnp.array(input_one_hot_flat.cpu().numpy())
+            position_one_hot_flat_jax = jnp.array(position_one_hot_flat.cpu().numpy())
+            error_flat_jax = jnp.array(error_flat.cpu().numpy())
+            
+            # Compute Hebbian updates
+            word_dW, _ = word_synapse._compute_update(
+                w_bound=word_synapse.w_bound,
+                is_nonnegative=word_synapse.is_nonnegative,
+                sign_value=word_synapse.sign_value,
+                prior_type=word_synapse.prior_type,
+                prior_lmbda=word_synapse.prior_lmbda,
+                pre_wght=word_synapse.pre_wght,
+                post_wght=word_synapse.post_wght,
+                pre=input_one_hot_flat_jax,
+                post=error_flat_jax,
+                weights=word_weights_init
+            )
+            pos_dW, _ = pos_synapse._compute_update(
+                w_bound=pos_synapse.w_bound,
+                is_nonnegative=pos_synapse.is_nonnegative,
+                sign_value=pos_synapse.sign_value,
+                prior_type=pos_synapse.prior_type,
+                prior_lmbda=pos_synapse.prior_lmbda,
+                pre_wght=pos_synapse.pre_wght,
+                post_wght=pos_synapse.post_wght,
+                pre=position_one_hot_flat_jax,
+                post=error_flat_jax,
+                weights=pos_weights_init
+            )
+            
+            # # # Apply optimization step (using SGD or Adam)
+            # word_opt_params, [word_weights_new] = word_synapse.opt(
+            #     word_synapse.opt_params.value, [word_weights_init], [word_dW]
+            # )
+            # pos_opt_params, [pos_weights_new] = pos_synapse.opt(
+            #     pos_synapse.opt_params.value, [pos_weights_init], [pos_dW]
+            # )
+            
+            # Enforce constraints
+           # Enforce constraints using static method
+            # word_weights_new = HebbianSynapse._enforce_constraints(
+            #     word_weights_new, word_synapse.w_bound, word_synapse.is_nonnegative
+            # )
+            # pos_weights_new = HebbianSynapse._enforce_constraints(
+            #     pos_weights_new, pos_synapse.w_bound, pos_synapse.is_nonnegative
+            # )
+            word_weights_new = word_weights_init + word_synapse.eta * word_dW
+            pos_weights_new = pos_weights_init + pos_synapse.eta * pos_dW
+            # Calculate weight deltas
+            word_delta = torch.from_numpy(np.array(word_weights_new - word_weights_init)).to(device)
+            pos_delta = torch.from_numpy(np.array(pos_weights_new - pos_weights_init)).to(device)
+            word_delta = torch.clamp(word_delta, -clamp_value, clamp_value)
+            pos_delta = torch.clamp(pos_delta, -clamp_value, clamp_value)
+            
+            # Apply updates to PyTorch layers
+            with torch.no_grad():
+                word_layer.weight.data.add_(word_delta)
+                pos_layer.weight.data.add_(pos_delta)
+            
+            # Debug weight shapes
+            # print("input_one_hot_flat shape:", input_one_hot_flat.shape)
+            # print("position_one_hot_flat shape:", position_one_hot_flat.shape)
+            # print("error_flat shape:", error_flat.shape)
+            # print("word_layer.weight shape:", word_layer.weight.shape)
+            # print("pos_layer.weight shape:", pos_layer.weight.shape)
+        
+        if t == T - 1:
+            finalize_step(mu, target, error, t, layer_type, energy_fn_name, is_holding_error)
   
-    return mu, mu_word, mu_pos, error
+        return mu, mu_word, mu_pos, error
+
 
 def step_linear(t, T, target, x, layer, W_latents, layer_type, local_lr, clamp_value, use_lateral, is_holding_error, energy_fn_name, update_bias, requires_update, td_err, layer_norm):
     """

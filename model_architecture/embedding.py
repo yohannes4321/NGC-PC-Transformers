@@ -22,7 +22,7 @@ class EmbeddingLayer(JaxComponent):
         self.j = Compartment(jnp.zeros((batch_size, block_size)), display_name="Input Stimulus")
 
     # @transition(output_compartments=["zF", "z"])
-    def advance_state(self, t=0., dt=1.):
+    def advance_state(self):
         if self.j.value is not None:
             B, T = self.j.value.shape
             tok_emb = self.wte(self.j.value)  # (B, T, n_embed)

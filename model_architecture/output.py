@@ -21,7 +21,7 @@ class OutputLayer(JaxComponent):
         self.j_td = Compartment(jnp.zeros(self.shape), display_name="Modulatory Stimulus")
 
     # @transition(output_compartments=["zF", "z"])
-    def advance_state(self, t=0., dt=1.):
+    def advance_state(self):
         if self.j.value is not None:
             zF = self.ln(self.j.value)
             z = self.head(zF)

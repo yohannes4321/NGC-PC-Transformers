@@ -21,7 +21,7 @@ class FeedForward(JaxComponent):
         self.j = Compartment(jnp.zeros(self.shape), display_name="Input Stimulus")
         self.j_td = Compartment(jnp.zeros(self.shape), display_name="Modulatory Stimulus")
 
-    def advance_state(self, t=0., dt=1., deterministic=False):
+    def advance_state(self, deterministic=False):
         if self.j.value is not None:
             zF = self.j.value
             x = self.linear1(zF)  # First linear layer

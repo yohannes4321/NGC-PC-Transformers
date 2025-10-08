@@ -24,7 +24,7 @@ class MultiHeadAttention(JaxComponent):
         self.j_td = Compartment(jnp.zeros(self.shape), display_name="Modulatory Stimulus")
 
     # @transition(output_compartments=["zF", "z"])
-    def advance_state(self, t=0., dt=1.):
+    def advance_state(self):
         if self.j.value is not None:
             B, T, C = self.j.value.shape
             qkv = self.qkv(self.j.value).reshape(B, T, 3, self.num_heads, self.head_size)

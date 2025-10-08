@@ -1,70 +1,45 @@
-import jax
-import jax.numpy as jnp
 from flax import nnx
-from ngclearn.components import DenseSynapse
-import ngclearn.utils.weight_distribution as dist
-import optax
+from ngcsimlib.compartment import Compartment
+import jax.numpy as jnp
+from ngclearn.components.jaxComponent import JaxComponent
+from ngcsimlib.compilers.process import transition
+import jax
 
-class FeedForward(nnx.Module):
-    """A simple feedforward layer with two linear transformations, ReLU, and dropout."""
-    
-    def __init__(self, n_embd: int, dropout: float, rngs: nnx.Rngs):
-        """
-        Initialize the FeedForward module.
-        
-        Args:
-            n_embd: Input and output embedding dimension.
-            dropout: Dropout probability.
-            rngs: Random number generator state for dropout.
-        """
-        # First linear layer: n_embd -> 4 * n_embd
-        self.linear1 = DenseSynapse(
-            name="ffwd_linear1",
-            shape=(n_embd, 4 * n_embd),
-            weight_init=dist.uniform(amin=-0.1, amax=0.1),
-            bias_init=dist.constant(0.),
-            resist_scale=1.,  # Explicitly set to match nn.Linear
-            p_conn=1.,        # Dense connections
-            batch_size=1      # Default, doesn't affect dynamic batching
-        )
-        # Second linear layer: 4 * n_embd -> n_embd
-        self.linear2 = DenseSynapse(
-            name="ffwd_linear2",
-            shape=(4 * n_embd, n_embd),
-            weight_init=dist.uniform(amin=-0.1, amax=0.1),
-            bias_init=dist.constant(0.),
-            resist_scale=1.,
-            p_conn=1.,
-            batch_size=1
-        )
-        # Dropout
-        self.dropout = nnx.Dropout(rate=dropout, rngs=rngs)
-    
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        """
-        Forward pass of the feedforward module.
-        
-        Args:
-            x: Input tensor of shape (batch_size, sequence_length, n_embd).
-            training: Whether to apply dropout (True for training, False for inference).
-        
-        Returns:
-            Output tensor of shape (batch_size, sequence_length, n_embd).
-        """
-        # Explicitly pass Rscale, weights, biases to advance_state
-        x = self.linear1.advance_state(
-            Rscale=self.linear1.Rscale,
-            inputs=x,
-            weights=self.linear1.weights.value,
-            biases=self.linear1.biases.value
-        )
-        x = nnx.gelu(x)  # Apply 
-        x = self.linear2.advance_state(
-            Rscale=self.linear2.Rscale,
-            inputs=x,
-            weights=self.linear2.weights.value,
-            biases=self.linear2.biases.value
-        )
-        x = self.dropout(x)  # Apply dropout
-        return x
+class FeedForward(JaxComponent):
+    def __init__(self, name, n_embed, dropout, batch_size, block_size, key, **kwargs):
+        super().__init__(name, **kwargs)
+        self.batch_size = batch_size
+        self.block_size = block_size
+        self.n_embed = n_embed
+        self.shape = (batch_size, block_size, n_embed)
+        rngs = nnx.Rngs(default=key)
+        self.linear1 = nnx.Linear(n_embed, 4 * n_embed, rngs=rngs)
+        self.linear2 = nnx.Linear(4 * n_embed, n_embed, rngs=rngs)
+        self.dropout = nnx.Dropout(dropout, rngs=rngs)
+        self.z = Compartment(jnp.zeros(self.shape), display_name="Rate Activity")
+        self.zF = Compartment(jnp.zeros(self.shape), display_name="Transformed Rate Activity")
+        self.j = Compartment(jnp.zeros(self.shape), display_name="Input Stimulus")
+        self.j_td = Compartment(jnp.zeros(self.shape), display_name="Modulatory Stimulus")
 
+    def advance_state(self, t=0., dt=1., deterministic=False):
+        if self.j.value is not None:
+            zF = self.j.value
+            x = self.linear1(zF)  # First linear layer
+            x = jax.nn.relu(x)    # ReLU activation
+            x = self.linear2(x)   # Second linear layer
+            z = self.dropout(x, deterministic=deterministic)  # Dropout
+            self.zF.set(zF)
+            self.z.set(z)
+            return zF, z
+        return self.zF.value, self.z.value
+
+    def reset(self):
+        z = jnp.zeros(self.shape)
+        zF = jnp.zeros(self.shape)
+        j = jnp.zeros(self.shape)
+        j_td = jnp.zeros(self.shape)
+        self.z.set(z)
+        self.zF.set(zF)
+        self.j.set(j)
+        self.j_td.set(j_td)
+        return z, zF, j, j_td

@@ -1,48 +1,43 @@
-import jax
-import jax.numpy as jnp
 from flax import nnx
-from ngclearn.components import DenseSynapse
-import ngclearn.utils.weight_distribution as dist
-import optax
+from ngcsimlib.compartment import Compartment
+import jax.numpy as jnp
+from ngclearn.components.jaxComponent import JaxComponent
+from ngcsimlib.compilers.process import transition
 
-class OutputLayer(nnx.Module):
-    """Output layer mapping transformer embeddings to vocabulary logits."""
-    
-    def __init__(self, n_embd: int, vocab_size: int, rngs: nnx.Rngs):
-        """
-        Initialize the output layer.
-        
-        Args:
-            n_embd: Embedding dimension.
-            vocab_size: Size of the vocabulary (number of output classes).
-            rngs: Random number generator state (required for nnx.Module).
-        """
-        # Output layer: n_embd -> vocab_size
-        self.output = DenseSynapse(
-            name="output",
-            shape=(n_embd, vocab_size),
-            weight_init=dist.uniform(amin=-0.1, amax=0.1),
-            bias_init=dist.constant(0.),
-            resist_scale=1.,
-            p_conn=1.,
-            batch_size=1
-        )
-    
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        """
-        Forward pass of the output layer.
-        
-        Args:
-            x: Input tensor of shape (batch_size, sequence_length, n_embd).
-        
-        Returns:
-            Output tensor of shape (batch_size, sequence_length, vocab_size).
-        """
-        # Call advance_state as instance method, passing all args explicitly
-        x = self.output.advance_state(
-            Rscale=self.output.Rscale,
-            inputs=x,
-            weights=self.output.weights.value,
-            biases=self.output.biases.value
-        )  # (batch_size, sequence_length, vocab_size)
-        return x
+class OutputLayer(JaxComponent):
+    def __init__(self, name, n_embed, vocab_size, batch_size, block_size, key, **kwargs):
+        super().__init__(name, **kwargs)
+        self.batch_size = batch_size
+        self.block_size = block_size
+        self.n_embed = n_embed
+        self.vocab_size = vocab_size
+        self.shape = (batch_size, block_size, vocab_size)
+        rngs = nnx.Rngs(default=key)
+        self.ln = nnx.LayerNorm(n_embed, rngs=rngs)
+        self.head = nnx.Linear(n_embed, vocab_size, rngs=rngs)
+        self.z = Compartment(jnp.zeros(self.shape), display_name="Rate Activity")
+        self.zF = Compartment(jnp.zeros((batch_size, block_size, n_embed)), display_name="Transformed Rate Activity")
+        self.j = Compartment(jnp.zeros((batch_size, block_size, n_embed)), display_name="Input Stimulus")
+        self.j_td = Compartment(jnp.zeros(self.shape), display_name="Modulatory Stimulus")
+
+    # @transition(output_compartments=["zF", "z"])
+    def advance_state(self, t=0., dt=1.):
+        if self.j.value is not None:
+            zF = self.ln(self.j.value)
+            z = self.head(zF)
+            self.zF.set(zF)
+            self.z.set(z)
+            return zF, z
+        return self.zF.value, self.z.value
+
+    # @transition(output_compartments=["z", "zF", "j", "j_td"])
+    def reset(self):
+        z = jnp.zeros(self.shape)
+        zF = jnp.zeros((self.batch_size, self.block_size, self.n_embed))
+        j = jnp.zeros((self.batch_size, self.block_size, self.n_embed))
+        j_td = jnp.zeros(self.shape)
+        self.z.set(z)
+        self.zF.set(zF)
+        self.j.set(j)
+        self.j_td.set(j_td)
+        return z, zF, j, j_td

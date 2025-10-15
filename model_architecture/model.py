@@ -263,8 +263,17 @@ def train_model(model, num_steps=1000, eval_steps=100, block_size=8, batch_size=
     return train_losses, val_losses
 
 # Generate text
-def generate_text(model, enc, prompt, max_length=100, block_size=8, key=jax.random.PRNGKey(123)):
-    context = jnp.array([enc.encode_ordinary(prompt)], dtype=jnp.int32)[:, -block_size:]
+def generate_text(model, enc, prompt, max_length=1000, block_size=8, key=jax.random.PRNGKey(123)):
+    # Encode the prompt
+    encoded_prompt = enc.encode_ordinary(prompt)
+    # Pad or truncate to block_size
+    if len(encoded_prompt) < block_size:
+        # Pad with a padding token (e.g., 0 or a specific token ID)
+        encoded_prompt = encoded_prompt + [0] * (block_size - len(encoded_prompt))
+    elif len(encoded_prompt) > block_size:
+        # Take the last block_size tokens
+        encoded_prompt = encoded_prompt[-block_size:]
+    context = jnp.array([encoded_prompt], dtype=jnp.int32)  # Shape: (1, block_size)
     generated = context
 
     for _ in range(max_length):
@@ -275,6 +284,7 @@ def generate_text(model, enc, prompt, max_length=100, block_size=8, key=jax.rand
         generated = jnp.concatenate([generated[:, 1:], next_token[:, None]], axis=1)
 
     return enc.decode(generated[0].tolist())
+
 
 # Main execution
 if __name__ == "__main__":
@@ -295,5 +305,5 @@ if __name__ == "__main__":
     model = Transformer(dkey, **config)
     train_losses, val_losses = train_model(model, num_steps=1000, eval_steps=100, block_size=config['block_size'], batch_size=config['batch_size'])
     prompt = "ROMEO:"
-    generated_text = generate_text(model, enc, prompt, max_length=100, block_size=config['block_size'])
+    generated_text = generate_text(model, enc, prompt, max_length=1000, block_size=config['block_size'])
     print(f"\nGenerated Text:\n{prompt}{generated_text[len(prompt):]}")

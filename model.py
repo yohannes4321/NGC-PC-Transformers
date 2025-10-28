@@ -8,13 +8,12 @@ from jax import numpy as jnp, random, jit
 from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, HebbianSynapse, StaticSynapse
 import ngclearn.utils.weight_distribution as dist
 from config import Config as config
-from embedding import EMBEDDING
-from utils_embed import EmbeddingSynapse 
-from attention import Attention
+from layers.embedding import EMBEDDING
+from layers.attention import Attention
 from utils.attention_utils import AttentionBlock
 from utils.embed_utils import EmbeddingSynapse
-from mlp import MLP
-from output import Output
+from layers.mlp import MLP
+from layers.output import Output
 
 class NGCTransformer:
     """

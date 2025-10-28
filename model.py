@@ -10,7 +10,9 @@ import ngclearn.utils.weight_distribution as dist
 from config import Config as config
 from embedding import EMBEDDING
 from utils_embed import EmbeddingSynapse 
-from attention import Attention, AttentionBlock
+from attention import Attention
+from utils.attention_utils import AttentionBlock
+from utils.embed_utils import EmbeddingSynapse
 from mlp import MLP
 from output import Output
 

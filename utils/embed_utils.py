@@ -19,7 +19,7 @@ def _create_sinusoidal_embeddings(seq_len, embed_dim):
     embeddings = embeddings.at[:, 1::2].set(jnp.cos(position * div_term))
     return embeddings
 
-@partial(jit, static_argnums=[4, 5, 6])
+@partial(jit, static_argnums=[4, 5, 6, 7])
 def _compute_embedding_updates(inputs, post, word_weights, pos_weights, 
                               vocab_size, seq_len, embed_dim, batch_size, pos_learnable):
     """
@@ -46,13 +46,15 @@ def _compute_embedding_updates(inputs, post, word_weights, pos_weights,
     # Position embeddings update (if learnable)
     d_pos_weights = jnp.zeros((seq_len, embed_dim))
     
-    if pos_learnable:
+    def update_pos(_):
         batch_positions = jnp.tile(jnp.arange(seq_len), batch_size)
         
         def update_pos_grads(i, grad_array):
             pos_idx = batch_positions[i]
             error = flat_errors[i]
             return grad_array.at[pos_idx].add(error)
+        return jax.lax.fori_loop(0, len(batch_positions), update_pos_grads, d_pos_weights)
+
         
         d_pos_weights = jax.lax.fori_loop(0, len(batch_positions), update_pos_grads, d_pos_weights)
     
@@ -161,6 +163,7 @@ class EmbeddingSynapse(JaxComponent):
         pos_embeds_batch = jnp.broadcast_to(pos_embeds, (batch_size, seq_len, embed_dim))
         
         combined_embeddings = word_embeds + pos_embeds_batch
+        combined_embeddings = combined_embeddings[..., None]  # shape: (batch_size, seq_len, embed_dim, 1)
         return combined_embeddings
 
     @transition(output_compartments=["word_weights", "pos_weights", "dWordWeights", "dPosWeights", 
@@ -199,8 +202,8 @@ class EmbeddingSynapse(JaxComponent):
         Reset compartments to zeros
         """
         inputs = jnp.zeros((batch_size, seq_len), dtype=jnp.int32)
-        outputs = jnp.zeros((batch_size, seq_len, embed_dim))
-        post = jnp.zeros((batch_size, seq_len, embed_dim))
+        outputs = jnp.zeros((batch_size, seq_len, embed_dim, 1))
+        post = jnp.zeros((batch_size, seq_len, embed_dim, 1))
         dWordWeights = jnp.zeros((vocab_size, embed_dim))
         dPosWeights = jnp.zeros((seq_len, embed_dim))
         return inputs, outputs, post, dWordWeights, dPosWeights

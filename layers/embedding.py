@@ -14,10 +14,8 @@ class EMBEDDING:
         dkey, *subkeys = random.split(dkey, 4)
     
         # RateCell expects a 3D shape tuple for image components (seq_len, embed_dim, channels)so here we use the third dim as a placeholder
-        self.z_embed = RateCell("z_embed", n_units=embed_dim, tau_m=0, 
-                                  act_fx="identity", shape=(seq_len, embed_dim, 1), 
-                                  batch_size=batch_size)
-            
+        self.z_embed = RateCell("z_embed", n_units=seq_len, tau_m=0, 
+                                  act_fx="identity", batch_size=batch_size)            
             # EmbeddingSynapse (handles both word + position internally)
         self.W_embed = EmbeddingSynapse(
                 "W_embed", 
@@ -30,7 +28,8 @@ class EMBEDDING:
                 optim_type=optim_type,
                 key=subkeys[0])
             
-        self.e_embed = ErrorCell("e_embed", n_units=embed_dim)
+        self.e_embed = ErrorCell("e_embed", n_units=embed_dim, 
+                                  batch_size=batch_size * seq_len) # shape=(seq_len, embed_dim, 1),
     def get_embedding_weights(self):
         """Get both word and position embeddings"""
         return {

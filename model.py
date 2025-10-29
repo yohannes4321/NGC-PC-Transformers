@@ -14,6 +14,7 @@ from utils.attention_utils import AttentionBlock
 from utils.embed_utils import EmbeddingSynapse
 from layers.mlp import MLP
 from layers.output import Output
+from utils.model_util import ReshapeComponent
 
 class NGCTransformer:
     """
@@ -40,7 +41,7 @@ class NGCTransformer:
         model_name: unique model name
     """
 
-    def __init__(self, dkey, target_ids, in_dim=1, out_dim=1, hid1_dim=128, hid2_dim=64, T=10,
+    def __init__(self, dkey, target_ids,  batch_size = config.batch_size, seq_len = config.seq_len, n_embed = config.n_embed, T=10,
                  dt=1., tau_m=10., act_fx="tanh", eta=0.001, exp_dir="exp",
                  model_name="pc_disc", loadDir=None, **kwargs):
         self.exp_dir = exp_dir
@@ -68,6 +69,22 @@ class NGCTransformer:
                 self.mlp = MLP(dkey=subkeys[2])
                 self.output = Output(dkey=subkeys[3])
                 self.z_target=RateCell("z_target", n_units=config.n_embed, tau_m=0., act_fx="identity", shape=(config.seq_len, config.n_embed, 1), batch_size=config.batch_size) 
+                self.reshape_2d_to_3d_q = ReshapeComponent("reshape_2d_to_3d_q",
+                                            input_shape=(batch_size * seq_len, n_embed),
+                                            output_shape=(batch_size, seq_len, n_embed))
+                self.reshape_2d_to_3d_k = ReshapeComponent("reshape_2d_to_3d_k",    
+                                            input_shape=(batch_size * seq_len, n_embed),
+                                            output_shape=(batch_size, seq_len, n_embed))    
+                self.reshape_2d_to_3d_v = ReshapeComponent("reshape_2d_to_3d_v",
+                                            input_shape=(batch_size * seq_len, n_embed),
+                                            output_shape=(batch_size, seq_len, n_embed))
+                self.reshape_4d_to_2d = ReshapeComponent("reshape_4d_to_2d",
+                                            input_shape=(batch_size, seq_len, n_embed, 1),
+                                            output_shape=(batch_size * seq_len, n_embed))
+                self.reshape_3d_to_2d = ReshapeComponent("reshape_3d_to_2d",
+                                            input_shape=(batch_size, seq_len, n_embed),
+                                            output_shape=(batch_size * seq_len, n_embed))
+                
                 
                 self.embedding.W_embed.inputs << self.embedding.z_embed.zF     
                 self.embedding.e_embed.mu << self.embedding.W_embed.outputs   
@@ -75,15 +92,21 @@ class NGCTransformer:
                 
 
                  
-                self.attention.W_q.inputs << self.attention.z_qkv.zF
-                self.attention.W_k.inputs << self.attention.z_qkv.zF
-                self.attention.W_v.inputs << self.attention.z_qkv.zF
+                self.reshape_4d_to_2d.inputs << self.attention.z_qkv.zF
+                self.attention.W_q.inputs << self.reshape_4d_to_2d.outputs
+                self.attention.W_k.inputs << self.reshape_4d_to_2d.outputs
+                self.attention.W_v.inputs << self.reshape_4d_to_2d.outputs
                 
-                self.attention.attn_block.inputs_q << self.attention.W_q.outputs
-                self.attention.attn_block.inputs_k << self.attention.W_k.outputs       
-                self.attention.attn_block.inputs_v << self.attention.W_v.outputs
+                self.reshape_2d_to_3d_q.inputs << self.attention.W_q.outputs
+                self.reshape_2d_to_3d_k.inputs << self.attention.W_k.outputs
+                self.reshape_2d_to_3d_v.inputs << self.attention.W_v.outputs
                 
-                self.attention.W_attn_out.inputs << self.attention.attn_block.outputs
+                self.attention.attn_block.inputs_q << self.reshape_2d_to_3d_q.outputs
+                self.attention.attn_block.inputs_k << self.reshape_2d_to_3d_k.outputs       
+                self.attention.attn_block.inputs_v << self.reshape_2d_to_3d_v.outputs
+                
+                self.reshape_3d_to_2d.inputs << self.attention.attn_block.outputs
+                self.attention.W_attn_out.inputs << self.reshape_3d_to_2d.outputs
                 self.attention.e_attn.mu << self.attention.W_attn_out.outputs
                 self.attention.e_attn.target << self.mlp.z_mlp.z
 
@@ -225,13 +248,18 @@ class NGCTransformer:
                                    >> self.output.E_out.advance_state
                                    >> self.embedding.z_embed.advance_state
                                    >> self.attention.z_qkv.advance_state
+                                   >> self.reshape_4d_to_2d.advance_state    
                                    >> self.mlp.z_mlp.advance_state
                                    >> self.output.z_out.advance_state
                                    >> self.embedding.W_embed.advance_state
                                    >> self.attention.W_q.advance_state
                                    >> self.attention.W_k.advance_state
                                    >> self.attention.W_v.advance_state
+                                   >> self.reshape_2d_to_3d_q.advance_state  
+                                   >> self.reshape_2d_to_3d_k.advance_state  
+                                   >> self.reshape_2d_to_3d_v.advance_state  
                                    >> self.attention.attn_block.advance_state
+                                   >> self.reshape_3d_to_2d.advance_state
                                    >> self.attention.W_attn_out.advance_state
                                    >> self.mlp.W_mlp1.advance_state
                                    >> self.mlp.W_mlp2.advance_state
@@ -256,7 +284,12 @@ class NGCTransformer:
                                  >> self.embedding.e_embed.reset
                                  >> self.attention.e_attn.reset
                                  >> self.mlp.e_mlp.reset
-                                 >> self.output.e_out.reset)
+                                 >> self.output.e_out.reset
+                                 >> self.reshape_4d_to_2d.reset
+                                 >> self.reshape_3d_to_2d.reset
+                                 >> self.reshape_2d_to_3d_q.reset
+                                 >> self.reshape_2d_to_3d_k.reset
+                                 >> self.reshape_2d_to_3d_v.reset)
 
                 evolve_process = (JaxProcess(name="evolve_process")
                                   >> self.embedding.W_embed.evolve
@@ -290,14 +323,15 @@ class NGCTransformer:
                 self._dynamic(processes)
     
     def _dynamic(self, processes):
-        vars = self.circuit.get_components("q_embed", "q_qkv", "q_mlp", "q_out", 
+        vars = self.circuit.get_components("reshape_2d_to_3d_q", "reshape_2d_to_3d_k", "reshape_2d_to_3d_v", "reshape_4d_to_2d", "reshape_3d_to_2d",
+                                           "q_embed", "q_qkv", "q_mlp", "q_out", 
                                            "q_target", "eq_target","Q_embed", "Q_q", "Q_k", "Q_v", "Q_attn_out",
                                            "Q_mlp1", "Q_mlp2", "Q_out",
                                            "z_embed", "z_qkv", "z_mlp", "z_out",
                                            "e_embed", "e_attn", "e_mlp", "e_out",
                                            "W_embed", "W_q", "W_k","W_v", "W_attn_out", 
                                            "W_mlp1", "W_mlp2", "W_out", "E_attn", "E_mlp", "E_out")
-        (self.q_embed, self.q_qkv, self.q_mlp, self.q_out, 
+        (self.reshape_2d_to_3d_q, self.reshape_2d_to_3d_k, self.reshape_2d_to_3d_v, self.reshape_4d_to_2d, self.reshape_3d_to_2d, self.q_embed, self.q_qkv, self.q_mlp, self.q_out, 
         self.q_target, self.eq_target, self.Q_embed, self.Q_q, self.Q_k, self.Q_v, self.Q_attn_out,
         self.Q_mlp1, self.Q_mlp2, self.Q_out,
         self.embedding.z_embed, self.attention.z_qkv, self.mlp.z_mlp, self.output.z_out, self.embedding.e_embed, self.attention.e_attn, self.mlp.e_mlp, self.output.e_out, self.embedding.W_embed,

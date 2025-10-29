@@ -39,18 +39,18 @@ class Attention:
         self.z_qkv = RateCell("z_qkv", n_units=n_embed, tau_m=1., 
                             act_fx="identity", shape=(seq_len, n_embed, 1), 
                             batch_size=batch_size)
-        
-        self.W_q = HebbianSynapse("W_q", shape=(n_embed, n_embed), eta=eta,
+      
+        self.W_q = HebbianSynapse("W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.uniform(amin=wlb, amax=wub),
                                 bias_init=dist.constant(value=0.), w_bound=0., 
                                 optim_type=optim_type, sign_value=-1., key=subkeys[0])
         
-        self.W_k = HebbianSynapse("W_k", shape=(n_embed, n_embed), eta=eta,
+        self.W_k = HebbianSynapse("W_k", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.uniform(amin=wlb, amax=wub),
                                 bias_init=dist.constant(value=0.), w_bound=0., 
                                 optim_type=optim_type, sign_value=-1., key=subkeys[1])
         
-        self.W_v = HebbianSynapse("W_v", shape=(n_embed, n_embed), eta=eta,
+        self.W_v = HebbianSynapse("W_v", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.uniform(amin=wlb, amax=wub),
                                 bias_init=dist.constant(value=0.), w_bound=0., 
                                 optim_type=optim_type, sign_value=-1., key=subkeys[2])
@@ -60,12 +60,13 @@ class Attention:
                                        dropout_rate=dropout_rate, 
                                        batch_size=batch_size)
         
-        self.W_attn_out = HebbianSynapse("W_attn_out", shape=(n_embed, n_embed), eta=eta,
+        self.W_attn_out = HebbianSynapse("W_attn_out", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                             weight_init=dist.uniform(amin=wlb, amax=wub),
                             bias_init=dist.constant(value=0.), w_bound=0., 
                             optim_type=optim_type, sign_value=-1., key=subkeys[3])
         
-        self.e_attn = ErrorCell("e_attn", n_units=n_embed)
+        self.e_attn = ErrorCell("e_attn", n_units=n_embed, 
+                                  batch_size=batch_size * seq_len) # shape=(seq_len, n_embed, 1),
         
         self.E_attn = StaticSynapse("E_attn", shape=(n_embed, n_embed),
                         weight_init=dist.uniform(amin=wlb, amax=wub), key=subkeys[4])

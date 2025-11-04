@@ -13,12 +13,20 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, key):
     """
     Compute multi-head attention
     """
-    B = Q.shape[0]  # batch_size
-    T = Q.shape[1]  # target sequence length
-    S = K.shape[1]  # source sequence length
-    
+    if Q.ndim == 2:
+        # 2D input: (batch_size * seq_len, n_embed) -> reshape to 3D
+        M, D = Q.shape
+        S = config.seq_len        
+        B = M // S  # batch_size
+        Q_3d = Q.reshape(B, S, D)
+        K_3d = K.reshape(B, S, D)
+        V_3d = V.reshape(B, S, D)
+    else:
+        # 3D input: (batch_size, seq_len, n_embed)
+        B, S, D = Q.shape
+        Q_3d, K_3d, V_3d = Q, K, V
     # Reshape for multi-head attention
-    q = Q.reshape((B, T, n_heads, d_head)).transpose([0, 2, 1, 3])
+    q = Q.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
     k = K.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3]) 
     v = V.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
     
@@ -39,7 +47,7 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, key):
         score = jax.random.bernoulli(dkey, 1 - dropout_rate, score.shape) * score / (1 - dropout_rate)
         
     attention = jnp.einsum("BHTS,BHSE->BHTE", score, v)
-    attention = attention.transpose([0, 2, 1, 3]).reshape((B, T, -1))
+    attention = attention.transpose([0, 2, 1, 3]).reshape((B, S, -1))
     
     return attention
 
@@ -83,6 +91,7 @@ class AttentionBlock(JaxComponent):
         self.inputs_v = Compartment(jnp.zeros((batch_size, seq_len, n_embed)))
         self.mask = Compartment(jnp.zeros((batch_size, seq_len, seq_len), dtype=bool))
         
+        self.key = Compartment(random.PRNGKey(0))
         # Output compartment
         self.outputs = Compartment(jnp.zeros((batch_size, seq_len, n_embed)))
 

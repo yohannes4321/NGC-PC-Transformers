@@ -41,9 +41,9 @@ class NGCTransformer:
         model_name: unique model name
     """
 
-    def __init__(self, dkey, target_ids,  batch_size = config.batch_size, seq_len = config.seq_len, n_embed = config.n_embed, T=10,
+    def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, T=10,
                  dt=1., tau_m=10., act_fx="tanh", eta=0.001, exp_dir="exp",
-                 model_name="pc_disc", loadDir=None, **kwargs):
+                 model_name="ngc transformer", loadDir=None, pos_learnable= True, **kwargs):
         self.exp_dir = exp_dir
         self.model_name = model_name
         self.nodes = None
@@ -68,7 +68,7 @@ class NGCTransformer:
                 self.attention = Attention(dkey=subkeys[1])
                 self.mlp = MLP(dkey=subkeys[2])
                 self.output = Output(dkey=subkeys[3])
-                self.z_target=RateCell("z_target", n_units=config.n_embed, tau_m=0., act_fx="identity", shape=(config.seq_len, config.n_embed, 1), batch_size=config.batch_size) 
+                self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="identity", batch_size=batch_size * seq_len) 
                 self.reshape_2d_to_3d_q = ReshapeComponent("reshape_2d_to_3d_q",
                                             input_shape=(batch_size * seq_len, n_embed),
                                             output_shape=(batch_size, seq_len, n_embed))
@@ -84,18 +84,25 @@ class NGCTransformer:
                 self.reshape_3d_to_2d = ReshapeComponent("reshape_3d_to_2d",
                                             input_shape=(batch_size, seq_len, n_embed),
                                             output_shape=(batch_size * seq_len, n_embed))
+                self.reshape_3d_to_2d_embed = ReshapeComponent("reshape_3d_to_2d_embed",
+                                            input_shape=(batch_size, seq_len, n_embed),
+                                            output_shape=(batch_size * seq_len, n_embed))
+                self.reshape_2d_to_3d_embed= ReshapeComponent("reshape_2d_to_3d_embed",
+                                            input_shape=(batch_size * seq_len, n_embed),
+                                            output_shape=(batch_size, seq_len, n_embed))
+                self.reshape_3d_to_2d_attnout= ReshapeComponent("reshape_3d_to_2d_attnout",
+                                            input_shape=(batch_size, seq_len, n_embed),
+                                            output_shape=(batch_size * seq_len, n_embed))
                 
-                
-                self.embedding.W_embed.inputs << self.embedding.z_embed.zF     
-                self.embedding.e_embed.mu << self.embedding.W_embed.outputs   
+                self.embedding.W_embed.inputs << self.embedding.z_embed.zF  
+                self.reshape_3d_to_2d_embed.inputs << self.embedding.W_embed.outputs   
+                self.embedding.e_embed.mu << self.reshape_3d_to_2d_embed.outputs
                 self.embedding.e_embed.target << self.attention.z_qkv.z
                 
-
-                 
-                self.reshape_4d_to_2d.inputs << self.attention.z_qkv.zF
-                self.attention.W_q.inputs << self.reshape_4d_to_2d.outputs
-                self.attention.W_k.inputs << self.reshape_4d_to_2d.outputs
-                self.attention.W_v.inputs << self.reshape_4d_to_2d.outputs
+                # self.reshape_4d_to_2d.inputs << self.attention.z_qkv.zF
+                self.attention.W_q.inputs << self.attention.z_qkv.zF
+                self.attention.W_k.inputs << self.attention.z_qkv.zF
+                self.attention.W_v.inputs << self.attention.z_qkv.zF
                 
                 self.reshape_2d_to_3d_q.inputs << self.attention.W_q.outputs
                 self.reshape_2d_to_3d_k.inputs << self.attention.W_k.outputs
@@ -111,26 +118,22 @@ class NGCTransformer:
                 self.attention.e_attn.target << self.mlp.z_mlp.z
 
                 self.mlp.W_mlp1.inputs << self.mlp.z_mlp.zF
-                # self.mlp.e_mlp1.mu << self.mlp.W_mlp1.outputs
-                # self.mlp.e_mlp.target << self.mlp.z_mlp2.z
+                self.mlp.e_mlp1.mu << self.mlp.W_mlp1.outputs
+                self.mlp.e_mlp1.target << self.mlp.z_mlp2.z
                 
-
-                self.mlp.W_mlp2.inputs << self.mlp.W_mlp1.outputs
+                 
+                self.mlp.W_mlp2.inputs << self.mlp.z_mlp2.zF
                 self.mlp.e_mlp.mu << self.mlp.W_mlp2.outputs
                 self.mlp.e_mlp.target << self.output.z_out.z
                
                 self.output.W_out.inputs << self.output.z_out.zF
                 self.output.e_out.mu << self.output.W_out.outputs
                 self.output.e_out.target << self.z_target.z
-                    
-
-                                
-                # self.embedding.E_embed.inputs << self.e_embed.dmu
-                
+            
                 self.attention.E_attn.inputs << self.attention.e_attn.dmu
                 
+                self.mlp.E_mlp1.inputs << self.mlp.e_mlp1.dmu
                 self.mlp.E_mlp.inputs << self.mlp.e_mlp.dmu
-                # self.E_mlp2.inputs << self.e_mlp2.dmu
                 
                 self.output.E_out.inputs << self.output.e_out.dmu
                 
@@ -141,53 +144,54 @@ class NGCTransformer:
                 self.attention.z_qkv.j << self.attention.E_attn.outputs
                 self.attention.z_qkv.j_td << self.embedding.e_embed.dtarget
                 
-                self.mlp.z_mlp.j << self.mlp.E_mlp.outputs
+                self.mlp.z_mlp2.j << self.mlp.E_mlp.outputs
+                self.mlp.z_mlp.j << self.mlp.E_mlp1.outputs
                 self.mlp.z_mlp.j_td << self.attention.e_attn.dtarget
-                # self.z_mlp2.j << self.E_mlp2.outputs
-                # self.z_mlp2.j_td << self.e_mlp1.dtarget
-                
+                self.mlp.z_mlp2.j_td << self.mlp.e_mlp1.dtarget
                 self.output.z_out.j << self.output.E_out.outputs
                 self.output.z_out.j_td << self.mlp.e_mlp.dtarget
                 
                 
                 # self.W_embed.pre << self.z_embed.zF
-                self.embedding.W_embed.post << self.embedding.e_embed.dmu  
-                self.attention.W_q.pre << self.attention.z_qkv.z
+                self.reshape_2d_to_3d_embed.inputs << self.embedding.e_embed.dmu 
+                self.embedding.W_embed.post << self.reshape_2d_to_3d_embed.outputs 
+                self.attention.W_q.pre << self.attention.z_qkv.zF
                 self.attention.W_q.post << self.attention.e_attn.dmu
                 
-                self.attention.W_k.pre << self.attention.z_qkv.z
+                self.attention.W_k.pre << self.attention.z_qkv.zF
                 self.attention.W_k.post << self.attention.e_attn.dmu
                 
-                self.attention.W_v.pre << self.attention.z_qkv.z
+                self.attention.W_v.pre << self.attention.z_qkv.zF
                 self.attention.W_v.post << self.attention.e_attn.dmu
-                self.attention.W_attn_out.pre << self.attention.attn_block.outputs
+                self.reshape_3d_to_2d_attnout.inputs << self.attention.attn_block.outputs
+                self.attention.W_attn_out.pre << self.reshape_3d_to_2d_attnout.outputs
                 self.attention.W_attn_out.post << self.attention.e_attn.dmu
-                
+                             
                 self.mlp.W_mlp1.pre << self.mlp.z_mlp.zF
-                self.mlp.W_mlp1.post << self.mlp.e_mlp.dmu
-
-                self.mlp.W_mlp2.pre << self.mlp.W_mlp1.outputs
+                self.mlp.W_mlp1.post << self.mlp.e_mlp1.dmu
+                self.mlp.W_mlp2.pre << self.mlp.z_mlp2.zF
                 self.mlp.W_mlp2.post << self.mlp.e_mlp.dmu
-               
                 self.output.W_out.pre << self.output.z_out.zF
                 self.output.W_out.post << self.output.e_out.dmu      
-                
                
-                self.q_embed = RateCell("q_embed", n_units=config.n_embed, tau_m=0., act_fx="identity",
-                            shape=(config.seq_len, config.n_embed, 1), batch_size=config.batch_size)
-                self.q_qkv = RateCell("q_qkv", n_units=config.n_embed, tau_m=1., act_fx="identity",
-                          shape=(config.seq_len, config.n_embed, 1), batch_size=config.batch_size)
-                self.q_mlp = RateCell("q_mlp", n_units=config.n_embed, tau_m=1., act_fx="identity",
-                          shape=(config.seq_len, config.n_embed, 1), batch_size=config.batch_size)
-                self.q_out = RateCell("q_out", n_units=config.n_embed, tau_m=1., act_fx="identity",
-                          shape=(config.seq_len, config.n_embed, 1), batch_size=config.batch_size)
-                self.q_target = RateCell("q_target", n_units=config.n_embed, tau_m=0., act_fx="identity",
-                             shape=(config.seq_len, config.n_embed, 1), batch_size=config.batch_size)
+        
+               
+                self.q_embed = RateCell("q_embed", n_units=seq_len, tau_m=0., act_fx="identity",
+                            batch_size=batch_size)
+                self.q_qkv = RateCell("q_qkv", n_units=n_embed, tau_m=0., act_fx="identity",
+                          batch_size=batch_size * seq_len)
+                self.q_mlp = RateCell("q_mlp", n_units= n_embed, tau_m=0., act_fx="identity",
+                           batch_size= batch_size * seq_len)
+                self.q_out = RateCell("q_out", n_units=n_embed, tau_m=0., act_fx="identity",
+                          batch_size= batch_size * seq_len)
+                self.q_target = RateCell("q_target", n_units=n_embed, tau_m=0., act_fx="identity",
+                               batch_size=batch_size * seq_len)
+                self.q_mlp2 = RateCell("q_mlp2", n_units=4 * n_embed, tau_m=0., act_fx="relu",
+                           batch_size= batch_size * seq_len)
                 
-                
-                self.Q_embed = EmbeddingSynapse("Q_embed", vocab_size=config.vocab_size, seq_len=config.seq_len,
-                                embed_dim=config.n_embed, batch_size=config.batch_size,
-                                pos_learnable=config.pos_learnable, eta=config.eta,
+                self.Q_embed = EmbeddingSynapse("Q_embed", vocab_size=vocab_size, seq_len=seq_len,
+                                embed_dim=n_embed, batch_size= batch_size,
+                                pos_learnable=pos_learnable, eta=eta,
                                 optim_type=config.optim, key=subkeys[5])
                 
                 self.Q_q = StaticSynapse("Q_q", shape=(config.n_embed, config.n_embed), eta=config.eta,
@@ -202,45 +206,57 @@ class NGCTransformer:
                           weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
                           w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[8])
                 
-                self.Q_attn_out = StaticSynapse("Q_attn_out", shape=(config.n_embed, config.n_embed), eta=config.eta,
+                self.Q_attn_out = StaticSynapse("Q_attn_out", shape=(n_embed, n_embed), eta=config.eta,
                                  weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
                                  w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[9])
                 
-                self.Q_mlp1 = StaticSynapse("Q_mlp1", shape=(4*config.n_embed, config.n_embed), eta=config.eta,
+                self.Q_mlp1 = StaticSynapse("Q_mlp1", shape=(n_embed, 4 * n_embed), eta=config.eta,
                               weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
                               w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[10])
                 
-                self.Q_mlp2 = StaticSynapse("Q_mlp2", shape=(config.n_embed, 4*config.n_embed), eta=config.eta,
+                self.Q_mlp2 = StaticSynapse("Q_mlp2", shape=(4* n_embed, n_embed), eta=config.eta,
                               weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
                               w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[11])
                 
-                self.Q_out = StaticSynapse("Q_out", shape=(config.vocab_size, config.n_embed), eta=config.eta,
+                self.Q_out = StaticSynapse("Q_out", shape=(config.n_embed, config.vocab_size), eta=config.eta,
                              weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
                              w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[12])
                 
-                self.eq_target = ErrorCell("eq_target", n_units=config.n_embed)
+                self.eq_target = ErrorCell("eq_target", n_units=config.vocab_size, batch_size=batch_size * seq_len)
                 
-                
-                self.Q_embed.inputs << self.q_embed.zF
-                self.q_qkv.j << self.Q_embed.outputs
-                self.Q_q.inputs << self.q_qkv.zF
-                self.Q_k.inputs << self.q_qkv.zF
-                self.Q_v.inputs << self.q_qkv.zF
                 
                 self.q_attn_block = AttentionBlock("q_attn_block", z_qkv=self.q_qkv, W_q=self.Q_q, W_k=self.Q_k, W_v=self.Q_v,
                                    n_heads=config.n_heads, n_embed=config.n_embed, seq_len=config.seq_len,
                                    dropout_rate=config.dropout_rate, batch_size=config.batch_size)
                 
-                self.Q_attn_out.inputs << self.q_attn_block.outputs
+                self.reshape_3d_to_2d_proj= ReshapeComponent("reshape_3d_to_2d_proj",
+                                            input_shape=(batch_size, seq_len, n_embed),
+                                            output_shape=(batch_size * seq_len, n_embed))
+                self.reshape_3d_to_2d_proj1= ReshapeComponent("reshape_3d_to_2d_proj1",
+                                            input_shape=(batch_size, seq_len, n_embed),
+                                            output_shape=(batch_size * seq_len, n_embed))
+                self.Q_embed.inputs << self.q_embed.zF
+                self.reshape_3d_to_2d_proj.inputs << self.Q_embed.outputs
+                self.q_qkv.j << self.reshape_3d_to_2d_proj.outputs
+                self.Q_q.inputs << self.q_qkv.zF
+                self.Q_k.inputs << self.q_qkv.zF
+                self.Q_v.inputs << self.q_qkv.zF
+                self.q_attn_block.inputs_q << self.Q_q.outputs
+                self.q_attn_block.inputs_k << self.Q_k.outputs
+                self.q_attn_block.inputs_v << self.Q_v.outputs
+                
+                self.reshape_3d_to_2d_proj1.inputs << self.q_attn_block.outputs
+                self.Q_attn_out.inputs << self.reshape_3d_to_2d_proj1.outputs
                 self.q_mlp.j << self.Q_attn_out.outputs
+                
                 self.Q_mlp1.inputs << self.q_mlp.zF
-                self.Q_mlp2.inputs << self.Q_mlp1.outputs
+                self.q_mlp2.j << self.Q_mlp1.outputs
+                self.Q_mlp2.inputs << self.q_mlp2.zF
                 self.q_out.j << self.Q_mlp2.outputs
                 self.Q_out.inputs << self.q_out.zF
-                self.q_target.j << self.Q_out.outputs
-                self.eq_target.target << self.q_target.z 
-
-                            
+                self.q_target.j <<self.Q_out.outputs
+                self.eq_target.target << self.q_target.z
+                self.eq_target.mu << self.Q_out.outputs
                 
                 advance_process = (JaxProcess(name="advance_process")
                                    >> self.attention.E_attn.advance_state
@@ -248,10 +264,12 @@ class NGCTransformer:
                                    >> self.output.E_out.advance_state
                                    >> self.embedding.z_embed.advance_state
                                    >> self.attention.z_qkv.advance_state
-                                   >> self.reshape_4d_to_2d.advance_state    
                                    >> self.mlp.z_mlp.advance_state
+                                   >> self.mlp.z_mlp2.advance_state
                                    >> self.output.z_out.advance_state
                                    >> self.embedding.W_embed.advance_state
+                                   >> self.reshape_3d_to_2d_embed.advance_state
+                                   >> self.reshape_2d_to_3d_embed.advance_state
                                    >> self.attention.W_q.advance_state
                                    >> self.attention.W_k.advance_state
                                    >> self.attention.W_v.advance_state
@@ -260,6 +278,7 @@ class NGCTransformer:
                                    >> self.reshape_2d_to_3d_v.advance_state  
                                    >> self.attention.attn_block.advance_state
                                    >> self.reshape_3d_to_2d.advance_state
+                                   >> self.reshape_3d_to_2d_attnout.advance_state
                                    >> self.attention.W_attn_out.advance_state
                                    >> self.mlp.W_mlp1.advance_state
                                    >> self.mlp.W_mlp2.advance_state
@@ -274,6 +293,7 @@ class NGCTransformer:
                                  >> self.q_qkv.reset
                                  >> self.q_attn_block.reset
                                  >> self.q_mlp.reset
+                                 >> self.q_mlp2.reset
                                  >> self.q_out.reset
                                  >> self.q_target.reset
                                  >> self.eq_target.reset
@@ -284,15 +304,20 @@ class NGCTransformer:
                                  >> self.embedding.e_embed.reset
                                  >> self.attention.e_attn.reset
                                  >> self.mlp.e_mlp.reset
+                                 >> self.mlp.e_mlp1.reset
                                  >> self.output.e_out.reset
-                                 >> self.reshape_4d_to_2d.reset
+                                 >> self.reshape_3d_to_2d_embed.reset
+                                 >> self.reshape_2d_to_3d_embed.reset
                                  >> self.reshape_3d_to_2d.reset
                                  >> self.reshape_2d_to_3d_q.reset
                                  >> self.reshape_2d_to_3d_k.reset
-                                 >> self.reshape_2d_to_3d_v.reset)
-
+                                 >> self.reshape_2d_to_3d_v.reset
+                                 >> self.reshape_3d_to_2d_attnout.reset)
+                
+                embedding_evolve_process = (JaxProcess(name="embedding_evolve_process")
+                                            >> self.embedding.W_embed.evolve)
+                
                 evolve_process = (JaxProcess(name="evolve_process")
-                                  >> self.embedding.W_embed.evolve
                                   >> self.attention.W_q.evolve
                                   >> self.attention.W_k.evolve
                                   >> self.attention.W_v.evolve
@@ -300,17 +325,21 @@ class NGCTransformer:
                                   >> self.mlp.W_mlp1.evolve
                                   >> self.mlp.W_mlp2.evolve
                                   >> self.output.W_out.evolve)
-
+            
+            
                 project_process = (JaxProcess(name="project_process")
                                    >> self.q_embed.advance_state
                                    >> self.Q_embed.advance_state
+                                   >> self.reshape_3d_to_2d_proj.advance_state
                                    >> self.q_qkv.advance_state
                                    >> self.Q_q.advance_state
                                    >> self.Q_k.advance_state
                                    >> self.Q_v.advance_state
                                    >> self.q_attn_block.advance_state
+                                   >> self.reshape_3d_to_2d_proj1.advance_state
                                    >> self.Q_attn_out.advance_state
                                    >> self.q_mlp.advance_state
+                                   >> self.q_mlp2.advance_state
                                    >> self.Q_mlp1.advance_state
                                    >> self.Q_mlp2.advance_state
                                    >> self.q_out.advance_state
@@ -318,32 +347,34 @@ class NGCTransformer:
                                    >> self.q_target.advance_state
                                    >> self.eq_target.advance_state)
 
-                processes = (reset_process, advance_process, evolve_process, project_process)        
+                processes = (reset_process, advance_process, embedding_evolve_process, evolve_process, project_process)        
 
                 self._dynamic(processes)
     
     def _dynamic(self, processes):
-        vars = self.circuit.get_components("reshape_2d_to_3d_q", "reshape_2d_to_3d_k", "reshape_2d_to_3d_v", "reshape_4d_to_2d", "reshape_3d_to_2d",
-                                           "q_embed", "q_qkv", "q_mlp", "q_out", 
-                                           "q_target", "eq_target","Q_embed", "Q_q", "Q_k", "Q_v", "Q_attn_out",
+        vars = self.circuit.get_components("reshape_2d_to_3d_q", "reshape_2d_to_3d_k", "reshape_2d_to_3d_v", "reshape_3d_to_2d", "reshape_3d_to_2d_embed", "reshape_2d_to_3d_embed", "reshape_3d_to_2d_attnout",
+                                           "q_embed", "q_qkv", "q_mlp", "q_out", "reshape_3d_to_2d_proj", "reshape_3d_to_2d_proj1",
+                                           "q_target", "eq_target","Q_embed", "Q_q", "Q_k", "Q_v", "Q_attn_out","q_mlp2",
                                            "Q_mlp1", "Q_mlp2", "Q_out",
-                                           "z_embed", "z_qkv", "z_mlp", "z_out",
-                                           "e_embed", "e_attn", "e_mlp", "e_out",
+                                           "z_embed", "z_qkv", "z_mlp", "z_out", "z_mlp2",
+                                           "e_embed", "e_attn", "e_mlp", "e_out", "e_mlp1",
                                            "W_embed", "W_q", "W_k","W_v", "W_attn_out", 
                                            "W_mlp1", "W_mlp2", "W_out", "E_attn", "E_mlp", "E_out")
-        (self.reshape_2d_to_3d_q, self.reshape_2d_to_3d_k, self.reshape_2d_to_3d_v, self.reshape_4d_to_2d, self.reshape_3d_to_2d, self.q_embed, self.q_qkv, self.q_mlp, self.q_out, 
-        self.q_target, self.eq_target, self.Q_embed, self.Q_q, self.Q_k, self.Q_v, self.Q_attn_out,
+        (self.reshape_2d_to_3d_q, self.reshape_2d_to_3d_k, self.reshape_2d_to_3d_v, self.reshape_3d_to_2d, self.reshape_3d_to_2d_embed,  self.reshape_2d_to_3d_embed, self.reshape_3d_to_2d_attnout, self.q_embed, self.q_qkv, self.q_mlp, self.q_out, self.reshape_3d_to_2d_proj, self.reshape_3d_to_2d_proj1,
+        self.q_target, self.eq_target, self.Q_embed, self.Q_q, self.Q_k, self.Q_v, self.Q_attn_out, self.q_mlp2,
         self.Q_mlp1, self.Q_mlp2, self.Q_out,
-        self.embedding.z_embed, self.attention.z_qkv, self.mlp.z_mlp, self.output.z_out, self.embedding.e_embed, self.attention.e_attn, self.mlp.e_mlp, self.output.e_out, self.embedding.W_embed,
+        self.embedding.z_embed, self.attention.z_qkv, self.mlp.z_mlp, self.output.z_out, self.mlp.z_mlp2, self.embedding.e_embed, self.attention.e_attn, self.mlp.e_mlp, self.output.e_out, self.mlp.e_mlp1, self.embedding.W_embed,
         self.attention.W_q, self.attention.W_k, self.attention.W_v, self.attention.W_attn_out,self.mlp.W_mlp1,self.mlp.W_mlp2, self.output.W_out, self.attention.E_attn, self.mlp.E_mlp, self.output.E_out) = vars
         self.nodes = vars
 
-        reset_proc, advance_proc, evolve_proc, project_proc = processes
+        reset_proc, advance_proc, embedding_evolve_process, evolve_proc, project_proc = processes
 
         self.circuit.wrap_and_add_command(jit(reset_proc.pure), name="reset")
         self.circuit.wrap_and_add_command(jit(advance_proc.pure), name="advance")
         self.circuit.wrap_and_add_command(jit(project_proc.pure), name="project")
         self.circuit.wrap_and_add_command(jit(evolve_proc.pure), name="evolve")
+        self.circuit.wrap_and_add_command(jit(embedding_evolve_process.pure), name="evolve_embedding")
+
 
         @Context.dynamicCommand
         def clamp_input(x):
@@ -410,6 +441,9 @@ class NGCTransformer:
         self.Q_v.weights.set(self.attention.W_v.weights.value)
         self.Q_v.biases.set(self.attention.W_v.biases.value)
         self.Q_attn_out.weights.set(self.attention.W_attn_out.weights.value)
+        self.q_attn_block.inputs_q.set(self.attention.attn_block.inputs_q.value)
+        self.q_attn_block.inputs_k.set(self.attention.attn_block.inputs_k.value)
+        self.q_attn_block.inputs_v.set(self.attention.attn_block.inputs_v.value)
         self.Q_attn_out.biases.set(self.attention.W_attn_out.biases.value)
         self.Q_mlp1.weights.set(self.mlp.W_mlp1.weights.value)
         self.Q_mlp1.biases.set(self.mlp.W_mlp1.biases.value)
@@ -417,23 +451,22 @@ class NGCTransformer:
         self.Q_mlp2.biases.set(self.mlp.W_mlp2.biases.value)
         self.Q_out.weights.set(self.output.W_out.weights.value)
         self.Q_out.biases.set(self.output.W_out.biases.value)
-        
+        self.q_target.j_td.set(jnp.zeros((config.batch_size * config.seq_len, config.vocab_size)))
         ## pin/tie feedback synapses to transpose of forward ones
         self.attention.E_attn.weights.set(jnp.transpose(self.attention.W_attn_out.weights.value))
         self.mlp.E_mlp.weights.set(jnp.transpose(self.mlp.W_mlp2.weights.value))    
         self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.value))
-        # self.E_mlp2.weights.set(jnp.transpose(self.W2.weights.value))
+        self.mlp.E_mlp1.weights.set(jnp.transpose(self.mlp.W_mlp1.weights.value))
 
         ## Perform P-step (projection step)
         self.circuit.clamp_input(obs)
         self.circuit.clamp_infer_target(_lab)
         self.circuit.project(t=0., dt=1.) 
-
         ## initialize dynamics of generative model latents to projected states for the errors it's 0
         self.attention.z_qkv.z.set(self.q_qkv.z.value)
         self.mlp.z_mlp.z.set(self.q_mlp.z.value)
         self.output.z_out.z.set(self.q_out.z.value)
-       
+        
         
         ## get projected prediction (from the P-step)
         y_mu_inf = self.q_target.z.value
@@ -455,8 +488,8 @@ class NGCTransformer:
             EFE = L4 + L3 + L2 + L1
 
             if adapt_synapses == True:
-                self.circuit.evolve(t=self.T, dt=1.)
-                
+                self.circuit.evolve()
+                self.circuit.evolve_embedding()
         ## skip E/M steps if just doing test-time inference
         return y_mu_inf, y_mu, EFE
 

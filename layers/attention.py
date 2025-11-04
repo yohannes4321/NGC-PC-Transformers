@@ -37,8 +37,7 @@ class Attention:
         optim_type = kwargs.get('optim_type', 'adam')
 
         self.z_qkv = RateCell("z_qkv", n_units=n_embed, tau_m=1., 
-                            act_fx="identity", shape=(seq_len, n_embed, 1), 
-                            batch_size=batch_size)
+                            act_fx="identity", batch_size=batch_size * seq_len)
       
         self.W_q = HebbianSynapse("W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.uniform(amin=wlb, amax=wub),

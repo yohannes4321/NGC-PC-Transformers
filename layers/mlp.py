@@ -22,19 +22,22 @@ class MLP:
         wlb = -0.3
         wub = 0.3
 
-        self.z_mlp = RateCell("z_mlp", n_units=n_embed, tau_m=1., act_fx="identity", shape=(seq_len, n_embed, 1), batch_size=batch_size)
-        self.W_mlp1 = HebbianSynapse(
-                    "W_mlp1", shape=(n_embed, 4*n_embed), eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),
+        self.z_mlp = RateCell("z_mlp", n_units=n_embed, tau_m=1., act_fx="identity", batch_size=batch_size * seq_len)
+        self.z_mlp2 = RateCell("z_mlp2", n_units= 4* n_embed, tau_m=1., act_fx="relu", batch_size=batch_size * seq_len)
+        
+        self.W_mlp1 = HebbianSynapse("W_mlp1", shape=(n_embed, 4*n_embed), batch_size = batch_size * seq_len, eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),
                     bias_init=dist.constant(value=0.), w_bound=0., optim_type=optim_type, sign_value=-1., key=subkeys[4])
         self.W_mlp2 = HebbianSynapse(
-                    "W_mlp2", shape=(4*n_embed, n_embed), eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),
+                    "W_mlp2", shape=(4*n_embed, n_embed), batch_size= batch_size * seq_len, eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),
                     bias_init=dist.constant(value=0.), w_bound=0., optim_type=optim_type, sign_value=-1., key=subkeys[5])
-        self.e_mlp = ErrorCell("e_mlp", n_units=n_embed)
-                
-                # self.E_mlp1 = StaticSynapse(
-                #     "E_mlp1", shape=(n_embed, 4 * n_embed), weight_init=dist.uniform(amin=wlb, amax=wub), key=subkeys[4])
-        self.E_mlp = StaticSynapse(
-                    "E_mlp", shape=(n_embed, 4*n_embed), weight_init=dist.uniform(amin=wlb, amax=wub), key=subkeys[4])
+        self.e_mlp = ErrorCell("e_mlp", n_units=n_embed, 
+                                  batch_size=batch_size * seq_len) # shape=(seq_len, n_embed, 1),   
+        self.e_mlp1 = ErrorCell("e_mlp1", n_units= 4* n_embed, 
+                                  batch_size=batch_size * seq_len)
+        
+        
+        self.E_mlp1 = StaticSynapse("E_mlp1", shape=(4 * n_embed,n_embed), weight_init=dist.uniform(amin=wlb, amax=wub), key=subkeys[4])
+        self.E_mlp = StaticSynapse("E_mlp", shape=(n_embed, 4 * n_embed), weight_init=dist.uniform(amin=wlb, amax=wub), key=subkeys[4])
     def get_components(self):
         """Return all components for easy access"""
         return {
@@ -42,7 +45,10 @@ class MLP:
             'W_mlp1': self.W_mlp1,
             'W_mlp2': self.W_mlp2,
             'e_mlp': self.e_mlp,
-            'E_mlp': self.E_mlp
+            'E_mlp': self.E_mlp,
+            'E_mlp1': self.E_mlp1,
+            'e_mlp1': self.e_mlp1,
+            'z_mlp2': self.z_mlp2
         }
 
                 

@@ -25,39 +25,25 @@ def _compute_embedding_updates(inputs, post, word_weights, pos_weights,
     """
     Compute updates for word and position embeddings
     """
-    tokens = inputs
-    error_signals = post
     
     # Flatten for processing
-    flat_tokens = tokens.reshape(-1)
-    flat_errors = error_signals.reshape(batch_size * seq_len, embed_dim)
-    
+    flat_tokens = inputs.reshape(-1)
+    flat_errors = post.reshape(batch_size * seq_len, embed_dim)
+     
     # Word embeddings update - accumulate gradients for each token
     d_word_weights = jnp.zeros((vocab_size, embed_dim))
     
-    # Use index-based accumulation
-    def update_word_grads(i, grad_array):
-        token = flat_tokens[i]
-        error = flat_errors[i]
-        return grad_array.at[token].add(error)
     
-    d_word_weights = jax.lax.fori_loop(0, len(flat_tokens), update_word_grads, d_word_weights)
+    d_word_weights = d_word_weights.at[flat_tokens].add(flat_errors)
     
     # Position embeddings update (if learnable)
     d_pos_weights = jnp.zeros((seq_len, embed_dim))
     
-    def update_pos(_):
-        batch_positions = jnp.tile(jnp.arange(seq_len), batch_size)
-        
-        def update_pos_grads(i, grad_array):
-            pos_idx = batch_positions[i]
-            error = flat_errors[i]
-            return grad_array.at[pos_idx].add(error)
-        return jax.lax.fori_loop(0, len(batch_positions), update_pos_grads, d_pos_weights)
-
-        
-        d_pos_weights = jax.lax.fori_loop(0, len(batch_positions), update_pos_grads, d_pos_weights)
-    
+    batch_positions = jnp.tile(jnp.arange(seq_len), batch_size).astype(jnp.int32)
+    d_pos_weights = jax.lax.cond(
+    pos_learnable, lambda: d_pos_weights.at[jnp.tile(jnp.arange(seq_len), batch_size)].add(flat_errors), lambda: d_pos_weights
+    )
+            
     return d_word_weights, d_pos_weights
 
 class EmbeddingSynapse(JaxComponent):
@@ -154,7 +140,7 @@ class EmbeddingSynapse(JaxComponent):
         """
         batch_size = inputs.shape[0]
         
-        flat_tokens = inputs.reshape(-1)
+        flat_tokens = inputs.reshape(-1).astype(jnp.int32)
         word_embeds_flat = word_weights[flat_tokens]
         word_embeds = word_embeds_flat.reshape(batch_size, seq_len, embed_dim)
         
@@ -163,7 +149,6 @@ class EmbeddingSynapse(JaxComponent):
         pos_embeds_batch = jnp.broadcast_to(pos_embeds, (batch_size, seq_len, embed_dim))
         
         combined_embeddings = word_embeds + pos_embeds_batch
-        combined_embeddings = combined_embeddings[..., None]  # shape: (batch_size, seq_len, embed_dim, 1)
         return combined_embeddings
 
     @transition(output_compartments=["word_weights", "pos_weights", "dWordWeights", "dPosWeights", 
@@ -175,6 +160,7 @@ class EmbeddingSynapse(JaxComponent):
         Learning step: Hebbian updates for both word and position embeddings
         """
         # Compute embedding updates
+        inputs= inputs.astype(jnp.int32)
         d_word_weights, d_pos_weights = _compute_embedding_updates(
             inputs, post, word_weights, pos_weights, vocab_size, seq_len, 
             embed_dim, batch_size, pos_learnable
@@ -202,8 +188,8 @@ class EmbeddingSynapse(JaxComponent):
         Reset compartments to zeros
         """
         inputs = jnp.zeros((batch_size, seq_len), dtype=jnp.int32)
-        outputs = jnp.zeros((batch_size, seq_len, embed_dim, 1))
-        post = jnp.zeros((batch_size, seq_len, embed_dim, 1))
+        outputs = jnp.zeros((batch_size, seq_len, embed_dim))
+        post = jnp.zeros((batch_size, seq_len, embed_dim))
         dWordWeights = jnp.zeros((vocab_size, embed_dim))
         dPosWeights = jnp.zeros((seq_len, embed_dim))
         return inputs, outputs, post, dWordWeights, dPosWeights

@@ -217,7 +217,9 @@ class NGCTransformer:
                 
                 # Create the processes by iterating through all blocks
                 advance_process = JaxProcess(name="advance_process")
-                reset_process = JaxProcess(name="reset_process") 
+                reset_process = JaxProcess(name="reset_process")
+                embedding_evolve_process = (JaxProcess(name="embedding_evolve_process")
+                                            >> self.embedding.W_embed.evolve) 
                 evolve_process = JaxProcess(name="evolve_process")
                 project_process = JaxProcess(name="project_process")
                 for i in range(n_layers):
@@ -309,9 +311,7 @@ class NGCTransformer:
                 project_process >> self.projection.Q_out.advance_state
                 project_process >> self.projection.q_target.advance_state
                 project_process >> self.projection.eq_target.advance_state
-                embedding_evolve_process = (JaxProcess(name="embedding_evolve_process")
-                                            >> self.embedding.W_embed.evolve)
-
+                
                 processes = (reset_process, advance_process, embedding_evolve_process, evolve_process, project_process)        
 
                 self._dynamic(processes)
@@ -465,7 +465,8 @@ class NGCTransformer:
         self.blocks[0].attention.z_qkv.z.set(self.projection.blocks[0].q_qkv.z.value)
         self.blocks[0].mlp.z_mlp.z.set(self.projection.blocks[0].q_mlp.z.value)
         self.blocks[0].mlp.z_mlp2.z.set(self.projection.blocks[0].q_mlp2.z.value)
-        self.output.z_out.z.set(self.projection.q_out.z.value)
+        self.output.e_out.dmu.set(self.projection.eq.dmu.value)
+        self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.value)
         
         
         ## get projected prediction (from the P-step)

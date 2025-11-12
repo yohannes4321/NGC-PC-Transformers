@@ -465,7 +465,7 @@ class NGCTransformer:
         self.blocks[0].attention.z_qkv.z.set(self.projection.blocks[0].q_qkv.z.value)
         self.blocks[0].mlp.z_mlp.z.set(self.projection.blocks[0].q_mlp.z.value)
         self.blocks[0].mlp.z_mlp2.z.set(self.projection.blocks[0].q_mlp2.z.value)
-        self.output.e_out.dmu.set(self.projection.eq.dmu.value)
+        self.output.e_out.dmu.set(self.projection.eq_target.dmu.value)
         self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.value)
         
         

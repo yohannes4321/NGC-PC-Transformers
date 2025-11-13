@@ -10,11 +10,13 @@ import ngclearn.utils.weight_distribution as dist
 from config import Config as config
 from layers.embedding import EMBEDDING
 from layers.attention import Attention
+from layers.blocks import Block
 from utils.attention_utils import AttentionBlock
 from utils.embed_utils import EmbeddingSynapse
 from layers.mlp import MLP
 from layers.output import Output
 from utils.model_util import ReshapeComponent
+from projection.projection import Projection
 
 class NGCTransformer:
     """
@@ -41,331 +43,310 @@ class NGCTransformer:
         model_name: unique model name
     """
 
-    def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, T=10,
-                 dt=1., tau_m=10., act_fx="tanh", eta=0.001, exp_dir="exp",
-                 model_name="ngc transformer", loadDir=None, pos_learnable= True, **kwargs):
+    def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, n_layers, n_heads,  T,
+                 dt, tau_m, act_fx, eta, exp_dir,
+                 model_name, loadDir, pos_learnable, optim_type, wlb, wub , dropout_rate, **kwargs):
         self.exp_dir = exp_dir
         self.model_name = model_name
         self.nodes = None
+        self.n_layers = n_layers
+        self.T = T
         makedir(exp_dir)
         makedir(exp_dir + "/filters")
 
-        dkey, *subkeys = random.split(dkey, 30)
-
-        self.T = T
-        self.dt = dt
-        optim_type = "adam"
-        wlb = -0.3
-        wub = 0.3
-        gelu = jax.nn.gelu
+        dkey, *subkeys = random.split(dkey, 50)
 
         if loadDir is not None:
             self.load_from_disk(loadDir)
         else:
             with Context("Circuit") as self.circuit:
                 
-                self.embedding = EMBEDDING(dkey=subkeys[0])
-                self.attention = Attention(dkey=subkeys[1])
-                self.mlp = MLP(dkey=subkeys[2])
-                self.output = Output(dkey=subkeys[3])
+                self.embedding = EMBEDDING(dkey=subkeys[0], vocab_size=vocab_size, seq_len=seq_len, embed_dim=n_embed, batch_size=batch_size, pos_learnable=pos_learnable, eta=eta, optim_type=optim_type)
+                
+                self.blocks = []
+                for i in range(n_layers):
+                    key, subkey = random.split(subkeys[1 + i])
+                    block=Block(dkey=subkey, block_id= i, n_embed=n_embed, seq_len=seq_len,
+                                batch_size=batch_size, vocab_size=vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb)
+                    self.blocks.append(block)
+                    
+                self.output = Output(dkey=subkeys[3], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size, vocab_size=vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub)
+                
                 self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="identity", batch_size=batch_size * seq_len) 
-                self.reshape_2d_to_3d_q = ReshapeComponent("reshape_2d_to_3d_q",
-                                            input_shape=(batch_size * seq_len, n_embed),
-                                            output_shape=(batch_size, seq_len, n_embed))
-                self.reshape_2d_to_3d_k = ReshapeComponent("reshape_2d_to_3d_k",    
-                                            input_shape=(batch_size * seq_len, n_embed),
-                                            output_shape=(batch_size, seq_len, n_embed))    
-                self.reshape_2d_to_3d_v = ReshapeComponent("reshape_2d_to_3d_v",
-                                            input_shape=(batch_size * seq_len, n_embed),
-                                            output_shape=(batch_size, seq_len, n_embed))
+               
+                
                 self.reshape_4d_to_2d = ReshapeComponent("reshape_4d_to_2d",
                                             input_shape=(batch_size, seq_len, n_embed, 1),
                                             output_shape=(batch_size * seq_len, n_embed))
-                self.reshape_3d_to_2d = ReshapeComponent("reshape_3d_to_2d",
-                                            input_shape=(batch_size, seq_len, n_embed),
-                                            output_shape=(batch_size * seq_len, n_embed))
+                
                 self.reshape_3d_to_2d_embed = ReshapeComponent("reshape_3d_to_2d_embed",
                                             input_shape=(batch_size, seq_len, n_embed),
                                             output_shape=(batch_size * seq_len, n_embed))
                 self.reshape_2d_to_3d_embed= ReshapeComponent("reshape_2d_to_3d_embed",
                                             input_shape=(batch_size * seq_len, n_embed),
                                             output_shape=(batch_size, seq_len, n_embed))
-                self.reshape_3d_to_2d_attnout= ReshapeComponent("reshape_3d_to_2d_attnout",
-                                            input_shape=(batch_size, seq_len, n_embed),
-                                            output_shape=(batch_size * seq_len, n_embed))
+                
                 
                 self.embedding.W_embed.inputs << self.embedding.z_embed.zF  
                 self.reshape_3d_to_2d_embed.inputs << self.embedding.W_embed.outputs   
                 self.embedding.e_embed.mu << self.reshape_3d_to_2d_embed.outputs
-                self.embedding.e_embed.target << self.attention.z_qkv.z
+                self.embedding.e_embed.target << self.blocks[0].attention.z_qkv.z
                 
                 # self.reshape_4d_to_2d.inputs << self.attention.z_qkv.zF
-                self.attention.W_q.inputs << self.attention.z_qkv.zF
-                self.attention.W_k.inputs << self.attention.z_qkv.zF
-                self.attention.W_v.inputs << self.attention.z_qkv.zF
-                
-                self.reshape_2d_to_3d_q.inputs << self.attention.W_q.outputs
-                self.reshape_2d_to_3d_k.inputs << self.attention.W_k.outputs
-                self.reshape_2d_to_3d_v.inputs << self.attention.W_v.outputs
-                
-                self.attention.attn_block.inputs_q << self.reshape_2d_to_3d_q.outputs
-                self.attention.attn_block.inputs_k << self.reshape_2d_to_3d_k.outputs       
-                self.attention.attn_block.inputs_v << self.reshape_2d_to_3d_v.outputs
-                
-                self.reshape_3d_to_2d.inputs << self.attention.attn_block.outputs
-                self.attention.W_attn_out.inputs << self.reshape_3d_to_2d.outputs
-                self.attention.e_attn.mu << self.attention.W_attn_out.outputs
-                self.attention.e_attn.target << self.mlp.z_mlp.z
+                for blocks in range(n_layers):
+                    block= self.blocks[blocks]
+                    block.attention.W_q.inputs << block.attention.z_qkv.zF
+                    block.attention.W_k.inputs << block.attention.z_qkv.zF
+                    block.attention.W_v.inputs << block.attention.z_qkv.zF
+                    
+                    block.reshape_2d_to_3d_q.inputs << block.attention.W_q.outputs
+                    block.reshape_2d_to_3d_k.inputs << block.attention.W_k.outputs
+                    block.reshape_2d_to_3d_v.inputs << block.attention.W_v.outputs
+                    
+                    block.attention.attn_block.inputs_q << block.reshape_2d_to_3d_q.outputs
+                    block.attention.attn_block.inputs_k << block.reshape_2d_to_3d_k.outputs       
+                    block.attention.attn_block.inputs_v << block.reshape_2d_to_3d_v.outputs
+                    
+                    block.reshape_3d_to_2d.inputs << block.attention.attn_block.outputs
+                    block.attention.W_attn_out.inputs << block.reshape_3d_to_2d.outputs
+                    block.attention.e_attn.mu << block.attention.W_attn_out.outputs
+                    block.attention.e_attn.target << block.mlp.z_mlp.z
 
-                self.mlp.W_mlp1.inputs << self.mlp.z_mlp.zF
-                self.mlp.e_mlp1.mu << self.mlp.W_mlp1.outputs
-                self.mlp.e_mlp1.target << self.mlp.z_mlp2.z
+                    block.mlp.W_mlp1.inputs << block.mlp.z_mlp.zF
+                    block.mlp.e_mlp1.mu << block.mlp.W_mlp1.outputs
+                    block.mlp.e_mlp1.target << block.mlp.z_mlp2.z
+                    
+                    
+                    block.mlp.W_mlp2.inputs << block.mlp.z_mlp2.zF
+                    block.mlp.e_mlp.mu << block.mlp.W_mlp2.outputs
+                    
+                    if blocks == n_layers -1:
+                        block.mlp.e_mlp.target << self.output.z_out.z
+                    else:
+                        block.mlp.e_mlp.target << self.blocks[blocks + 1].attention.z_qkv.z 
+                    block.attention.E_attn.inputs << block.attention.e_attn.dmu
                 
-                 
-                self.mlp.W_mlp2.inputs << self.mlp.z_mlp2.zF
-                self.mlp.e_mlp.mu << self.mlp.W_mlp2.outputs
-                self.mlp.e_mlp.target << self.output.z_out.z
-               
+                    block.mlp.E_mlp1.inputs << block.mlp.e_mlp1.dmu
+                    block.mlp.E_mlp.inputs << block.mlp.e_mlp.dmu
+                    block.attention.z_qkv.j << block.attention.E_attn.outputs
+                    
+                    if blocks == 0:
+                        block.attention.z_qkv.j_td << self.embedding.e_embed.dtarget
+                    else:
+                        block.attention.z_qkv.j_td << block.mlp.e_mlp.dtarget
+                    block.mlp.z_mlp2.j << block.mlp.E_mlp.outputs
+                    block.mlp.z_mlp.j << block.mlp.E_mlp1.outputs
+                    block.mlp.z_mlp.j_td << block.attention.e_attn.dtarget
+                    block.mlp.z_mlp2.j_td << block.mlp.e_mlp1.dtarget
+                    block.attention.W_q.pre << block.attention.z_qkv.zF
+                    block.attention.W_q.post << block.attention.e_attn.dmu
+                    
+                    block.attention.W_k.pre << block.attention.z_qkv.zF
+                    block.attention.W_k.post << block.attention.e_attn.dmu
+                    
+                    block.attention.W_v.pre << block.attention.z_qkv.zF
+                    block.attention.W_v.post << block.attention.e_attn.dmu
+                    block.reshape_3d_to_2d_attnout.inputs << block.attention.attn_block.outputs
+                    block.attention.W_attn_out.pre << block.reshape_3d_to_2d_attnout.outputs
+                    block.attention.W_attn_out.post << block.attention.e_attn.dmu
+                                
+                    block.mlp.W_mlp1.pre << block.mlp.z_mlp.zF
+                    block.mlp.W_mlp1.post << block.mlp.e_mlp1.dmu
+                    block.mlp.W_mlp2.pre << block.mlp.z_mlp2.zF
+                    block.mlp.W_mlp2.post << block.mlp.e_mlp.dmu
+                        
                 self.output.W_out.inputs << self.output.z_out.zF
                 self.output.e_out.mu << self.output.W_out.outputs
                 self.output.e_out.target << self.z_target.z
             
-                self.attention.E_attn.inputs << self.attention.e_attn.dmu
-                
-                self.mlp.E_mlp1.inputs << self.mlp.e_mlp1.dmu
-                self.mlp.E_mlp.inputs << self.mlp.e_mlp.dmu
-                
                 self.output.E_out.inputs << self.output.e_out.dmu
                 
                 
                 # self.embedding.z_embed.j << self.embedding.E_embed.outputs
                 # self.embedding.z_embed.j_td << td_error.e_attn.dtarget
                 
-                self.attention.z_qkv.j << self.attention.E_attn.outputs
-                self.attention.z_qkv.j_td << self.embedding.e_embed.dtarget
                 
-                self.mlp.z_mlp2.j << self.mlp.E_mlp.outputs
-                self.mlp.z_mlp.j << self.mlp.E_mlp1.outputs
-                self.mlp.z_mlp.j_td << self.attention.e_attn.dtarget
-                self.mlp.z_mlp2.j_td << self.mlp.e_mlp1.dtarget
                 self.output.z_out.j << self.output.E_out.outputs
-                self.output.z_out.j_td << self.mlp.e_mlp.dtarget
+                self.output.z_out.j_td << self.blocks[n_layers - 1].mlp.e_mlp.dtarget
                 
                 
                 # self.W_embed.pre << self.z_embed.zF
                 self.reshape_2d_to_3d_embed.inputs << self.embedding.e_embed.dmu 
                 self.embedding.W_embed.post << self.reshape_2d_to_3d_embed.outputs 
-                self.attention.W_q.pre << self.attention.z_qkv.zF
-                self.attention.W_q.post << self.attention.e_attn.dmu
                 
-                self.attention.W_k.pre << self.attention.z_qkv.zF
-                self.attention.W_k.post << self.attention.e_attn.dmu
-                
-                self.attention.W_v.pre << self.attention.z_qkv.zF
-                self.attention.W_v.post << self.attention.e_attn.dmu
-                self.reshape_3d_to_2d_attnout.inputs << self.attention.attn_block.outputs
-                self.attention.W_attn_out.pre << self.reshape_3d_to_2d_attnout.outputs
-                self.attention.W_attn_out.post << self.attention.e_attn.dmu
-                             
-                self.mlp.W_mlp1.pre << self.mlp.z_mlp.zF
-                self.mlp.W_mlp1.post << self.mlp.e_mlp1.dmu
-                self.mlp.W_mlp2.pre << self.mlp.z_mlp2.zF
-                self.mlp.W_mlp2.post << self.mlp.e_mlp.dmu
                 self.output.W_out.pre << self.output.z_out.zF
                 self.output.W_out.post << self.output.e_out.dmu      
                
         
-               
-                self.q_embed = RateCell("q_embed", n_units=seq_len, tau_m=0., act_fx="identity",
-                            batch_size=batch_size)
-                self.q_qkv = RateCell("q_qkv", n_units=n_embed, tau_m=0., act_fx="identity",
-                          batch_size=batch_size * seq_len)
-                self.q_mlp = RateCell("q_mlp", n_units= n_embed, tau_m=0., act_fx="identity",
-                           batch_size= batch_size * seq_len)
-                self.q_out = RateCell("q_out", n_units=n_embed, tau_m=0., act_fx="identity",
-                          batch_size= batch_size * seq_len)
-                self.q_target = RateCell("q_target", n_units=n_embed, tau_m=0., act_fx="identity",
-                               batch_size=batch_size * seq_len)
-                self.q_mlp2 = RateCell("q_mlp2", n_units=4 * n_embed, tau_m=0., act_fx="relu",
-                           batch_size= batch_size * seq_len)
+        
+        
+                ## PROJECTION PHASE ##
                 
-                self.Q_embed = EmbeddingSynapse("Q_embed", vocab_size=vocab_size, seq_len=seq_len,
-                                embed_dim=n_embed, batch_size= batch_size,
-                                pos_learnable=pos_learnable, eta=eta,
-                                optim_type=config.optim, key=subkeys[5])
-                
-                self.Q_q = StaticSynapse("Q_q", shape=(config.n_embed, config.n_embed), eta=config.eta,
-                          weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
-                          w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[6])
-                
-                self.Q_k = StaticSynapse("Q_k", shape=(config.n_embed, config.n_embed), eta=config.eta,
-                          weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
-                          w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[7])
-                
-                self.Q_v = StaticSynapse("Q_v", shape=(config.n_embed, config.n_embed), eta=config.eta,
-                          weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
-                          w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[8])
-                
-                self.Q_attn_out = StaticSynapse("Q_attn_out", shape=(n_embed, n_embed), eta=config.eta,
-                                 weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
-                                 w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[9])
-                
-                self.Q_mlp1 = StaticSynapse("Q_mlp1", shape=(n_embed, 4 * n_embed), eta=config.eta,
-                              weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
-                              w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[10])
-                
-                self.Q_mlp2 = StaticSynapse("Q_mlp2", shape=(4* n_embed, n_embed), eta=config.eta,
-                              weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
-                              w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[11])
-                
-                self.Q_out = StaticSynapse("Q_out", shape=(config.n_embed, config.vocab_size), eta=config.eta,
-                             weight_init=dist.uniform(amin=-0.3, amax=0.3), bias_init=dist.constant(value=0.),
-                             w_bound=0., optim_type=config.optim, sign_value=-1., key=subkeys[12])
-                
-                self.eq_target = ErrorCell("eq_target", n_units=config.vocab_size, batch_size=batch_size * seq_len)
+                self.projection = Projection(dkey=subkeys[29], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size,
+                                             vocab_size=vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate)
                 
                 
-                self.q_attn_block = AttentionBlock("q_attn_block", z_qkv=self.q_qkv, W_q=self.Q_q, W_k=self.Q_k, W_v=self.Q_v,
-                                   n_heads=config.n_heads, n_embed=config.n_embed, seq_len=config.seq_len,
-                                   dropout_rate=config.dropout_rate, batch_size=config.batch_size)
+                self.projection.Q_embed.inputs << self.projection.q_embed.zF
+                self.projection.reshape_3d_to_2d_proj.inputs << self.projection.Q_embed.outputs
+                for b in range(n_layers):
+                    block_proj= self.projection.blocks[b]
+                    if b ==0:
+                       block_proj.q_qkv.j << self.projection.reshape_3d_to_2d_proj.outputs
+                    else:
+                       block_proj.q_qkv.j << self.projection.blocks[b - 1].Q_mlp2.outputs
+                       
+                    block_proj.Q_q.inputs << block_proj.q_qkv.zF
+                    block_proj.Q_k.inputs << block_proj.q_qkv.zF
+                    block_proj.Q_v.inputs << block_proj.q_qkv.zF
+                    block_proj.q_attn_block.inputs_q << block_proj.Q_q.outputs
+                    block_proj.q_attn_block.inputs_k << block_proj.Q_k.outputs
+                    block_proj.q_attn_block.inputs_v << block_proj.Q_v.outputs
+                    
+                    block_proj.reshape_3d_to_2d_proj1.inputs << block_proj.q_attn_block.outputs
+                    block_proj.Q_attn_out.inputs << block_proj.reshape_3d_to_2d_proj1.outputs
+                    block_proj.q_mlp.j << block_proj.Q_attn_out.outputs
+                    
+                    block_proj.Q_mlp1.inputs << block_proj.q_mlp.zF
+                    block_proj.q_mlp2.j << block_proj.Q_mlp1.outputs
+                    block_proj.Q_mlp2.inputs << block_proj.q_mlp2.zF
+                self.projection.q_out.j << self.projection.blocks[n_layers - 1].Q_mlp2.outputs
+                self.projection.Q_out.inputs << self.projection.q_out.zF
+                self.projection.q_target.j <<self.projection.Q_out.outputs
+                self.projection.eq_target.target << self.projection.q_target.z
+                self.projection.eq_target.mu << self.projection.Q_out.outputs
                 
-                self.reshape_3d_to_2d_proj= ReshapeComponent("reshape_3d_to_2d_proj",
-                                            input_shape=(batch_size, seq_len, n_embed),
-                                            output_shape=(batch_size * seq_len, n_embed))
-                self.reshape_3d_to_2d_proj1= ReshapeComponent("reshape_3d_to_2d_proj1",
-                                            input_shape=(batch_size, seq_len, n_embed),
-                                            output_shape=(batch_size * seq_len, n_embed))
-                self.Q_embed.inputs << self.q_embed.zF
-                self.reshape_3d_to_2d_proj.inputs << self.Q_embed.outputs
-                self.q_qkv.j << self.reshape_3d_to_2d_proj.outputs
-                self.Q_q.inputs << self.q_qkv.zF
-                self.Q_k.inputs << self.q_qkv.zF
-                self.Q_v.inputs << self.q_qkv.zF
-                self.q_attn_block.inputs_q << self.Q_q.outputs
-                self.q_attn_block.inputs_k << self.Q_k.outputs
-                self.q_attn_block.inputs_v << self.Q_v.outputs
-                
-                self.reshape_3d_to_2d_proj1.inputs << self.q_attn_block.outputs
-                self.Q_attn_out.inputs << self.reshape_3d_to_2d_proj1.outputs
-                self.q_mlp.j << self.Q_attn_out.outputs
-                
-                self.Q_mlp1.inputs << self.q_mlp.zF
-                self.q_mlp2.j << self.Q_mlp1.outputs
-                self.Q_mlp2.inputs << self.q_mlp2.zF
-                self.q_out.j << self.Q_mlp2.outputs
-                self.Q_out.inputs << self.q_out.zF
-                self.q_target.j <<self.Q_out.outputs
-                self.eq_target.target << self.q_target.z
-                self.eq_target.mu << self.Q_out.outputs
-                
-                advance_process = (JaxProcess(name="advance_process")
-                                   >> self.attention.E_attn.advance_state
-                                   >> self.mlp.E_mlp.advance_state
-                                   >> self.output.E_out.advance_state
-                                   >> self.embedding.z_embed.advance_state
-                                   >> self.attention.z_qkv.advance_state
-                                   >> self.mlp.z_mlp.advance_state
-                                   >> self.mlp.z_mlp2.advance_state
-                                   >> self.output.z_out.advance_state
-                                   >> self.embedding.W_embed.advance_state
-                                   >> self.reshape_3d_to_2d_embed.advance_state
-                                   >> self.reshape_2d_to_3d_embed.advance_state
-                                   >> self.attention.W_q.advance_state
-                                   >> self.attention.W_k.advance_state
-                                   >> self.attention.W_v.advance_state
-                                   >> self.reshape_2d_to_3d_q.advance_state  
-                                   >> self.reshape_2d_to_3d_k.advance_state  
-                                   >> self.reshape_2d_to_3d_v.advance_state  
-                                   >> self.attention.attn_block.advance_state
-                                   >> self.reshape_3d_to_2d.advance_state
-                                   >> self.reshape_3d_to_2d_attnout.advance_state
-                                   >> self.attention.W_attn_out.advance_state
-                                   >> self.mlp.W_mlp1.advance_state
-                                   >> self.mlp.W_mlp2.advance_state
-                                   >> self.output.W_out.advance_state
-                                   >> self.embedding.e_embed.advance_state
-                                   >> self.attention.e_attn.advance_state
-                                   >> self.mlp.e_mlp.advance_state
-                                   >> self.output.e_out.advance_state)
-
-                reset_process = (JaxProcess(name="reset_process")
-                                 >> self.q_embed.reset
-                                 >> self.q_qkv.reset
-                                 >> self.q_attn_block.reset
-                                 >> self.q_mlp.reset
-                                 >> self.q_mlp2.reset
-                                 >> self.q_out.reset
-                                 >> self.q_target.reset
-                                 >> self.eq_target.reset
-                                 >> self.embedding.z_embed.reset
-                                 >> self.attention.z_qkv.reset
-                                 >> self.mlp.z_mlp.reset
-                                 >> self.output.z_out.reset
-                                 >> self.embedding.e_embed.reset
-                                 >> self.attention.e_attn.reset
-                                 >> self.mlp.e_mlp.reset
-                                 >> self.mlp.e_mlp1.reset
-                                 >> self.output.e_out.reset
-                                 >> self.reshape_3d_to_2d_embed.reset
-                                 >> self.reshape_2d_to_3d_embed.reset
-                                 >> self.reshape_3d_to_2d.reset
-                                 >> self.reshape_2d_to_3d_q.reset
-                                 >> self.reshape_2d_to_3d_k.reset
-                                 >> self.reshape_2d_to_3d_v.reset
-                                 >> self.reshape_3d_to_2d_attnout.reset)
-                
+                # Create the processes by iterating through all blocks
+                advance_process = JaxProcess(name="advance_process")
+                reset_process = JaxProcess(name="reset_process")
                 embedding_evolve_process = (JaxProcess(name="embedding_evolve_process")
-                                            >> self.embedding.W_embed.evolve)
-                
-                evolve_process = (JaxProcess(name="evolve_process")
-                                  >> self.attention.W_q.evolve
-                                  >> self.attention.W_k.evolve
-                                  >> self.attention.W_v.evolve
-                                  >> self.attention.W_attn_out.evolve
-                                  >> self.mlp.W_mlp1.evolve
-                                  >> self.mlp.W_mlp2.evolve
-                                  >> self.output.W_out.evolve)
-            
-            
-                project_process = (JaxProcess(name="project_process")
-                                   >> self.q_embed.advance_state
-                                   >> self.Q_embed.advance_state
-                                   >> self.reshape_3d_to_2d_proj.advance_state
-                                   >> self.q_qkv.advance_state
-                                   >> self.Q_q.advance_state
-                                   >> self.Q_k.advance_state
-                                   >> self.Q_v.advance_state
-                                   >> self.q_attn_block.advance_state
-                                   >> self.reshape_3d_to_2d_proj1.advance_state
-                                   >> self.Q_attn_out.advance_state
-                                   >> self.q_mlp.advance_state
-                                   >> self.q_mlp2.advance_state
-                                   >> self.Q_mlp1.advance_state
-                                   >> self.Q_mlp2.advance_state
-                                   >> self.q_out.advance_state
-                                   >> self.Q_out.advance_state
-                                   >> self.q_target.advance_state
-                                   >> self.eq_target.advance_state)
+                                            >> self.embedding.W_embed.evolve) 
+                evolve_process = JaxProcess(name="evolve_process")
+                project_process = JaxProcess(name="project_process")
+                for i in range(n_layers):
+                    block = self.blocks[i]
+                    
+                    advance_process >> block.attention.E_attn.advance_state
+                    advance_process >> block.mlp.E_mlp.advance_state
+                    advance_process >> block.attention.z_qkv.advance_state
+                    advance_process >> block.mlp.z_mlp.advance_state
+                    advance_process >> block.mlp.z_mlp2.advance_state
+                    advance_process >> block.attention.W_q.advance_state
+                    advance_process >> block.attention.W_k.advance_state
+                    advance_process >> block.attention.W_v.advance_state
+                    advance_process >> block.reshape_2d_to_3d_q.advance_state
+                    advance_process >> block.reshape_2d_to_3d_k.advance_state
+                    advance_process >> block.reshape_2d_to_3d_v.advance_state
+                    advance_process >> block.attention.attn_block.advance_state
+                    advance_process >> block.reshape_3d_to_2d.advance_state
+                    advance_process >> block.reshape_3d_to_2d_attnout.advance_state
+                    advance_process >> block.attention.W_attn_out.advance_state
+                    advance_process >> block.mlp.W_mlp1.advance_state
+                    advance_process >> block.mlp.W_mlp2.advance_state
+                    advance_process >> block.attention.e_attn.advance_state
+                    advance_process >> block.mlp.e_mlp.advance_state
+                    
+                    reset_process >> block.attention.z_qkv.reset
+                    reset_process >> block.mlp.z_mlp.reset
+                    reset_process >> block.mlp.z_mlp2.reset
+                    reset_process >> block.attention.e_attn.reset
+                    reset_process >> block.mlp.e_mlp.reset
+                    reset_process >> block.mlp.e_mlp1.reset
+                    reset_process >> block.reshape_3d_to_2d.reset
+                    reset_process >> block.reshape_2d_to_3d_q.reset
+                    reset_process >> block.reshape_2d_to_3d_k.reset
+                    reset_process >> block.reshape_2d_to_3d_v.reset
+                    reset_process >> block.reshape_3d_to_2d_attnout.reset
+                    
+                    evolve_process >> block.attention.W_q.evolve
+                    evolve_process >> block.attention.W_k.evolve
+                    evolve_process >> block.attention.W_v.evolve
+                    evolve_process >> block.attention.W_attn_out.evolve
+                    evolve_process >> block.mlp.W_mlp1.evolve
+                    evolve_process >> block.mlp.W_mlp2.evolve
 
+                # Add non-block components to advance_process, reset_process, evolve_process
+                advance_process >> self.output.E_out.advance_state
+                advance_process >> self.embedding.z_embed.advance_state
+                advance_process >> self.output.z_out.advance_state
+                advance_process >> self.embedding.W_embed.advance_state
+                advance_process >> self.reshape_3d_to_2d_embed.advance_state
+                advance_process >> self.reshape_2d_to_3d_embed.advance_state
+                advance_process >> self.output.W_out.advance_state
+                advance_process >> self.embedding.e_embed.advance_state
+                advance_process >> self.output.e_out.advance_state
+
+                reset_process >> self.projection.q_embed.reset
+                reset_process >> self.projection.q_out.reset
+                reset_process >> self.projection.q_target.reset
+                reset_process >> self.projection.eq_target.reset
+                reset_process >> self.embedding.z_embed.reset
+                reset_process >> self.output.z_out.reset
+                reset_process >> self.embedding.e_embed.reset
+                reset_process >> self.output.e_out.reset
+                reset_process >> self.reshape_3d_to_2d_embed.reset
+                reset_process >> self.reshape_2d_to_3d_embed.reset
+
+                evolve_process >> self.output.W_out.evolve
+                project_process >> self.projection.q_embed.advance_state
+                project_process >> self.projection.Q_embed.advance_state
+                project_process >> self.projection.reshape_3d_to_2d_proj.advance_state
+                for b in range(n_layers):
+                    block_proj= self.projection.blocks[b]
+                    project_process >> block_proj.q_qkv.advance_state
+                    project_process >> block_proj.Q_q.advance_state
+                    project_process >> block_proj.Q_k.advance_state
+                    project_process >> block_proj.Q_v.advance_state
+                    project_process >> block_proj.q_attn_block.advance_state
+                    project_process >> block_proj.reshape_3d_to_2d_proj1.advance_state
+                    project_process >> block_proj.Q_attn_out.advance_state
+                    project_process >> block_proj.q_mlp.advance_state
+                    project_process >> block_proj.q_mlp2.advance_state
+                    project_process >> block_proj.Q_mlp1.advance_state
+                    project_process >> block_proj.Q_mlp2.advance_state
+                    reset_process >> block_proj.q_qkv.reset
+                    reset_process >> block_proj.q_attn_block.reset
+                    reset_process >> block_proj.q_mlp.reset
+                    reset_process >> block_proj.q_mlp2.reset 
+                project_process >> self.projection.q_out.advance_state
+                project_process >> self.projection.Q_out.advance_state
+                project_process >> self.projection.q_target.advance_state
+                project_process >> self.projection.eq_target.advance_state
+                
                 processes = (reset_process, advance_process, embedding_evolve_process, evolve_process, project_process)        
 
                 self._dynamic(processes)
     
     def _dynamic(self, processes):
-        vars = self.circuit.get_components("reshape_2d_to_3d_q", "reshape_2d_to_3d_k", "reshape_2d_to_3d_v", "reshape_3d_to_2d", "reshape_3d_to_2d_embed", "reshape_2d_to_3d_embed", "reshape_3d_to_2d_attnout",
-                                           "q_embed", "q_qkv", "q_mlp", "q_out", "reshape_3d_to_2d_proj", "reshape_3d_to_2d_proj1",
-                                           "q_target", "eq_target","Q_embed", "Q_q", "Q_k", "Q_v", "Q_attn_out","q_mlp2",
-                                           "Q_mlp1", "Q_mlp2", "Q_out",
-                                           "z_embed", "z_qkv", "z_mlp", "z_out", "z_mlp2",
-                                           "e_embed", "e_attn", "e_mlp", "e_out", "e_mlp1",
-                                           "W_embed", "W_q", "W_k","W_v", "W_attn_out", 
-                                           "W_mlp1", "W_mlp2", "W_out", "E_attn", "E_mlp", "E_out")
-        (self.reshape_2d_to_3d_q, self.reshape_2d_to_3d_k, self.reshape_2d_to_3d_v, self.reshape_3d_to_2d, self.reshape_3d_to_2d_embed,  self.reshape_2d_to_3d_embed, self.reshape_3d_to_2d_attnout, self.q_embed, self.q_qkv, self.q_mlp, self.q_out, self.reshape_3d_to_2d_proj, self.reshape_3d_to_2d_proj1,
-        self.q_target, self.eq_target, self.Q_embed, self.Q_q, self.Q_k, self.Q_v, self.Q_attn_out, self.q_mlp2,
-        self.Q_mlp1, self.Q_mlp2, self.Q_out,
-        self.embedding.z_embed, self.attention.z_qkv, self.mlp.z_mlp, self.output.z_out, self.mlp.z_mlp2, self.embedding.e_embed, self.attention.e_attn, self.mlp.e_mlp, self.output.e_out, self.mlp.e_mlp1, self.embedding.W_embed,
-        self.attention.W_q, self.attention.W_k, self.attention.W_v, self.attention.W_attn_out,self.mlp.W_mlp1,self.mlp.W_mlp2, self.output.W_out, self.attention.E_attn, self.mlp.E_mlp, self.output.E_out) = vars
-        self.nodes = vars
+        vars = self.circuit.get_components( "reshape_3d_to_2d_embed", "reshape_2d_to_3d_embed",
+            "q_embed", "q_out", "reshape_3d_to_2d_proj", "q_target", "eq_target","Q_embed", "Q_out",
+                                           "z_embed", "z_out", "e_embed", "e_out", "W_embed", "W_out", "E_out")
+        (self.reshape_3d_to_2d_embed,  self.reshape_2d_to_3d_embed, self.q_embed, self.q_out, self.reshape_3d_to_2d_proj, 
+        self.q_target, self.eq_target, self.Q_embed, self.Q_out,
+        self.embedding.z_embed, self.output.z_out, self.embedding.e_embed, self.output.e_out, self.embedding.W_embed,
+        self.output.W_out, self.output.E_out) = vars
+        
+        self.block_components = []  
+    
+        for i in range(self.n_layers):
+            var2 = self.circuit.get_components(
+                f"block{i}_z_qkv", f"block{i}_e_attn", f"block{i}_W_q", f"block{i}_W_k", f"block{i}_W_v",
+                f"block{i}_W_attn_out", f"block{i}_E_attn", f"block{i}_z_mlp", f"block{i}_e_mlp",
+                f"block{i}_W_mlp1", f"block{i}_W_mlp2", f"block{i}_E_mlp", f"block{i}_e_mlp1", f"block{i}_E_mlp1",
+                f"block{i}_z_mlp2", f"block{i}_attn_block",
+                f"block{i}_reshape_2d_to_3d_q", f"block{i}_reshape_2d_to_3d_k", f"block{i}_reshape_2d_to_3d_v",
+                f"block{i}_reshape_3d_to_2d", f"block{i}_reshape_3d_to_2d_attnout",
+                f"proj_block{i}_q_qkv", f"proj_block{i}_Q_q", f"proj_block{i}_Q_k", f"proj_block{i}_Q_v",
+                f"proj_block{i}_Q_attn_out", f"proj_block{i}_q_attn_block",
+                f"proj_block{i}_reshape_3d_to_2d_proj1", f"proj_block{i}_q_mlp", f"proj_block{i}_Q_mlp1",
+                f"proj_block{i}_q_mlp2", f"proj_block{i}_Q_mlp2"    
+            )
+            
+            self.block_components.append(var2)
+        
+        all_nodes = list(vars)
+        for block_vars in self.block_components:
+            all_nodes.extend(block_vars)
+        self.nodes = all_nodes
 
         reset_proc, advance_proc, embedding_evolve_process, evolve_proc, project_proc = processes
 
@@ -399,12 +380,20 @@ class NGCTransformer:
         if params_only:
             model_dir = "{}/{}/custom".format(self.exp_dir, self.model_name)
             self.embedding.W_embed.save(model_dir)
-            self.attention.W_q.save(model_dir)
-            self.attention.W_k.save(model_dir)
-            self.attention.W_v.save(model_dir)
-            self.attention.W_attn_out.save(model_dir)
-            self.mlp.W_mlp1.save(model_dir)
-            self.mlp.W_mlp2.save(model_dir)     
+            self.blocks = []
+            for j in range(self.n_layers):
+                block = self.circuit.get_component(f"block{j}_W_q")
+                block.save(model_dir)
+                block = self.circuit.get_component(f"block{j}_W_k")
+                block.save(model_dir)
+                block = self.circuit.get_component(f"block{j}_W_v")
+                block.save(model_dir)
+                block = self.circuit.get_component(f"block{j}_W_attn_out")
+                block.save(model_dir)
+                block = self.circuit.get_component(f"block{j}_W_mlp1")
+                block.save(model_dir)
+                block = self.circuit.get_component(f"block{j}_W_mlp2")
+                block.save(model_dir)    
             self.output.W_out.save(model_dir)
         else:
             self.circuit.save_to_json(self.exp_dir, model_name=self.model_name, overwrite=True)
@@ -434,38 +423,49 @@ class NGCTransformer:
         self.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.value)
         if self.embedding.W_embed.pos_learnable:
            self.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.value)
-        self.Q_q.weights.set(self.attention.W_q.weights.value)
-        self.Q_q.biases.set(self.attention.W_q.biases.value)
-        self.Q_k.weights.set(self.attention.W_k.weights.value)
-        self.Q_k.biases.set(self.attention.W_k.biases.value)
-        self.Q_v.weights.set(self.attention.W_v.weights.value)
-        self.Q_v.biases.set(self.attention.W_v.biases.value)
-        self.Q_attn_out.weights.set(self.attention.W_attn_out.weights.value)
-        self.q_attn_block.inputs_q.set(self.attention.attn_block.inputs_q.value)
-        self.q_attn_block.inputs_k.set(self.attention.attn_block.inputs_k.value)
-        self.q_attn_block.inputs_v.set(self.attention.attn_block.inputs_v.value)
-        self.Q_attn_out.biases.set(self.attention.W_attn_out.biases.value)
-        self.Q_mlp1.weights.set(self.mlp.W_mlp1.weights.value)
-        self.Q_mlp1.biases.set(self.mlp.W_mlp1.biases.value)
-        self.Q_mlp2.weights.set(self.mlp.W_mlp2.weights.value)
-        self.Q_mlp2.biases.set(self.mlp.W_mlp2.biases.value)
-        self.Q_out.weights.set(self.output.W_out.weights.value)
-        self.Q_out.biases.set(self.output.W_out.biases.value)
-        self.q_target.j_td.set(jnp.zeros((config.batch_size * config.seq_len, config.vocab_size)))
-        ## pin/tie feedback synapses to transpose of forward ones
-        self.attention.E_attn.weights.set(jnp.transpose(self.attention.W_attn_out.weights.value))
-        self.mlp.E_mlp.weights.set(jnp.transpose(self.mlp.W_mlp2.weights.value))    
-        self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.value))
-        self.mlp.E_mlp1.weights.set(jnp.transpose(self.mlp.W_mlp1.weights.value))
+        for i in range(self.n_layers):
+            block_proj= self.projection.blocks[i]
+            block= self.blocks[i]
+            block_proj.Q_q.weights.set(block.attention.W_q.weights.value)
+            block_proj.Q_q.biases.set(block.attention.W_q.biases.value)
+            block_proj.Q_k.weights.set(block.attention.W_k.weights.value)
+            block_proj.Q_k.biases.set(block.attention.W_k.biases.value)
+            block_proj.Q_v.weights.set(block.attention.W_v.weights.value)
+            block_proj.Q_v.biases.set(block.attention.W_v.biases.value)
+            block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.value)
+            block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.value)
+            block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.value)
+            block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.value)
+            block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.value)
+            block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.value)
+            block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.value)
+            block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.value)
+            block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.value)
+            
+            ## pin/tie feedback synapses to transpose of forward ones
 
+            block.attention.E_attn.weights.set(jnp.transpose(block.attention.W_attn_out.weights.value))
+            block.mlp.E_mlp.weights.set(jnp.transpose(block.mlp.W_mlp2.weights.value))  
+            block.mlp.E_mlp1.weights.set(jnp.transpose(block.mlp.W_mlp1.weights.value))
+  
+        self.projection.Q_out.weights.set(self.output.W_out.weights.value)
+        self.projection.Q_out.biases.set(self.output.W_out.biases.value)
+        self.projection.q_target.j_td.set(jnp.zeros((config.batch_size * config.seq_len, config.vocab_size)))
+        
+        ## pin/tie feedback synapses to transpose of forward ones
+       
+        self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.value))
+        
         ## Perform P-step (projection step)
         self.circuit.clamp_input(obs)
         self.circuit.clamp_infer_target(_lab)
         self.circuit.project(t=0., dt=1.) 
         ## initialize dynamics of generative model latents to projected states for the errors it's 0
-        self.attention.z_qkv.z.set(self.q_qkv.z.value)
-        self.mlp.z_mlp.z.set(self.q_mlp.z.value)
-        self.output.z_out.z.set(self.q_out.z.value)
+        self.blocks[0].attention.z_qkv.z.set(self.projection.blocks[0].q_qkv.z.value)
+        self.blocks[0].mlp.z_mlp.z.set(self.projection.blocks[0].q_mlp.z.value)
+        self.blocks[0].mlp.z_mlp2.z.set(self.projection.blocks[0].q_mlp2.z.value)
+        self.output.e_out.dmu.set(self.projection.eq_target.dmu.value)
+        self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.value)
         
         
         ## get projected prediction (from the P-step)
@@ -480,12 +480,16 @@ class NGCTransformer:
                 self.circuit.advance(t=ts, dt=1.)
 
             y_mu = self.output.e_out.mu.value ## get settled prediction
-            ## calculate approximate EFE
+
             L1 = self.embedding.e_embed.L.value
-            L2 = self.attention.e_attn.L.value
-            L3 = self.mlp.e_mlp.L.value
             L4 = self.output.e_out.L.value
-            EFE = L4 + L3 + L2 + L1
+            # Sum errors from ALL blocks
+            block_errors = 0.
+            for i in range(self.n_layers):
+                block = self.blocks[i]
+                block_errors += block.attention.e_attn.L.value + block.mlp.e_mlp.L.value + block.mlp.e_mlp1.L.value
+
+            EFE = L4 + block_errors + L1
 
             if adapt_synapses == True:
                 self.circuit.evolve()
@@ -496,23 +500,4 @@ class NGCTransformer:
     def get_latents(self):
         return self.q_out.z.value
 
-    def _get_norm_string(self): ## for debugging 
-        _W_embed = self.embedding.W_embed.weights.value
-        _W_q = self.attention.W_q.weights.value
-        _W_k = self.attention.W_k.weights.value
-        _W_v = self.attention.W_v.weights.value
-        _W_attn_out = self.attention.W_attn_out.weights.value
-        _W_mlp1 = self.mlp.W_mlp1.weights.value
-        _W_mlp2 = self.mlp.W_mlp2.weights.value
-        _W_out = self.output.W_out.weights.value
-        _b_q = self.attention.W_q.biases.value
-        _b_k = self.attention.W_k.biases.value
-        _b_v = self.attention.W_v.biases.value
-        _b_attn_out = self.attention.W_attn_out.biases.value
-        _b_mlp1 = self.mlp.W_mlp1.biases.value
-        _b_mlp2 = self.mlp.W_mlp2.biases.value
-        _b_out = self.output.W_out.biases.value
-        _norms = "_W_embed: {} _W_q: {} _W_k: {} _W_v: {} _W_attn_out: {} _W_mlp1: {} _W_mlp2: {} _W_out: {}\n _b_q: {} _b_k: {} _b_v: {} _b_attn_out:{} _b_mlp1: {} _b_mlp2 _b_out".format(jnp.linalg.norm(_W_embed),
-                                                                      jnp.linalg.norm(_W_q),                                                          jnp.linalg.norm(_b_mlp2),
-                                                                      jnp.linalg.norm(_b_out))
-        return _norms
+   

@@ -342,7 +342,6 @@ class NGCTransformer:
             )
             
             self.block_components.append(var2)
-            print(f"Successfully retrieved {len(var2)} components for block {i}")
         
         all_nodes = list(vars)
         for block_vars in self.block_components:
@@ -501,27 +500,4 @@ class NGCTransformer:
     def get_latents(self):
         return self.q_out.z.value
 
-    def _get_norm_string(self):
-        _W_embed = self.embedding.W_embed.weights.value
-        _w_q, _w_k, _w_v, _w_attn_out, _w_mlp1, _w_mlp2 = [], [], [], [], [], []
-        _b_q, _b_k, _b_v, _b_attn_out, _b_mlp1, _b_mlp2 = [], [], [], [], [], []
-        
-        for i in range(self.n_layers):
-            block = self.blocks[i]
-            _w_q.append(jnp.linalg.norm(block.attention.W_q.weights.value))
-            _w_k.append(jnp.linalg.norm(block.attention.W_k.weights.value))
-            _w_v.append(jnp.linalg.norm(block.attention.W_v.weights.value))
-            _w_attn_out.append(jnp.linalg.norm(block.attention.W_attn_out.weights.value))
-            _w_mlp1.append(jnp.linalg.norm(block.mlp.W_mlp1.weights.value))
-            _w_mlp2.append(jnp.linalg.norm(block.mlp.W_mlp2.weights.value))
-            _b_q.append(jnp.linalg.norm(block.attention.W_q.biases.value))
-            _b_k.append(jnp.linalg.norm(block.attention.W_k.biases.value))
-            _b_v.append(jnp.linalg.norm(block.attention.W_v.biases.value))
-            _b_attn_out.append(jnp.linalg.norm(block.attention.W_attn_out.biases.value))
-            _b_mlp1.append(jnp.linalg.norm(block.mlp.W_mlp1.biases.value))
-            _b_mlp2.append(jnp.linalg.norm(block.mlp.W_mlp2.biases.value))
-        
-        _W_out = self.output.W_out.weights.value
-        _b_out = self.output.W_out.biases.value
-        
-        return f"_W_embed: {jnp.linalg.norm(_W_embed)} _W_q: {_w_q} _W_k: {_w_k} ..."
+   

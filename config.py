@@ -16,3 +16,11 @@ class Config:
     wlb = -0.01
     tau_m = 10.
     act_fx = "tanh"
+    # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
+    tokenizer = "tiktoken"
+    # When tokenizer == "tiktoken", tokenizer_name is used (e.g. "gpt2" or "cl100k_base")
+    tokenizer_name = "gpt2"
+
+    # When tokenizer == "BPE", tokenizer_vocab_file may point to a vocab json or a newline token list.
+    # Optional: set to None to use a simple fallback whitespace tokenizer.
+    tokenizer_vocab_file = None

@@ -55,7 +55,6 @@ class NGCTransformer:
         makedir(exp_dir + "/filters")
 
         dkey, *subkeys = random.split(dkey, 50)
-
         if loadDir is not None:
             self.load_from_disk(loadDir)
         else:
@@ -67,10 +66,10 @@ class NGCTransformer:
                 for i in range(n_layers):
                     key, subkey = random.split(subkeys[1 + i])
                     block=Block(dkey=subkey, block_id= i, n_embed=n_embed, seq_len=seq_len,
-                                batch_size=batch_size, vocab_size=vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb)
-                    self.blocks.append(block)
+                                batch_size=batch_size, vocab_size=vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m)
+                    self.blocks.append(block)   
                     
-                self.output = Output(dkey=subkeys[3], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size, vocab_size=vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub)
+                self.output = Output(dkey=subkeys[3], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size, vocab_size=vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
                 
                 self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="identity", batch_size=batch_size * seq_len) 
                
@@ -222,6 +221,13 @@ class NGCTransformer:
                                             >> self.embedding.W_embed.evolve) 
                 evolve_process = JaxProcess(name="evolve_process")
                 project_process = JaxProcess(name="project_process")
+                
+                advance_process >> self.embedding.z_embed.advance_state
+                advance_process >> self.embedding.W_embed.advance_state
+                advance_process >> self.reshape_3d_to_2d_embed.advance_state
+                advance_process >> self.reshape_2d_to_3d_embed.advance_state
+                advance_process >> self.embedding.e_embed.advance_state
+
                 for i in range(n_layers):
                     block = self.blocks[i]
                     
@@ -266,13 +272,8 @@ class NGCTransformer:
 
                 # Add non-block components to advance_process, reset_process, evolve_process
                 advance_process >> self.output.E_out.advance_state
-                advance_process >> self.embedding.z_embed.advance_state
                 advance_process >> self.output.z_out.advance_state
-                advance_process >> self.embedding.W_embed.advance_state
-                advance_process >> self.reshape_3d_to_2d_embed.advance_state
-                advance_process >> self.reshape_2d_to_3d_embed.advance_state
                 advance_process >> self.output.W_out.advance_state
-                advance_process >> self.embedding.e_embed.advance_state
                 advance_process >> self.output.e_out.advance_state
 
                 reset_process >> self.projection.q_embed.reset
@@ -459,8 +460,8 @@ class NGCTransformer:
         ## Perform P-step (projection step)
         self.circuit.clamp_input(obs)
         self.circuit.clamp_infer_target(_lab)
-        self.circuit.project(t=0., dt=1.) 
-        ## initialize dynamics of generative model latents to projected states for the errors it's 0
+        self.circuit.project(t=0., dt=1.)
+        # initialize dynamics of generative model latents to projected states for the errors it's 0
         self.blocks[0].attention.z_qkv.z.set(self.projection.blocks[0].q_qkv.z.value)
         self.blocks[0].mlp.z_mlp.z.set(self.projection.blocks[0].q_mlp.z.value)
         self.blocks[0].mlp.z_mlp2.z.set(self.projection.blocks[0].q_mlp2.z.value)
@@ -470,7 +471,7 @@ class NGCTransformer:
         
         ## get projected prediction (from the P-step)
         y_mu_inf = self.q_target.z.value
-
+    
         EFE = 0. ## expected free energy
         y_mu = 0.
         if adapt_synapses:
@@ -478,7 +479,7 @@ class NGCTransformer:
                 self.circuit.clamp_input(obs) ## clamp input data to z_embed & q_embed input compartments
                 self.circuit.clamp_target(_lab) ## clamp target data to z_target
                 self.circuit.advance(t=ts, dt=1.)
-
+           
             y_mu = self.output.e_out.mu.value ## get settled prediction
 
             L1 = self.embedding.e_embed.L.value
@@ -499,5 +500,5 @@ class NGCTransformer:
 
     def get_latents(self):
         return self.q_out.z.value
-
-   
+    
+    

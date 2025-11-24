@@ -28,11 +28,11 @@ class Attention:
         eta: Learning rate for Hebbian synapses
     """
         
-    def __init__(self, dkey, n_embed, seq_len, batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, prefix, **kwargs):
+    def __init__(self, dkey, n_embed, seq_len, batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, prefix, tau_m, **kwargs):
     
         dkey, *subkeys = random.split(dkey, 10)
 
-        self.z_qkv = RateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=1., 
+        self.z_qkv = RateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=tau_m, 
                             act_fx="identity", batch_size=batch_size * seq_len )
       
         self.W_q = HebbianSynapse(f"{prefix}W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,

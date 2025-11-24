@@ -12,8 +12,8 @@ class Config:
     pos_learnable = True
     optim_type = "adam"
     num_iter = 20
-    wub = 0.01
-    wlb = -0.01
+    wub = 0.4
+    wlb = -0.4
     tau_m = 10.
     act_fx = "tanh"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"

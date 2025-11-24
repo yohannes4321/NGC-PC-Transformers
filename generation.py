@@ -1,52 +1,21 @@
 from model import NGCTransformer
 import jax
 import jax.numpy as jnp
-import tiktoken
-import os
-import requests
 import numpy as np
 from config import Config as config
-
-#data loading
-input_file_path = os.path.join(os.path.dirname(__file__), 'input.txt')
-if not os.path.exists(input_file_path):
-    data_url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
-    with open(input_file_path, 'w', encoding='utf-8') as f:
-        f.write(requests.get(data_url).text)
-
-with open(input_file_path, 'r', encoding='utf-8') as f:
-    data = f.read()
-n = len(data)
-train_data = data[:int(n*0.9)]
-val_data = data[int(n*0.9):]
-
-enc = tiktoken.get_encoding("gpt2")
-train_ids = enc.encode_ordinary(train_data)
-val_ids = enc.encode_ordinary(val_data)
-
-print(f"train has {len(train_ids):,} tokens")
-print(f"val has {len(val_ids):,} tokens")
-vocab_size = enc.n_vocab
-print(f"vocab size: {vocab_size}")
-
-data_dir = os.path.join(os.path.dirname(__file__), 'data')
-os.makedirs(data_dir, exist_ok=True)
-train_ids = np.array(train_ids, dtype=np.uint16)
-val_ids = np.array(val_ids, dtype=np.uint16)
-train_ids.tofile(os.path.join(data_dir, 'train.bin'))
-val_ids.tofile(os.path.join(data_dir, 'val.bin'))
+from data_preprocess.data_loader import DataLoader
+import tiktoken
 
 
-def get_batch(split, seq_len=128, batch_size=1, key=jax.random.PRNGKey(0)):
-    script_dir = os.path.dirname(__file__)
-    data_dir = os.path.join(script_dir, "data")
-    data_path = os.path.join(data_dir, f'{split}.bin')
-    data = np.memmap(data_path, dtype=np.uint16, mode='r')
-    key, subkey = jax.random.split(key)
-    ix = jax.random.randint(subkey, (batch_size,), 0, len(data) - seq_len)
-    x = jnp.stack([jnp.array(data[i:i+seq_len], dtype=jnp.int32) for i in ix])
-    y = jnp.stack([jnp.array(data[i+1:i+1+seq_len], dtype=jnp.int32) for i in ix])
-    return x, y, key
+# Initialize the model
+dkey = jax.random.PRNGKey(0)
+model = NGCTransformer(dkey, batch_size=config.batch_size, seq_len=config.seq_len, n_embed=config.n_embed, vocab_size=config.vocab_size, n_layers=config.n_layers, n_heads=config.n_heads,
+                          T=config.num_iter, dt=1., tau_m=config.tau_m , act_fx=config.act_fx, eta=config.eta, dropout_rate= config.dropout_rate, exp_dir="exp",
+                  loadDir= None, pos_learnable= config.pos_learnable, optim_type=config.optim_type, wub =config.wub, wlb= config.wlb, model_name="ngc transformer" )
+
+
+# Initialize the encoder
+enc = tiktoken.get_encoding(config.tokenizer_name)  # Use the tokenizer name from config
 
 def generate_text(
     model,
@@ -56,20 +25,6 @@ def generate_text(
     temperature: float = 1.0,
     key=None
 ):
-    """
-    Generates text using the provided NGCTransformer model.
-
-    Args:
-        model: Instance of NGCTransformer.
-        prompt: Input prompt as a string.
-        max_new_tokens: Number of tokens to generate.
-        seq_len: Context window size (must match training).
-        temperature: Sampling temperature (1.0 = standard softmax).
-        key: JAX PRNG key for stochastic sampling (if None, uses greedy argmax).
-
-    Returns:
-        Generated text as a string (prompt + continuation).
-    """
     # Encode prompt
     prompt_ids = enc.encode_ordinary(prompt)
     prompt_tensor = jnp.array([prompt_ids], dtype=jnp.int32)  # shape: (1, seq_len)
@@ -88,13 +43,12 @@ def generate_text(
         if input_seq.shape[1] < seq_len:
             pad_len = seq_len - input_seq.shape[1]
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=0)
-        dummy_target = jnp.zeros((model.batch_size * model.seq_len, vocab_size))  
+        dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))  
 
         # Run inference 
         y_mu_inf, _, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
 
-      
-        logits = y_mu_inf.reshape(model.batch_size, model.seq_len, vocab_size)
+        logits = y_mu_inf.reshape(config.batch_size, config.seq_len, config.vocab_size)
 
         # Get logits for the last **real** token in the input (not padding)
         actual_len = min(current_tokens.shape[1], seq_len)
@@ -104,7 +58,7 @@ def generate_text(
         if current_key is not None:
             probs = jax.nn.softmax(next_logits)
             current_key, subkey = jax.random.split(current_key)
-            next_token = jax.random.choice(subkey, a=vocab_size, p=probs)
+            next_token = jax.random.choice(subkey, a=config.vocab_size, p=probs)
         else:
             next_token = jnp.argmax(next_logits)
 
@@ -114,10 +68,7 @@ def generate_text(
     # Decode full sequence to string
     generated_ids = current_tokens[0].tolist()
     return enc.decode(generated_ids)
-dkey = jax.random.PRNGKey(0)
-model = NGCTransformer(dkey, config.batch_size, config.seq_len, config.n_embed, config.vocab_size, T=10,
-                 dt=1., tau_m=10., act_fx="tanh", eta=0.001, exp_dir="exp",
-                 model_name="ngc transformer", loadDir=None, pos_learnable= True)
+
 # Example usage
 prompt = "The king said: "
 generated = generate_text(

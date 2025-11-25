@@ -36,7 +36,7 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, key):
     if mask is not None:
         Tq, Tk = q.shape[2], k.shape[2]
         _mask = mask.reshape((B, 1, Tq, Tk))
-        score = jnp.where(_mask, score, -jnp.inf)
+        score = jnp.where(_mask, score, -1e7)
         
     score = jax.nn.softmax(score, axis=-1)
     score = score.astype(q.dtype)

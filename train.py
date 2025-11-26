@@ -5,12 +5,13 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 
 def main():
-    seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.num_iter, config.optim_type
+    seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.n_iter, config.optim_type
     pos_learnable= config.pos_learnable
+    num_iter= config.num_iter
     wub= config.wub 
     wlb= config.wlb
     eta = config.eta
-    T = config.num_iter
+    T = config.n_iter
     tau_m= config.tau_m
     act_fx= config.act_fx
     dropout_rate= config.dropout_rate
@@ -30,10 +31,13 @@ def main():
             inputs = batch[0][1]
             targets = batch[1][1]
             
-            yMu_inf, _, _ = model.process(obs=inputs, lab=targets, adapt_synapses=False)
+            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
+            targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
+
+            yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=False)
             
             y_pred = yMu_inf.reshape(-1, vocab_size)
-            y_true = jnp.eye(vocab_size)[targets.flatten()]
+            y_true = targets_flat
             
             total_nll += measure_CatNLL(y_pred, y_true) * y_true.shape[0]
             total_tokens += y_true.shape[0]
@@ -41,7 +45,7 @@ def main():
         ce_loss = total_nll / total_tokens
         return ce_loss, jnp.exp(ce_loss)
 
-    for i in range(n_iter):
+    for i in range(num_iter):
         train_EFE = 0.
         total_batches = 0
         
@@ -51,10 +55,15 @@ def main():
             inputs = batch[0][1]
             targets = batch[1][1]
             
-            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets, adapt_synapses=True)
+            #Convert targets to one-hot and flatten
+            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
+            targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
+
+            
+            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE
             total_batches += 1
-            
+
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, vocab_size)
                 y_true = jnp.eye(vocab_size)[targets.flatten()]
@@ -69,6 +78,8 @@ def main():
         
         dev_ce, dev_ppl = eval_model(valid_loader)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
+        if  i == (num_iter-1):
+          model.save_to_disk() # save final state of model to disk
 
     print("\nFinal Test Evaluation:")
     test_ce, test_ppl = eval_model(test_loader)

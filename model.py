@@ -72,7 +72,7 @@ class NGCTransformer:
                 self.output = Output(dkey=subkeys[3], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size, vocab_size=vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
                 
                 self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="identity", batch_size=batch_size * seq_len) 
-               
+                self.z_actfx= RateCell("z_actfx", n_units= vocab_size, tau_m=0., act_fx="softmax", batch_size=batch_size * seq_len)
                 
                 self.reshape_4d_to_2d = ReshapeComponent("reshape_4d_to_2d",
                                             input_shape=(batch_size, seq_len, n_embed, 1),
@@ -155,7 +155,8 @@ class NGCTransformer:
                     block.mlp.W_mlp2.post << block.mlp.e_mlp.dmu
                         
                 self.output.W_out.inputs << self.output.z_out.zF
-                self.output.e_out.mu << self.output.W_out.outputs
+                self.z_actfx.j << self.output.W_out.outputs
+                self.output.e_out.mu << self.z_actfx.zF
                 self.output.e_out.target << self.z_target.z
             
                 self.output.E_out.inputs << self.output.e_out.dmu
@@ -211,8 +212,8 @@ class NGCTransformer:
                 self.projection.q_out.j << self.projection.blocks[n_layers - 1].Q_mlp2.outputs
                 self.projection.Q_out.inputs << self.projection.q_out.zF
                 self.projection.q_target.j <<self.projection.Q_out.outputs
-                self.projection.eq_target.target << self.projection.q_target.z
-                self.projection.eq_target.mu << self.projection.Q_out.outputs
+                # self.projection.eq_target.target << self.projection.q_target.z
+                self.projection.eq_target.mu << self.projection.q_target.z
                 
                 # Create the processes by iterating through all blocks
                 advance_process = JaxProcess(name="advance_process")
@@ -274,6 +275,7 @@ class NGCTransformer:
                 advance_process >> self.output.E_out.advance_state
                 advance_process >> self.output.z_out.advance_state
                 advance_process >> self.output.W_out.advance_state
+                advance_process >> self.z_actfx.advance_state
                 advance_process >> self.output.e_out.advance_state
 
                 reset_process >> self.projection.q_embed.reset
@@ -282,6 +284,8 @@ class NGCTransformer:
                 reset_process >> self.projection.eq_target.reset
                 reset_process >> self.embedding.z_embed.reset
                 reset_process >> self.output.z_out.reset
+                reset_process >> self.z_target.reset
+                reset_process >> self.z_actfx.reset
                 reset_process >> self.embedding.e_embed.reset
                 reset_process >> self.output.e_out.reset
                 reset_process >> self.reshape_3d_to_2d_embed.reset
@@ -320,10 +324,10 @@ class NGCTransformer:
     def _dynamic(self, processes):
         vars = self.circuit.get_components( "reshape_3d_to_2d_embed", "reshape_2d_to_3d_embed",
             "q_embed", "q_out", "reshape_3d_to_2d_proj", "q_target", "eq_target","Q_embed", "Q_out",
-                                           "z_embed", "z_out", "e_embed", "e_out", "W_embed", "W_out", "E_out")
+                                           "z_embed", "z_out", "z_actfx", "e_embed", "e_out", "W_embed", "W_out", "E_out")
         (self.reshape_3d_to_2d_embed,  self.reshape_2d_to_3d_embed, self.q_embed, self.q_out, self.reshape_3d_to_2d_proj, 
         self.q_target, self.eq_target, self.Q_embed, self.Q_out,
-        self.embedding.z_embed, self.output.z_out, self.embedding.e_embed, self.output.e_out, self.embedding.W_embed,
+        self.embedding.z_embed, self.output.z_out, self.z_actfx, self.embedding.e_embed, self.output.e_out, self.embedding.W_embed,
         self.output.W_out, self.output.E_out) = vars
         
         self.block_components = []  
@@ -417,7 +421,7 @@ class NGCTransformer:
 
     def process(self, obs, lab, adapt_synapses=True):
         eps = 0.001
-        _lab = jnp.clip(lab, eps, 1. - eps)
+        # scale = 1.0 / jnp.sqrt(config.n_embed) 
         self.circuit.reset()
 
         ## pin/tie inference synapses to be exactly equal to the forward ones
@@ -459,12 +463,13 @@ class NGCTransformer:
         
         ## Perform P-step (projection step)
         self.circuit.clamp_input(obs)
-        self.circuit.clamp_infer_target(_lab)
+        self.circuit.clamp_infer_target(lab)
         self.circuit.project(t=0., dt=1.)
         # initialize dynamics of generative model latents to projected states for the errors it's 0
         self.blocks[0].attention.z_qkv.z.set(self.projection.blocks[0].q_qkv.z.value)
         self.blocks[0].mlp.z_mlp.z.set(self.projection.blocks[0].q_mlp.z.value)
         self.blocks[0].mlp.z_mlp2.z.set(self.projection.blocks[0].q_mlp2.z.value)
+        self.output.z_out.z.set(self.projection.q_out.z.value)
         self.output.e_out.dmu.set(self.projection.eq_target.dmu.value)
         self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.value)
         
@@ -477,22 +482,22 @@ class NGCTransformer:
         if adapt_synapses:
             for ts in range(0, self.T):
                 self.circuit.clamp_input(obs) ## clamp input data to z_embed & q_embed input compartments
-                self.circuit.clamp_target(_lab) ## clamp target data to z_target
+                self.circuit.clamp_target(lab) ## clamp target data to z_target
                 self.circuit.advance(t=ts, dt=1.)
            
-            y_mu = self.output.e_out.mu.value ## get settled prediction
+        y_mu = self.output.e_out.mu.value ## get settled prediction
 
-            L1 = self.embedding.e_embed.L.value
-            L4 = self.output.e_out.L.value
+        L1 = self.embedding.e_embed.L.value
+        L4 = self.output.e_out.L.value
             # Sum errors from ALL blocks
-            block_errors = 0.
-            for i in range(self.n_layers):
+        block_errors = 0.
+        for i in range(self.n_layers):
                 block = self.blocks[i]
                 block_errors += block.attention.e_attn.L.value + block.mlp.e_mlp.L.value + block.mlp.e_mlp1.L.value
 
-            EFE = L4 + block_errors + L1
+        EFE = L4 + block_errors + L1
 
-            if adapt_synapses == True:
+        if adapt_synapses == True:
                 self.circuit.evolve()
                 self.circuit.evolve_embedding()
         ## skip E/M steps if just doing test-time inference

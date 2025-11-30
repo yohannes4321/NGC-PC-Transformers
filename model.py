@@ -485,7 +485,7 @@ class NGCTransformer:
                 self.circuit.clamp_target(lab) ## clamp target data to z_target
                 self.circuit.advance(t=ts, dt=1.)
            
-        y_mu = self.output.e_out.mu.value ## get settled prediction
+        y_mu = self.output.W_out.outputs.value ## get settled prediction
 
         L1 = self.embedding.e_embed.L.value
         L4 = self.output.e_out.L.value

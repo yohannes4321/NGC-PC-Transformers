@@ -387,17 +387,17 @@ class NGCTransformer:
             self.embedding.W_embed.save(model_dir)
             self.blocks = []
             for j in range(self.n_layers):
-                block = self.circuit.get_component(f"block{j}_W_q")
+                block = self.circuit.get_components(f"block{j}_W_q")
                 block.save(model_dir)
-                block = self.circuit.get_component(f"block{j}_W_k")
+                block = self.circuit.get_components(f"block{j}_W_k")
                 block.save(model_dir)
-                block = self.circuit.get_component(f"block{j}_W_v")
+                block = self.circuit.get_components(f"block{j}_W_v")
                 block.save(model_dir)
-                block = self.circuit.get_component(f"block{j}_W_attn_out")
+                block = self.circuit.get_components(f"block{j}_W_attn_out")
                 block.save(model_dir)
-                block = self.circuit.get_component(f"block{j}_W_mlp1")
+                block = self.circuit.get_components(f"block{j}_W_mlp1")
                 block.save(model_dir)
-                block = self.circuit.get_component(f"block{j}_W_mlp2")
+                block = self.circuit.get_components(f"block{j}_W_mlp2")
                 block.save(model_dir)    
             self.output.W_out.save(model_dir)
         else:

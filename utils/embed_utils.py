@@ -6,6 +6,8 @@ from ngclearn.components.jaxComponent import JaxComponent
 from ngclearn import resolver, Compartment
 from ngcsimlib.compilers.process import transition
 from ngclearn.utils import tensorstats
+import os
+from pathlib import Path
 
 @partial(jit, static_argnums=[0, 1])
 def _create_sinusoidal_embeddings(seq_len, embed_dim):
@@ -246,3 +248,34 @@ class EmbeddingSynapse(JaxComponent):
         return lines
 
 
+    def save(self, directory, **kwargs):
+        """Save word and (optional) position embedding parameters to disk."""
+        
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        file_name = os.path.join(directory, f"{self.name}.npz")
+        
+        if self.pos_learnable:
+            jnp.savez(
+                file_name,
+                word_weights=self.word_weights.value,
+                pos_weights=self.pos_weights.value
+            )
+        else:
+            jnp.savez(
+                file_name,
+                word_weights=self.word_weights.value
+                # pos_weights are fixed (sinusoidal), so not saved
+            )
+      
+
+    def load(self, directory, **kwargs):
+        """Load word and (optional) position embedding parameters from disk."""
+        import os
+        file_name = os.path.join(directory, f"{self.name}.npz")
+        data = jnp.load(file_name)
+        
+        self.word_weights.set(data['word_weights'])
+        
+        if self.pos_learnable and 'pos_weights' in data:
+            self.pos_weights.set(data['pos_weights'])
+        # If pos_learnable=False, pos_weights are recomputed via sinusoidal — no need to load

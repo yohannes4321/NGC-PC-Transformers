@@ -18,6 +18,8 @@ from layers.output import Output
 from utils.model_util import ReshapeComponent
 from projection.projection import Projection
 
+
+
 class NGCTransformer:
     """
     Predictive Coding Transformer following PCN architecture from:
@@ -374,6 +376,16 @@ class NGCTransformer:
         @Context.dynamicCommand
         def clamp_infer_target(y):
             self.eq_target.target.set(y)
+    def patched_save(self, directory, **kwargs):
+        file_name = f"{directory}/{self.name}.npz"
+        jnp.savez(
+            file_name,
+            tau_m=self.tau_m,
+            priorLeakRate=self.priorLeakRate,
+            resist_scale=self.resist_scale
+        )
+
+    RateCell.save = patched_save
         
     def save_to_disk(self, params_only=False):
         """

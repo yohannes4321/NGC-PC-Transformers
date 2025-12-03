@@ -3,6 +3,7 @@ from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 from config import Config as config
+from eval import eval_model
 
 def main():
     seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.num_iter, config.optim_type
@@ -70,9 +71,6 @@ def main():
         dev_ce, dev_ppl = eval_model(valid_loader)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
 
-    print("\nFinal Test Evaluation:")
-    test_ce, test_ppl = eval_model(test_loader)
-    print(f"Test CE = {test_ce:.4f}, Test PPL = {test_ppl:.4f}")
-
+   
 if __name__ == "__main__":
     main()

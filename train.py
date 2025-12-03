@@ -6,12 +6,13 @@ from config import Config as config
 from eval import eval_model
 
 def main():
-    seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.num_iter, config.optim_type
+    seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.n_iter, config.optim_type
     pos_learnable= config.pos_learnable
+    num_iter= config.num_iter
     wub= config.wub 
     wlb= config.wlb
     eta = config.eta
-    T = config.num_iter
+    T = config.n_iter
     tau_m= config.tau_m
     act_fx= config.act_fx
     dropout_rate= config.dropout_rate
@@ -70,6 +71,8 @@ def main():
         
         dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
+        if  i == (num_iter-1):
+          model.save_to_disk(params_only=True) # save final state of model to disk
 
    
 if __name__ == "__main__":

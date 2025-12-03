@@ -68,7 +68,7 @@ def main():
         
         avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
         
-        dev_ce, dev_ppl = eval_model(valid_loader)
+        dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
 
    

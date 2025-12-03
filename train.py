@@ -3,14 +3,16 @@ from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 from config import Config as config
+from eval import eval_model
 
 def main():
-    seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.num_iter, config.optim_type
+    seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.n_iter, config.optim_type
     pos_learnable= config.pos_learnable
+    num_iter= config.num_iter
     wub= config.wub 
     wlb= config.wlb
     eta = config.eta
-    T = config.num_iter
+    T = config.n_iter
     tau_m= config.tau_m
     act_fx= config.act_fx
     dropout_rate= config.dropout_rate
@@ -23,7 +25,7 @@ def main():
                           T=T, dt=1., tau_m=tau_m , act_fx=act_fx, eta=eta, dropout_rate= dropout_rate, exp_dir="exp",
                   loadDir= None, pos_learnable= pos_learnable, optim_type=optim_type, wub = wub, wlb= wlb, model_name="ngc transformer" )
 
-    def eval_model(data_loader):
+    def train_model(data_loader):
         total_nll, total_tokens = 0., 0
         
         for batch in data_loader:
@@ -67,12 +69,11 @@ def main():
         
         avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
         
-        dev_ce, dev_ppl = eval_model(valid_loader)
+        dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
+        if  i == (num_iter-1):
+          model.save_to_disk(params_only=True) # save final state of model to disk
 
-    print("\nFinal Test Evaluation:")
-    test_ce, test_ppl = eval_model(test_loader)
-    print(f"Test CE = {test_ce:.4f}, Test PPL = {test_ppl:.4f}")
-
+   
 if __name__ == "__main__":
     main()

@@ -24,7 +24,7 @@ def main():
                           T=T, dt=1., tau_m=tau_m , act_fx=act_fx, eta=eta, dropout_rate= dropout_rate, exp_dir="exp",
                   loadDir= None, pos_learnable= pos_learnable, optim_type=optim_type, wub = wub, wlb= wlb, model_name="ngc transformer" )
 
-    def eval_model(data_loader):
+    def train_model(data_loader):
         total_nll, total_tokens = 0., 0
         
         for batch in data_loader:

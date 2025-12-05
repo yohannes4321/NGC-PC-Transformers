@@ -32,10 +32,13 @@ def main():
             inputs = batch[0][1]
             targets = batch[1][1]
             
-            yMu_inf, _, _ = model.process(obs=inputs, lab=targets, adapt_synapses=False)
+            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
+            targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
+
+            yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=False)
             
             y_pred = yMu_inf.reshape(-1, vocab_size)
-            y_true = jnp.eye(vocab_size)[targets.flatten()]
+            y_true = targets_flat
             
             total_nll += measure_CatNLL(y_pred, y_true) * y_true.shape[0]
             total_tokens += y_true.shape[0]
@@ -43,7 +46,7 @@ def main():
         ce_loss = total_nll / total_tokens
         return ce_loss, jnp.exp(ce_loss)
 
-    for i in range(n_iter):
+    for i in range(num_iter):
         train_EFE = 0.
         total_batches = 0
         
@@ -53,10 +56,15 @@ def main():
             inputs = batch[0][1]
             targets = batch[1][1]
             
-            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets, adapt_synapses=True)
+            #Convert targets to one-hot and flatten
+            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
+            targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
+
+            
+            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE
             total_batches += 1
-            
+
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, vocab_size)
                 y_true = jnp.eye(vocab_size)[targets.flatten()]

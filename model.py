@@ -162,10 +162,6 @@ class NGCTransformer:
                 self.output.E_out.inputs << self.output.e_out.dmu
                 
                 
-                # self.embedding.z_embed.j << self.embedding.E_embed.outputs
-                # self.embedding.z_embed.j_td << td_error.e_attn.dtarget
-                
-                
                 self.output.z_out.j << self.output.E_out.outputs
                 self.output.z_out.j_td << self.blocks[n_layers - 1].mlp.e_mlp.dtarget
                 
@@ -250,7 +246,9 @@ class NGCTransformer:
                     advance_process >> block.mlp.W_mlp1.advance_state
                     advance_process >> block.mlp.W_mlp2.advance_state
                     advance_process >> block.attention.e_attn.advance_state
+                    advance_process >> block.mlp.e_mlp1.advance_state
                     advance_process >> block.mlp.e_mlp.advance_state
+    
                     
                     reset_process >> block.attention.z_qkv.reset
                     reset_process >> block.mlp.z_mlp.reset
@@ -272,6 +270,7 @@ class NGCTransformer:
                     evolve_process >> block.mlp.W_mlp2.evolve
 
                 # Add non-block components to advance_process, reset_process, evolve_process
+                advance_process >> self.z_target.advance_state
                 advance_process >> self.output.E_out.advance_state
                 advance_process >> self.output.z_out.advance_state
                 advance_process >> self.output.W_out.advance_state
@@ -283,6 +282,7 @@ class NGCTransformer:
                 reset_process >> self.projection.q_target.reset
                 reset_process >> self.projection.eq_target.reset
                 reset_process >> self.embedding.z_embed.reset
+                reset_process >> self.z_target.reset
                 reset_process >> self.output.z_out.reset
                 reset_process >> self.z_target.reset
                 reset_process >> self.z_actfx.reset
@@ -324,10 +324,10 @@ class NGCTransformer:
     def _dynamic(self, processes):
         vars = self.circuit.get_components( "reshape_3d_to_2d_embed", "reshape_2d_to_3d_embed",
             "q_embed", "q_out", "reshape_3d_to_2d_proj", "q_target", "eq_target","Q_embed", "Q_out",
-                                           "z_embed", "z_out", "z_actfx", "e_embed", "e_out", "W_embed", "W_out", "E_out")
+                                           "z_embed","z_target", "z_out", "z_actfx", "e_embed", "e_out", "W_embed", "W_out", "E_out")
         (self.reshape_3d_to_2d_embed,  self.reshape_2d_to_3d_embed, self.q_embed, self.q_out, self.reshape_3d_to_2d_proj, 
         self.q_target, self.eq_target, self.Q_embed, self.Q_out,
-        self.embedding.z_embed, self.output.z_out, self.z_actfx, self.embedding.e_embed, self.output.e_out, self.embedding.W_embed,
+        self.embedding.z_embed, self.z_target, self.output.z_out, self.z_actfx, self.embedding.e_embed, self.output.e_out, self.embedding.W_embed,
         self.output.W_out, self.output.E_out) = vars
         
         self.block_components = []  

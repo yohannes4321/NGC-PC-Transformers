@@ -282,7 +282,6 @@ class NGCTransformer:
                 reset_process >> self.projection.q_target.reset
                 reset_process >> self.projection.eq_target.reset
                 reset_process >> self.embedding.z_embed.reset
-                reset_process >> self.z_target.reset
                 reset_process >> self.output.z_out.reset
                 reset_process >> self.z_target.reset
                 reset_process >> self.z_actfx.reset
@@ -329,7 +328,6 @@ class NGCTransformer:
         self.q_target, self.eq_target, self.Q_embed, self.Q_out,
         self.embedding.z_embed, self.z_target, self.output.z_out, self.z_actfx, self.embedding.e_embed, self.output.e_out, self.embedding.W_embed,
         self.output.W_out, self.output.E_out) = vars
-        
         self.block_components = []  
     
         for i in range(self.n_layers):

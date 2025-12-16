@@ -464,9 +464,9 @@ class NGCTransformer:
         self.circuit.clamp_infer_target(lab)
         self.circuit.project(t=0., dt=1.)
         # initialize dynamics of generative model latents to projected states for the errors it's 0
-        self.blocks[0].attention.z_qkv.z.set(self.projection.blocks[0].q_qkv.z.value)
-        self.blocks[0].mlp.z_mlp.z.set(self.projection.blocks[0].q_mlp.z.value)
-        self.blocks[0].mlp.z_mlp2.z.set(self.projection.blocks[0].q_mlp2.z.value)
+        self.blocks[0].attention.z_qkv.z.set(self.projection.blocks[self.n_layers - 1].q_qkv.z.value)
+        self.blocks[0].mlp.z_mlp.z.set(self.projection.blocks[self.n_layers - 1].q_mlp.z.value)
+        self.blocks[0].mlp.z_mlp2.z.set(self.projection.blocks[self.n_layers - 1].q_mlp2.z.value)
         self.output.z_out.z.set(self.projection.q_out.z.value)
         self.output.e_out.dmu.set(self.projection.eq_target.dmu.value)
         self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.value)
@@ -492,8 +492,10 @@ class NGCTransformer:
         for i in range(self.n_layers):
                 block = self.blocks[i]
                 block_errors += block.attention.e_attn.L.value + block.mlp.e_mlp.L.value + block.mlp.e_mlp1.L.value
-
-        EFE = L4 + block_errors + L1
+        L_attn= self.blocks[self.n_layers - 1].attention.e_attn.L.value
+        L_mlp1 = self.blocks[self.n_layers - 1].mlp.e_mlp1.L.value
+        L_mlp2 = self.blocks[self.n_layers - 1].mlp.e_mlp.L.value
+        EFE = L4 + L_attn + L_mlp1 + L_mlp2 + L1
 
         if adapt_synapses == True:
                 self.circuit.evolve()

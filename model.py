@@ -464,9 +464,10 @@ class NGCTransformer:
         self.circuit.clamp_infer_target(lab)
         self.circuit.project(t=0., dt=1.)
         # initialize dynamics of generative model latents to projected states for the errors it's 0
-        self.blocks[0].attention.z_qkv.z.set(self.projection.blocks[self.n_layers - 1].q_qkv.z.value)
-        self.blocks[0].mlp.z_mlp.z.set(self.projection.blocks[self.n_layers - 1].q_mlp.z.value)
-        self.blocks[0].mlp.z_mlp2.z.set(self.projection.blocks[self.n_layers - 1].q_mlp2.z.value)
+        for i in range(self.n_layers):
+            self.blocks[i].attention.z_qkv.z.set(self.projection.blocks[i].q_qkv.z.value)
+            self.blocks[i].mlp.z_mlp.z.set(self.projection.blocks[i].q_mlp.z.value)
+            self.blocks[i].mlp.z_mlp2.z.set(self.projection.blocks[i].q_mlp2.z.value)
         self.output.z_out.z.set(self.projection.q_out.z.value)
         self.output.e_out.dmu.set(self.projection.eq_target.dmu.value)
         self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.value)

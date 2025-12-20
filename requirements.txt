@@ -1,0 +1,11 @@
+ngclearn==3.0.0
+ngcsimlib==3.0.0
+jax==0.6.2
+jaxlib>=0.4.28 
+numpy>=1.22.0
+scipy>=1.7.0
+scikit-learn>=0.24.2
+matplotlib>=3.8.0
+imageio>=2.31.5
+pandas
+tokenizers==0.20.3

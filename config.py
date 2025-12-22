@@ -9,15 +9,15 @@ class Config:
     n_heads = 2
     n_layers = 4
     dropout_rate = 0.0
-    eta = 0.00001
+    eta = 0.0000089
     exp_dir = "exp" 
     pos_learnable = True
     optim_type = "adam"
     num_iter = 2
-    n_iter= 20
-    wub = 0.02
-    wlb = -0.02
-    tau_m = 5.
+    n_iter= 10
+    wub = 0.2
+    wlb = -0.2
+    tau_m = 10.
     act_fx = "identity"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"

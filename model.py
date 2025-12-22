@@ -162,10 +162,6 @@ class NGCTransformer:
                 self.output.E_out.inputs << self.output.e_out.dmu
                 
                 
-                # self.embedding.z_embed.j << self.embedding.E_embed.outputs
-                # self.embedding.z_embed.j_td << td_error.e_attn.dtarget
-                
-                
                 self.output.z_out.j << self.output.E_out.outputs
                 self.output.z_out.j_td << self.blocks[n_layers - 1].mlp.e_mlp.dtarget
                 
@@ -250,7 +246,9 @@ class NGCTransformer:
                     advance_process >> block.mlp.W_mlp1.advance_state
                     advance_process >> block.mlp.W_mlp2.advance_state
                     advance_process >> block.attention.e_attn.advance_state
+                    advance_process >> block.mlp.e_mlp1.advance_state
                     advance_process >> block.mlp.e_mlp.advance_state
+    
                     
                     reset_process >> block.attention.z_qkv.reset
                     reset_process >> block.mlp.z_mlp.reset
@@ -272,6 +270,7 @@ class NGCTransformer:
                     evolve_process >> block.mlp.W_mlp2.evolve
 
                 # Add non-block components to advance_process, reset_process, evolve_process
+                advance_process >> self.z_target.advance_state
                 advance_process >> self.output.E_out.advance_state
                 advance_process >> self.output.z_out.advance_state
                 advance_process >> self.output.W_out.advance_state
@@ -324,12 +323,11 @@ class NGCTransformer:
     def _dynamic(self, processes):
         vars = self.circuit.get_components( "reshape_3d_to_2d_embed", "reshape_2d_to_3d_embed",
             "q_embed", "q_out", "reshape_3d_to_2d_proj", "q_target", "eq_target","Q_embed", "Q_out",
-                                           "z_embed", "z_out", "z_actfx", "e_embed", "e_out", "W_embed", "W_out", "E_out")
+                                           "z_embed","z_target", "z_out", "z_actfx", "e_embed", "e_out", "W_embed", "W_out", "E_out")
         (self.reshape_3d_to_2d_embed,  self.reshape_2d_to_3d_embed, self.q_embed, self.q_out, self.reshape_3d_to_2d_proj, 
         self.q_target, self.eq_target, self.Q_embed, self.Q_out,
-        self.embedding.z_embed, self.output.z_out, self.z_actfx, self.embedding.e_embed, self.output.e_out, self.embedding.W_embed,
+        self.embedding.z_embed, self.z_target, self.output.z_out, self.z_actfx, self.embedding.e_embed, self.output.e_out, self.embedding.W_embed,
         self.output.W_out, self.output.E_out) = vars
-        
         self.block_components = []  
     
         for i in range(self.n_layers):
@@ -466,9 +464,10 @@ class NGCTransformer:
         self.circuit.clamp_infer_target(lab)
         self.circuit.project(t=0., dt=1.)
         # initialize dynamics of generative model latents to projected states for the errors it's 0
-        self.blocks[0].attention.z_qkv.z.set(self.projection.blocks[0].q_qkv.z.value)
-        self.blocks[0].mlp.z_mlp.z.set(self.projection.blocks[0].q_mlp.z.value)
-        self.blocks[0].mlp.z_mlp2.z.set(self.projection.blocks[0].q_mlp2.z.value)
+        for i in range(self.n_layers):
+            self.blocks[i].attention.z_qkv.z.set(self.projection.blocks[i].q_qkv.z.value)
+            self.blocks[i].mlp.z_mlp.z.set(self.projection.blocks[i].q_mlp.z.value)
+            self.blocks[i].mlp.z_mlp2.z.set(self.projection.blocks[i].q_mlp2.z.value)
         self.output.z_out.z.set(self.projection.q_out.z.value)
         self.output.e_out.dmu.set(self.projection.eq_target.dmu.value)
         self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.value)
@@ -494,8 +493,10 @@ class NGCTransformer:
         for i in range(self.n_layers):
                 block = self.blocks[i]
                 block_errors += block.attention.e_attn.L.value + block.mlp.e_mlp.L.value + block.mlp.e_mlp1.L.value
-
-        EFE = L4 + block_errors + L1
+        L_attn= self.blocks[self.n_layers - 1].attention.e_attn.L.value
+        L_mlp1 = self.blocks[self.n_layers - 1].mlp.e_mlp1.L.value
+        L_mlp2 = self.blocks[self.n_layers - 1].mlp.e_mlp.L.value
+        EFE = L4 + L_attn + L_mlp1 + L_mlp2 + L1
 
         if adapt_synapses == True:
                 self.circuit.evolve()

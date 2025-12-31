@@ -13,12 +13,13 @@ class Config:
     exp_dir = "exp" 
     pos_learnable = True
     optim_type = "adam"
-    num_iter = 2
-    n_iter= 20
-    wub = 0.2
-    wlb = -0.2
+    num_iter = 1
+    n_iter= 10
+    # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
+    wub = 0.05
+    wlb = -0.05
     tau_m = 25.
-    act_fx = "sigmoid"
+    act_fx = "tanh"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"
     # When tokenizer == "tiktoken", tokenizer_name is used (e.g. "gpt2" or "cl100k_base")

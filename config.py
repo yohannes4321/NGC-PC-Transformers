@@ -15,8 +15,8 @@ class Config:
     optim_type = "adam"
     num_iter = 2
     n_iter= 20
-    wub = 0.5
-    wlb = -0.5
+    wub = 0.3
+    wlb = -0.3
     tau_m = 25.
     act_fx = "sigmoid"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"

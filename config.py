@@ -8,8 +8,8 @@ class Config:
     vocab_size = 11710# data vocab size + special tokens = 11706 + 4
     n_heads = 2
     n_layers = 4
-    dropout_rate = 0.5
-    eta = 0.001
+    dropout_rate = 0.1
+    eta = 0.0001
     exp_dir = "exp" 
     pos_learnable = True
     optim_type = "adam"
@@ -18,7 +18,7 @@ class Config:
     # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
     wub = 0.05
     wlb = -0.05
-    tau_m = 25.
+    tau_m = 10.
     act_fx = "tanh"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"

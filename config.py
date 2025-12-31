@@ -1,24 +1,24 @@
 class Config:
     SEED = 42
-    n_embed = 12
-    seq_len =  12
-    n_embed = 12
-    seq_len =  12
-    batch_size = 5
+
+    seq_len =  40
+    n_embed = 512
+    
+    batch_size = 16
     vocab_size = 11710# data vocab size + special tokens = 11706 + 4
     n_heads = 2
     n_layers = 4
-    dropout_rate = 0.0
-    eta = 0.0000089
+    dropout_rate = 0.5
+    eta = 0.001
     exp_dir = "exp" 
     pos_learnable = True
     optim_type = "adam"
-    num_iter = 1
-    n_iter= 10
-    wub = 0.2
-    wlb = -0.2
-    tau_m = 10.
-    act_fx = "identity"
+    num_iter = 2
+    n_iter= 20
+    wub = 0.5
+    wlb = -0.5
+    tau_m = 25.
+    act_fx = "sigmoid"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"
     # When tokenizer == "tiktoken", tokenizer_name is used (e.g. "gpt2" or "cl100k_base")

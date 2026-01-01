@@ -13,9 +13,7 @@ Navigate to the Project Directory
 ```bash
 cd NGC-PC-Transformers
 ``` 
-Install Dependencies
-
-Ensure you have a virtual environment (optional but recommended):
+Create a virtual environment (optional but recommended):
 
 ```bash
 python -m venv venv

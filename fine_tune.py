@@ -51,10 +51,10 @@ bnf_text = """
 <arch_pair>   ::= "n_embed=64,n_heads=4" | "n_embed=128,n_heads=4" | "n_embed=128,n_heads=8" | "n_embed=256,n_heads=8"
 <block_conf>  ::= "block_size=64" | "block_size=128" | "block_size=256"
 <depth_conf>  ::= "n_layers=2" | "n_layers=4" | "n_layers=6"
-<steps>       ::= "T=5" | "T=10" | "T=15"
+<steps>       ::= "T=5" | "T=10" | "T=15" | "T=20"
 <learn_rate>  ::= "eta=0.001" | "eta=0.0005" | "eta=0.0001"
 <drop>        ::= "dropout=0.1" | "dropout=0.2" | "dropout=0.3"
-<bounds>      ::= "wlb=-0.2,wub=0.2" | "wlb=-0.1,wub=0.1" | "wlb=-0.05,wub=0.05" | "wlb=-0.02,wub=0.02"
+<bounds>      ::= "wlb=-0.2,wub=0.2" | "wlb=-0.1,wub=0.1" | "wlb=-0.5,wub=0.5" | "wlb=-0.02,wub=0.02"
 """
 
 def get_dynamic_batch_size(n_embed, block_size):

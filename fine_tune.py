@@ -98,11 +98,21 @@ def objective_function(phenotype_string):
         log_message(f"    Error: {e}")
         return 1e9 # Penalty
 
+    if n_embed % n_heads != 0:
+        log_message(f"[!] Invalid Config: n_embed ({n_embed}) not divisible by n_heads ({n_heads}). Skipping trial.")
+        return 1e9
+
     log_message(f"\n" + "="*60)
     log_message(f"[Trial Start] Config: {clean_string}")
     
     curr_batch_size = get_dynamic_batch_size(n_embed, seq_len)
     log_message(f" >> Dynamic Sizing: Seq_Len={seq_len} | Embed={n_embed} -> Batch_Size={curr_batch_size}")
+
+    # Sync global config so downstream components relying on it stay consistent with tuned params
+    config.seq_len = seq_len
+    config.batch_size = curr_batch_size
+    config.n_embed = n_embed
+    config.n_heads = n_heads
 
     model = None
     try:

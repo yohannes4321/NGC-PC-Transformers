@@ -1,4 +1,5 @@
 import alogos as al
+import csv
 import jax
 import jax.numpy as jnp
 from jax import random, clear_caches
@@ -8,6 +9,8 @@ import gc
 import os
 import time
 import traceback
+from itertools import count
+from pathlib import Path
 from config import Config as config
 
 # --- 1. Environment & Setup ---
@@ -25,6 +28,16 @@ except ImportError as e:
 
 LOG_FILE = "search_progress.log"
 RESULT_FILE = "tuning_results.txt"
+RESULT_CSV = "trial_metrics.csv"
+BEST_FILE = "best_trial.txt"
+TRIAL_COUNTER = count(1)
+BEST_RECORD = {"val_ce": float("inf"), "avg_ppl": None, "avg_efe": None, "avg_ce": None, "phenotype": None, "trial_id": None}
+
+
+def _fmt_metric(value):
+    if value is None or (isinstance(value, float) and np.isinf(value)):
+        return "N/A"
+    return f"{value:.6f}" if isinstance(value, float) else str(value)
 
 def log_message(message, end="\n"):
     print(message, end=end, flush=True)
@@ -63,6 +76,12 @@ def set_model_eta(model, eta_value):
 with open(LOG_FILE, "w") as f:
     f.write("=== New Search Session ===\n")
 
+# Create CSV header if missing
+if not Path(RESULT_CSV).exists() or Path(RESULT_CSV).stat().st_size == 0:
+    with open(RESULT_CSV, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["trial_id", "status", "phenotype", "avg_efe", "avg_ppl", "avg_ce", "val_ce", "eval_time_sec"])
+
 # --- 2. Grammar Guided Search Space (CLEANED) ---
 # CRITICAL FIX: No comments (#) allowed inside this string!
 bnf_text = """
@@ -97,6 +116,7 @@ def get_dynamic_batch_size(n_embed, block_size):
 # --- 3. The Objective Function (The "Trial") ---
 def objective_function(phenotype_string):
     start_time = time.time()
+    trial_id = next(TRIAL_COUNTER)
     
     # 1. CLEANING THE STRING
     # Removes quotes and spaces to handle "n_embed=64" format
@@ -130,13 +150,22 @@ def objective_function(phenotype_string):
         # If parsing fails, print exactly why so we don't get silent "0.0 runtime"
         log_message(f"[!] Parsing Failed: {clean_string}")
         log_message(f"    Error: {e}")
+        with open(RESULT_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([trial_id, "parse_fail", clean_string, "", "", "", "", f"{time.time() - start_time:.2f}"])
         return 1e9 # Penalty
 
     if n_embed % n_heads != 0:
         log_message(f"[!] Invalid Config: n_embed ({n_embed}) not divisible by n_heads ({n_heads}). Skipping trial.")
+        with open(RESULT_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([trial_id, "invalid_config", clean_string, "", "", "", "", f"{time.time() - start_time:.2f}"])
         return 1e9
     if wlb >= wub:
         log_message(f"[!] Invalid Bounds: wlb ({wlb}) must be < wub ({wub}). Skipping trial.")
+        with open(RESULT_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([trial_id, "invalid_bounds", clean_string, "", "", "", "", f"{time.time() - start_time:.2f}"])
         return 1e9
     # Clip bounds to a tighter envelope to prevent extreme init leading to NaNs
     safe_wlb = max(wlb, -0.08)
@@ -204,6 +233,7 @@ def objective_function(phenotype_string):
 
         total_efe = 0.0
         total_ppl = 0.0
+        total_ce = 0.0
         batch_count = 0
         max_batches_per_trial = 20 
         warmup_steps = max(1, warmup_epochs)
@@ -248,31 +278,73 @@ def objective_function(phenotype_string):
             
             total_efe += batch_efe
             total_ppl += batch_ppl
+            total_ce += batch_ce
             batch_count += 1
             clean_memory()
 
         # Calculate Averages
         avg_efe = total_efe / batch_count if batch_count > 0 else 0
         avg_ppl = total_ppl / batch_count if batch_count > 0 else 0
+        avg_ce = total_ce / batch_count if batch_count > 0 else 0
         eval_time = time.time() - start_time
 
-        log_message(f"\n[Summary] Avg Energy: {avg_efe:.4f} | Avg PPL: {avg_ppl:.2f} | Time: {eval_time:.2f}s")
+        log_message(f"\n[Summary] Avg Energy: {avg_efe:.4f} | Avg PPL: {avg_ppl:.2f} | Avg CE: {avg_ce:.4f} | Time: {eval_time:.2f}s")
 
         # Validation (The Fitness Function)
         val_ce, _ = eval_model(model, valid_loader, config.vocab_size)
         log_message(f"[Result] Validation Score (CE): {val_ce:.4f}")
+
+        with open(RESULT_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                trial_id,
+                "ok",
+                clean_string,
+                f"{avg_efe:.6f}",
+                f"{avg_ppl:.6f}",
+                f"{avg_ce:.6f}",
+                f"{val_ce:.6f}",
+                f"{eval_time:.2f}"
+            ])
+
+        if val_ce < BEST_RECORD["val_ce"]:
+            BEST_RECORD.update({
+                "val_ce": val_ce,
+                "avg_ppl": avg_ppl,
+                "avg_efe": avg_efe,
+                "avg_ce": avg_ce,
+                "phenotype": clean_string,
+                "trial_id": trial_id
+            })
+            with open(BEST_FILE, "w") as f:
+                f.write(
+                    "Best Trial So Far\n"
+                    f"Trial ID: {trial_id}\n"
+                    f"Phenotype: {clean_string}\n"
+                    f"Validation CE: {val_ce:.6f}\n"
+                    f"Avg CE: {avg_ce:.6f}\n"
+                    f"Avg PPL: {avg_ppl:.6f}\n"
+                    f"Avg EFE: {avg_efe:.6f}\n"
+                    f"Elapsed: {eval_time:.2f}s\n"
+                )
         
         clean_memory()
         return float(val_ce)
 
     except KeyboardInterrupt:
         clean_memory()
+        with open(RESULT_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([trial_id, "keyboard_interrupt", clean_string, "", "", "", "", f"{time.time() - start_time:.2f}"])
         return 1e9
     except Exception as e:
         log_message(f"\n[!] ERROR in Trial: {e}")
         error_trace = traceback.format_exc()
         # log_message(error_trace) # Uncomment if you need deep debugging
         clean_memory()
+        with open(RESULT_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([trial_id, "exception", clean_string, "", "", "", "", f"{time.time() - start_time:.2f}"])
         return 1e9 
     finally:
         if model: del model
@@ -282,6 +354,60 @@ def objective_function(phenotype_string):
         except Exception:
             pass
         clean_memory()
+
+
+def generate_visualization(csv_path=RESULT_CSV, out_path="trial_metrics.png"):
+    if not Path(csv_path).exists():
+        log_message(f"[viz] No CSV found at {csv_path}; skipping plot.")
+        return
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        log_message("[viz] matplotlib not installed; skipping plot.")
+        return
+
+    trials = []
+    val_ce = []
+    avg_ppl = []
+    avg_efe = []
+    with open(csv_path, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row.get("status") != "ok":
+                continue
+            try:
+                trials.append(int(row["trial_id"]))
+                val_ce.append(float(row["val_ce"]))
+                avg_ppl.append(float(row["avg_ppl"]))
+                avg_efe.append(float(row["avg_efe"]))
+            except Exception:
+                continue
+
+    if not trials:
+        log_message("[viz] No successful trials to plot.")
+        return
+
+    best_idx = int(np.argmin(np.array(val_ce)))
+
+    fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
+    axes[0].plot(trials, val_ce, marker="o", label="Validation CE")
+    axes[0].scatter(trials[best_idx], val_ce[best_idx], color="red", label="Best")
+    axes[0].set_ylabel("Validation CE")
+    axes[0].legend()
+
+    axes[1].plot(trials, avg_ppl, marker="o", color="purple", label="Avg PPL")
+    axes[1].set_ylabel("Avg PPL")
+    axes[1].legend()
+
+    axes[2].plot(trials, avg_efe, marker="o", color="green", label="Avg EFE")
+    axes[2].set_ylabel("Avg EFE")
+    axes[2].set_xlabel("Trial ID")
+    axes[2].legend()
+
+    fig.suptitle("Trial Metrics")
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.savefig(out_path, dpi=200)
+    log_message(f"[viz] Saved visualization to {out_path}")
 
 # --- 4. The Genetic Algorithm Execution ---
 def main():
@@ -316,10 +442,20 @@ Optimization Success.
 Best Fitness (Validation CE): {best_ind.fitness:.5f}
 Best Parameters Found:
 {best_ind.phenotype}
+
+    Best Running Metrics Tracked:
+    Trial ID: {_fmt_metric(BEST_RECORD['trial_id'])}
+    Phenotype: {BEST_RECORD['phenotype'] or 'N/A'}
+    Validation CE: {_fmt_metric(BEST_RECORD['val_ce'])}
+    Avg CE: {_fmt_metric(BEST_RECORD['avg_ce'])}
+    Avg PPL: {_fmt_metric(BEST_RECORD['avg_ppl'])}
+    Avg EFE: {_fmt_metric(BEST_RECORD['avg_efe'])}
 """
         print(report)
         with open(RESULT_FILE, "w") as f:
             f.write(report)
+
+        generate_visualization()
             
     except KeyboardInterrupt:
         print("\nOptimization stopped manually.")

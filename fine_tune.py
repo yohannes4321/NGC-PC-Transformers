@@ -1,4 +1,5 @@
 import alogos as al
+import jax
 import jax.numpy as jnp
 from jax import random, clear_caches
 import numpy as np
@@ -29,6 +30,16 @@ def log_message(message, end="\n"):
     print(message, end=end, flush=True)
     with open(LOG_FILE, "a") as f:
         f.write(message + end)
+
+
+def clean_memory():
+    """Aggressively free JAX/device and host allocations."""
+    try:
+        clear_caches()
+        jax.block_until_ready(jnp.array(0))
+    except Exception:
+        pass
+    gc.collect()
 
 with open(LOG_FILE, "w") as f:
     f.write("=== New Search Session ===\n")
@@ -119,6 +130,7 @@ def objective_function(phenotype_string):
         # Reload Data with new Block Size
         loader = DataLoader(seq_len=seq_len, batch_size=curr_batch_size)
         train_loader, valid_loader, _ = loader.load_and_prepare_data()
+        clean_memory()
         
         # Initialize Model
         dkey = random.PRNGKey(int(time.time()))
@@ -185,6 +197,7 @@ def objective_function(phenotype_string):
             total_efe += batch_efe
             total_ppl += batch_ppl
             batch_count += 1
+            clean_memory()
 
         # Calculate Averages
         avg_efe = total_efe / batch_count if batch_count > 0 else 0
@@ -197,19 +210,26 @@ def objective_function(phenotype_string):
         val_ce, _ = eval_model(model, valid_loader, config.vocab_size)
         log_message(f"[Result] Validation Score (CE): {val_ce:.4f}")
         
+        clean_memory()
         return float(val_ce)
 
     except KeyboardInterrupt:
+        clean_memory()
         return 1e9
     except Exception as e:
         log_message(f"\n[!] ERROR in Trial: {e}")
         error_trace = traceback.format_exc()
         # log_message(error_trace) # Uncomment if you need deep debugging
+        clean_memory()
         return 1e9 
     finally:
         if model: del model
-        clear_caches()
-        gc.collect()
+        clean_memory()
+        try:
+            del loader, train_loader, valid_loader, train_iter
+        except Exception:
+            pass
+        clean_memory()
 
 # --- 4. The Genetic Algorithm Execution ---
 def main():

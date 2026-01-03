@@ -41,19 +41,39 @@ def clean_memory():
         pass
     gc.collect()
 
+
+def set_model_eta(model, eta_value):
+    """Best-effort setter to propagate eta to major submodules."""
+    def _try_set(obj):
+        if obj is not None and hasattr(obj, "eta"):
+            try:
+                obj.eta = eta_value
+            except Exception:
+                pass
+
+    _try_set(model)
+    for attr in ["embedding", "output", "projection"]:
+        _try_set(getattr(model, attr, None))
+    blocks = getattr(model, "blocks", []) or []
+    for blk in blocks:
+        _try_set(blk)
+        _try_set(getattr(blk, "attention", None))
+        _try_set(getattr(blk, "mlp", None))
+
 with open(LOG_FILE, "w") as f:
     f.write("=== New Search Session ===\n")
 
 # --- 2. Grammar Guided Search Space (CLEANED) ---
 # CRITICAL FIX: No comments (#) allowed inside this string!
 bnf_text = """
-<hparams>     ::= <arch_pair> "," <block_conf> "," <depth_conf> "," <steps> "," <learn_rate> "," <drop> "," <bounds>
+<hparams>     ::= <arch_pair> "," <block_conf> "," <depth_conf> "," <steps> "," <learn_rate> "," <drop> "," <warmup> "," <bounds>
 <arch_pair>   ::= "n_embed=64,n_heads=4" | "n_embed=128,n_heads=4" | "n_embed=128,n_heads=8" | "n_embed=256,n_heads=8"
 <block_conf>  ::= "block_size=64" | "block_size=128" | "block_size=256"
 <depth_conf>  ::= "n_layers=2" | "n_layers=4" | "n_layers=6"
 <steps>       ::= "T=5" | "T=10"
 <learn_rate>  ::= "eta=0.001" | "eta=0.0005" | "eta=0.0001"
 <drop>        ::= "dropout=0.1" | "dropout=0.2" | "dropout=0.3"
+<warmup>      ::= "warmup_epochs=1" | "warmup_epochs=2" | "warmup_epochs=3" | "warmup_epochs=5"
 <bounds>      ::= "wlb=-0.05,wub=0.05" | "wlb=-0.02,wub=0.02"
 """
 
@@ -104,6 +124,7 @@ def objective_function(phenotype_string):
         dropout = float(params['dropout'])
         wlb = float(params['wlb'])
         wub = float(params['wub'])
+        warmup_epochs = int(params['warmup_epochs'])
 
     except Exception as e:
         # If parsing fails, print exactly why so we don't get silent "0.0 runtime"
@@ -138,6 +159,7 @@ def objective_function(phenotype_string):
     
     curr_batch_size = get_dynamic_batch_size(n_embed, seq_len)
     log_message(f" >> Dynamic Sizing: Seq_Len={seq_len} | Embed={n_embed} -> Batch_Size={curr_batch_size}")
+    log_message(f" >> Warmup Epochs: {warmup_epochs}")
 
     # Sync global config so downstream components relying on it stay consistent with tuned params
     config.seq_len = seq_len
@@ -184,6 +206,8 @@ def objective_function(phenotype_string):
         total_ppl = 0.0
         batch_count = 0
         max_batches_per_trial = 20 
+        warmup_steps = max(1, warmup_epochs)
+        warmup_factors = np.linspace(0.1, 1.0, warmup_steps)
         
         train_iter = iter(train_loader)
         
@@ -192,6 +216,14 @@ def objective_function(phenotype_string):
                 batch = next(train_iter)
             except StopIteration:
                 break
+
+            # Linear warmup on eta: 10% -> 100%
+            if i < warmup_steps:
+                eta_scale = float(warmup_factors[i])
+            else:
+                eta_scale = 1.0
+            effective_eta = eta * eta_scale
+            set_model_eta(model, effective_eta)
 
             inputs = batch[0][1] 
             targets = batch[1][1]

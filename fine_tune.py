@@ -54,7 +54,7 @@ bnf_text = """
 <steps>       ::= "T=5" | "T=10" | "T=15"
 <learn_rate>  ::= "eta=0.001" | "eta=0.0005" | "eta=0.0001"
 <drop>        ::= "dropout=0.1" | "dropout=0.2" | "dropout=0.3"
-<bounds>      ::= "wlb=-0.05,wub=0.05"
+<bounds>      ::= "wlb=-0.2,wub=0.2" | "wlb=-0.1,wub=0.1" | "wlb=-0.05,wub=0.05" | "wlb=-0.02,wub=0.02"
 """
 
 def get_dynamic_batch_size(n_embed, block_size):
@@ -62,15 +62,17 @@ def get_dynamic_batch_size(n_embed, block_size):
     Calculates batch size to maintain constant memory usage.
     """
     complexity_score = n_embed * block_size
-    
-    if complexity_score >= 32000:  
+    # More conservative sizing to avoid OOM seen in prior runs
+    if complexity_score >= 32000:
         return 8
-    elif complexity_score >= 16000: 
+    elif complexity_score >= 20000:
+        return 12
+    elif complexity_score >= 12000:
         return 16
-    elif complexity_score >= 8000: 
-        return 32
+    elif complexity_score >= 6000:
+        return 24
     else:
-        return 64
+        return 32
 
 # --- 3. The Objective Function (The "Trial") ---
 def objective_function(phenotype_string):
@@ -112,6 +114,15 @@ def objective_function(phenotype_string):
     if n_embed % n_heads != 0:
         log_message(f"[!] Invalid Config: n_embed ({n_embed}) not divisible by n_heads ({n_heads}). Skipping trial.")
         return 1e9
+    if wlb >= wub:
+        log_message(f"[!] Invalid Bounds: wlb ({wlb}) must be < wub ({wub}). Skipping trial.")
+        return 1e9
+    # Clip bounds to a safe envelope to prevent extreme init leading to NaNs
+    safe_wlb = max(wlb, -0.25)
+    safe_wub = min(wub, 0.25)
+    if (safe_wlb != wlb) or (safe_wub != wub):
+        log_message(f"[i] Bounds clipped to safe range: wlb={safe_wlb}, wub={safe_wub}")
+    wlb, wub = safe_wlb, safe_wub
 
     log_message(f"\n" + "="*60)
     log_message(f"[Trial Start] Config: {clean_string}")

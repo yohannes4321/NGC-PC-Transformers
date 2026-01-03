@@ -51,10 +51,10 @@ bnf_text = """
 <arch_pair>   ::= "n_embed=64,n_heads=4" | "n_embed=128,n_heads=4" | "n_embed=128,n_heads=8" | "n_embed=256,n_heads=8"
 <block_conf>  ::= "block_size=64" | "block_size=128" | "block_size=256"
 <depth_conf>  ::= "n_layers=2" | "n_layers=4" | "n_layers=6"
-<steps>       ::= "T=5" | "T=10" | "T=15" | "T=20"
+<steps>       ::= "T=5" | "T=10"
 <learn_rate>  ::= "eta=0.001" | "eta=0.0005" | "eta=0.0001"
 <drop>        ::= "dropout=0.1" | "dropout=0.2" | "dropout=0.3"
-<bounds>      ::= "wlb=-0.2,wub=0.2" | "wlb=-0.1,wub=0.1" | "wlb=-0.5,wub=0.5" | "wlb=-0.02,wub=0.02"
+<bounds>      ::= "wlb=-0.05,wub=0.05" | "wlb=-0.02,wub=0.02"
 """
 
 def get_dynamic_batch_size(n_embed, block_size):
@@ -64,15 +64,15 @@ def get_dynamic_batch_size(n_embed, block_size):
     complexity_score = n_embed * block_size
     # More conservative sizing to avoid OOM seen in prior runs
     if complexity_score >= 32000:
-        return 8
+        return 4
     elif complexity_score >= 20000:
-        return 12
+        return 8
     elif complexity_score >= 12000:
-        return 16
+        return 12
     elif complexity_score >= 6000:
-        return 24
+        return 16
     else:
-        return 32
+        return 24
 
 # --- 3. The Objective Function (The "Trial") ---
 def objective_function(phenotype_string):
@@ -117,12 +117,21 @@ def objective_function(phenotype_string):
     if wlb >= wub:
         log_message(f"[!] Invalid Bounds: wlb ({wlb}) must be < wub ({wub}). Skipping trial.")
         return 1e9
-    # Clip bounds to a safe envelope to prevent extreme init leading to NaNs
-    safe_wlb = max(wlb, -0.25)
-    safe_wub = min(wub, 0.25)
+    # Clip bounds to a tighter envelope to prevent extreme init leading to NaNs
+    safe_wlb = max(wlb, -0.08)
+    safe_wub = min(wub, 0.08)
     if (safe_wlb != wlb) or (safe_wub != wub):
         log_message(f"[i] Bounds clipped to safe range: wlb={safe_wlb}, wub={safe_wub}")
     wlb, wub = safe_wlb, safe_wub
+
+    # Stability adjustments for large/long configs
+    if seq_len >= 128 or n_layers >= 4 or n_embed >= 128:
+        if T > 10:
+            log_message(f"[i] T reduced from {T} to 10 for stability")
+            T = 10
+        if eta > 0.0005:
+            log_message(f"[i] eta reduced from {eta} to 0.0005 for stability")
+            eta = 0.0005
 
     log_message(f"\n" + "="*60)
     log_message(f"[Trial Start] Config: {clean_string}")

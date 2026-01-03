@@ -93,7 +93,7 @@ bnf_text = """
 <learn_rate>  ::= "eta=0.001" | "eta=0.0005" | "eta=0.0001"
 <drop>        ::= "dropout=0.1" | "dropout=0.2" | "dropout=0.3"
 <warmup>      ::= "warmup_epochs=1" | "warmup_epochs=2" | "warmup_epochs=3" | "warmup_epochs=5"
-<bounds>      ::= "wlb=-0.05,wub=0.05" | "wlb=-0.5,wub=0.5" | "wlb=-0.2,wub=0.2" 
+<bounds>      ::= "wlb=-0.05,wub=0.05" | "wlb=-0.02,wub=0.02" | "wlb=-0.2,wub=0.2" 
 """
 
 def get_dynamic_batch_size(n_embed, block_size):
@@ -168,20 +168,20 @@ def objective_function(phenotype_string):
             writer.writerow([trial_id, "invalid_bounds", clean_string, "", "", "", "", f"{time.time() - start_time:.2f}"])
         return 1e9
     # Clip bounds to a tighter envelope to prevent extreme init leading to NaNs
-    safe_wlb = max(wlb, -0.08)
-    safe_wub = min(wub, 0.08)
+    safe_wlb = max(wlb, -0.05)
+    safe_wub = min(wub, 0.05)
     if (safe_wlb != wlb) or (safe_wub != wub):
         log_message(f"[i] Bounds clipped to safe range: wlb={safe_wlb}, wub={safe_wub}")
     wlb, wub = safe_wlb, safe_wub
 
     # Stability adjustments for large/long configs
     if seq_len >= 128 or n_layers >= 4 or n_embed >= 128:
-        if T > 10:
-            log_message(f"[i] T reduced from {T} to 10 for stability")
-            T = 10
-        if eta > 0.0005:
-            log_message(f"[i] eta reduced from {eta} to 0.0005 for stability")
-            eta = 0.0005
+        if T > 5:
+            log_message(f"[i] T reduced from {T} to 5 for stability")
+            T = 5
+    if eta > 0.0005:
+        log_message(f"[i] eta reduced from {eta} to 0.0005 for stability")
+        eta = 0.0005
 
     log_message(f"\n" + "="*60)
     log_message(f"[Trial Start] Config: {clean_string}")
@@ -235,7 +235,7 @@ def objective_function(phenotype_string):
         total_ppl = 0.0
         total_ce = 0.0
         batch_count = 0
-        max_batches_per_trial = 20 
+        max_batches_per_trial = 6 
         warmup_steps = max(1, warmup_epochs)
         warmup_factors = np.linspace(0.1, 1.0, warmup_steps)
         
@@ -273,6 +273,10 @@ def objective_function(phenotype_string):
             batch_ce = float(measure_CatNLL(y_pred, targets_flat).mean())
             batch_ppl = float(np.exp(batch_ce))
             batch_efe = float(_EFE)
+
+            if batch_ce > 12.0 or batch_ppl > 1e4:
+                log_message(f" [!] Trial Aborted: CE={batch_ce:.4f}, PPL={batch_ppl:.2f} exceeds threshold")
+                return 1e9
             
             log_message(f" {i:<6} | {batch_efe:<14.4f} | {batch_ppl:<12.2f} | {batch_ce:<12.4f}")
             

@@ -174,14 +174,7 @@ def objective_function(phenotype_string):
         log_message(f"[i] Bounds clipped to safe range: wlb={safe_wlb}, wub={safe_wub}")
     wlb, wub = safe_wlb, safe_wub
 
-    # Stability adjustments for large/long configs
-    if seq_len >= 128 or n_layers >= 4 or n_embed >= 128:
-        if T > 5:
-            log_message(f"[i] T reduced from {T} to 5 for stability")
-            T = 5
-    if eta > 0.0005:
-        log_message(f"[i] eta reduced from {eta} to 0.0005 for stability")
-        eta = 0.0005
+    # Optional: adjust hyperparams for extreme configs (disabled per user request)
 
     log_message(f"\n" + "="*60)
     log_message(f"[Trial Start] Config: {clean_string}")
@@ -235,7 +228,7 @@ def objective_function(phenotype_string):
         total_ppl = 0.0
         total_ce = 0.0
         batch_count = 0
-        max_batches_per_trial = 6 
+        max_batches_per_trial = 20 
         warmup_steps = max(1, warmup_epochs)
         warmup_factors = np.linspace(0.1, 1.0, warmup_steps)
         
@@ -274,9 +267,6 @@ def objective_function(phenotype_string):
             batch_ppl = float(np.exp(batch_ce))
             batch_efe = float(_EFE)
 
-            if batch_ce > 12.0 or batch_ppl > 1e4:
-                log_message(f" [!] Trial Aborted: CE={batch_ce:.4f}, PPL={batch_ppl:.2f} exceeds threshold")
-                return 1e9
             
             log_message(f" {i:<6} | {batch_efe:<14.4f} | {batch_ppl:<12.2f} | {batch_ce:<12.4f}")
             

@@ -93,7 +93,7 @@ bnf_text = """
 <learn_rate>  ::= "eta=0.001" | "eta=0.0005" | "eta=0.0001"
 <drop>        ::= "dropout=0.1" | "dropout=0.2" | "dropout=0.3"
 <warmup>      ::= "warmup_epochs=1" | "warmup_epochs=2" | "warmup_epochs=3" | "warmup_epochs=5"
-<bounds>      ::= "wlb=-0.05,wub=0.05" | "wlb=-0.02,wub=0.02"
+<bounds>      ::= "wlb=-0.05,wub=0.05" | "wlb=-0.5,wub=0.5" | "wlb=-0.1,wub=0.1" | "wlb=-0.2,wub=0.2" 
 """
 
 def get_dynamic_batch_size(n_embed, block_size):

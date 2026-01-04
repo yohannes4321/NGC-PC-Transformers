@@ -21,11 +21,12 @@ class Output:
         vocab_size: Vocabulary size
         eta: Learning rate for Hebbian synapses
     """
-     def __init__(self, dkey, n_embed, seq_len, batch_size, vocab_size, eta, optim_type, wub, wlb, tau_m,  **kwargs):
+     def __init__(self, dkey, n_embed, seq_len, batch_size, vocab_size, eta, optim_type, wub, wlb, tau_m,act_fx  **kwargs):
      
         dkey, *subkeys = random.split(dkey, 10)
       
-        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=tau_m, act_fx="identity", batch_size=batch_size * seq_len)
+        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),
+                    integration_type="euler")
         
         self.W_out = HebbianSynapse(
                     "W_out", shape=(n_embed, vocab_size), batch_size= batch_size * seq_len, eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),

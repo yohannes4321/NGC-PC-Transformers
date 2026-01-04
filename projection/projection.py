@@ -34,7 +34,7 @@ class Projection():
                           eta=eta,
                           optim_type=optim_type,
                           wub=wub,
-                          wlb=wlb)
+                          wlb=wlb,act_fx=act_fx)
             self.blocks.append(block)       
         
         self.Q_out = StaticSynapse("Q_out", shape=(n_embed, vocab_size),  bias_init=dist.constant(value=0.), key=subkeys[12])

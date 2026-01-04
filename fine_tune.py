@@ -85,7 +85,7 @@ if not Path(RESULT_CSV).exists() or Path(RESULT_CSV).stat().st_size == 0:
 # --- 2. Grammar Guided Search Space (CLEANED) ---
 # CRITICAL FIX: No comments (#) allowed inside this string!
 bnf_text = """
-<hparams>     ::= <arch_pair> "," <block_conf> "," <depth_conf> "," <steps> "," <learn_rate> "," <drop> "," <warmup> "," <bounds>
+<hparams>     ::= <arch_pair> "," <block_conf> "," <depth_conf> "," <steps> "," <learn_rate> "," <drop> "," <warmup> "," <bounds> "," <tau_m> "," <act_fx>
 <arch_pair>   ::= "n_embed=64,n_heads=4" | "n_embed=128,n_heads=4" | "n_embed=128,n_heads=8" | "n_embed=256,n_heads=8"
 <block_conf>  ::= "block_size=64" | "block_size=128" | "block_size=256"
 <depth_conf>  ::= "n_layers=2" | "n_layers=4" | "n_layers=6"
@@ -94,6 +94,8 @@ bnf_text = """
 <drop>        ::= "dropout=0.1" | "dropout=0.2" | "dropout=0.3"
 <warmup>      ::= "warmup_epochs=1" | "warmup_epochs=2" | "warmup_epochs=3" | "warmup_epochs=5"
 <bounds>      ::= "wlb=-0.05,wub=0.05" | "wlb=-0.02,wub=0.02" | "wlb=-0.01,wub=0.01"
+<tau_m>       ::= "tau_m=25" | "tau_m=10" | "tau_m=20"
+<act_fx>      ::= "act_fx=tanh" | "act_fx=softplus" | "act_fx=identity"
 """
 
 def get_dynamic_batch_size(n_embed, block_size):
@@ -145,6 +147,8 @@ def objective_function(phenotype_string):
         wlb = float(params['wlb'])
         wub = float(params['wub'])
         warmup_epochs = int(params['warmup_epochs'])
+        tau_m = float(params['tau_m'])
+        act_fx = str(params['act_fx'])
 
     except Exception as e:
         # If parsing fails, print exactly why so we don't get silent "0.0 runtime"
@@ -160,6 +164,19 @@ def objective_function(phenotype_string):
         with open(RESULT_CSV, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([trial_id, "invalid_config", clean_string, "", "", "", "", f"{time.time() - start_time:.2f}"])
+        return 1e9
+    if tau_m <= 0:
+        log_message(f"[!] Invalid tau_m ({tau_m}); must be > 0. Skipping trial.")
+        with open(RESULT_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([trial_id, "invalid_tau_m", clean_string, "", "", "", "", f"{time.time() - start_time:.2f}"])
+        return 1e9
+    allowed_act_fx = {"tanh", "softplus", "identity"}
+    if act_fx not in allowed_act_fx:
+        log_message(f"[!] Invalid act_fx ({act_fx}); must be one of {sorted(allowed_act_fx)}. Skipping trial.")
+        with open(RESULT_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([trial_id, "invalid_act_fx", clean_string, "", "", "", "", f"{time.time() - start_time:.2f}"])
         return 1e9
     if wlb >= wub:
         log_message(f"[!] Invalid Bounds: wlb ({wlb}) must be < wub ({wub}). Skipping trial.")
@@ -182,12 +199,15 @@ def objective_function(phenotype_string):
     curr_batch_size = get_dynamic_batch_size(n_embed, seq_len)
     log_message(f" >> Dynamic Sizing: Seq_Len={seq_len} | Embed={n_embed} -> Batch_Size={curr_batch_size}")
     log_message(f" >> Warmup Epochs: {warmup_epochs}")
+    log_message(f" >> tau_m={tau_m} | act_fx={act_fx}")
 
     # Sync global config so downstream components relying on it stay consistent with tuned params
     config.seq_len = seq_len
     config.batch_size = curr_batch_size
     config.n_embed = n_embed
     config.n_heads = n_heads
+    config.tau_m = tau_m
+    config.act_fx = act_fx
 
     model = None
     try:
@@ -208,8 +228,8 @@ def objective_function(phenotype_string):
             n_heads=n_heads,
             T=T, 
             dt=1.0, 
-            tau_m=config.tau_m, 
-            act_fx=config.act_fx, 
+            tau_m=tau_m, 
+            act_fx=act_fx, 
             eta=eta,
             dropout_rate=dropout, 
             pos_learnable=config.pos_learnable,
@@ -228,7 +248,7 @@ def objective_function(phenotype_string):
         total_ppl = 0.0
         total_ce = 0.0
         batch_count = 0
-        max_batches_per_trial = 20 
+        max_batches_per_trial = 10
         warmup_steps = max(1, warmup_epochs)
         warmup_factors = np.linspace(0.1, 1.0, warmup_steps)
         
@@ -414,7 +434,7 @@ def main():
         objective_function, 
         'min', 
         population_size=6,   
-        max_generations=3,    
+        max_generations=4,    
         verbose=True
     )
     

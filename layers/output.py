@@ -21,7 +21,7 @@ class Output:
         vocab_size: Vocabulary size
         eta: Learning rate for Hebbian synapses
     """
-     def __init__(self, dkey, n_embed, seq_len, batch_size, vocab_size, eta, optim_type, wub, wlb, tau_m,act_fx  **kwargs):
+     def __init__(self, dkey, n_embed, seq_len, batch_size, vocab_size, eta, optim_type, wub, wlb, tau_m,act_fx, **kwargs):
      
         dkey, *subkeys = random.split(dkey, 10)
       

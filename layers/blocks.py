@@ -23,7 +23,7 @@ class Block:
                                  batch_size=batch_size, n_heads=n_heads,
                                  dropout_rate=dropout_rate, eta=eta, optim_type= optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m,act_fx=act_fx)
         self.mlp = MLP(dkey=mlp_key, n_embed=n_embed, seq_len=seq_len,
-                      batch_size=batch_size, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m)
+                      batch_size=batch_size, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m,act_fx=act_fx)
         self.rms_norm = rms_normalize 
         
         self.reshape_2d_to_3d_q = ReshapeComponent(f"{prefix}reshape_2d_to_3d_q",

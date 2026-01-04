@@ -13,8 +13,8 @@ class Config:
     exp_dir = "exp" 
     pos_learnable = True
     optim_type = "adam"
-    num_iter = 3
-    n_iter= 20
+    num_iter = 1
+    n_iter= 10
     # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
     wub = 0.05
     wlb = -0.05

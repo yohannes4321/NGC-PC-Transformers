@@ -413,8 +413,8 @@ def main():
         grammar, 
         objective_function, 
         'min', 
-        population_size=10,   
-        max_generations=5,    
+        population_size=6,   
+        max_generations=3,    
         verbose=True
     )
     

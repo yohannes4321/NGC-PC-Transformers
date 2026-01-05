@@ -267,10 +267,17 @@ def objective_function(trial):
         # Or return high penalty:
         # return 1e9
 
-    params_str = str(trial.params) if hasattr(trial, 'params') else "Discovery_Mode"
+    if getattr(trial, "recording_mode", False):
+        params_str = "DISCOVERY_RECORDING"
+    else:
+        params_str = str(trial.params) if hasattr(trial, "params") else "Discovery_Mode"
 
     log_message(f"\n" + "="*60)
     log_message(f"[Trial {trial_id}] Params: {params_str}")
+
+    if getattr(trial, "recording_mode", False):
+        log_message("[Discovery] Search space recorded; skipping execution.")
+        return 0.0
 
     curr_batch_size = get_dynamic_batch_size(n_embed, block_size)
     
@@ -370,7 +377,9 @@ def objective_function(trial):
 
         # Validation (The Fitness Function)
         val_ce, _ = eval_model(model, valid_loader, config.vocab_size)
-        log_message(f"[Result] Validation Score (CE): {val_ce:.4f}")
+        log_message(
+            f"[Metrics] avg_efe={avg_efe:.4f} | avg_ppl={avg_ppl:.4f} | avg_ce={avg_ce:.4f} | val_cl={val_ce:.4f} | time_sec={eval_time:.2f}"
+        )
 
         # Record CSV
         with open(RESULT_CSV, "a", newline="") as f:
@@ -392,7 +401,16 @@ def objective_function(trial):
                 "trial_id": trial_id
             })
             with open(BEST_FILE, "w") as f:
-                f.write(f"Best Trial ID: {trial_id}\nParams: {params_str}\nVal CE: {val_ce}")
+                f.write(
+                    "\n".join([
+                        f"Best Trial ID: {trial_id}",
+                        f"Params: {params_str}",
+                        f"Best CL (val_ce): {val_ce:.4f}",
+                        f"Avg CE: {avg_ce:.4f}",
+                        f"Avg PPL: {avg_ppl:.4f}",
+                        f"Avg EFE: {avg_efe:.4f}",
+                    ])
+                )
 
         return float(val_ce)
 
@@ -433,6 +451,12 @@ def main():
         log_message("OPTIMIZATION COMPLETED")
         log_message(f"Best Params: {best_params}")
         log_message(f"Best Score: {best_score}")
+        if BEST_RECORD["trial_id"] is not None:
+            log_message(
+                f"Best Trial {BEST_RECORD['trial_id']} | CL (val_ce)={BEST_RECORD['val_ce']:.4f} "
+                f"| avg_ce={BEST_RECORD['avg_ce']:.4f} | avg_ppl={BEST_RECORD['avg_ppl']:.4f} "
+                f"| avg_efe={BEST_RECORD['avg_efe']:.4f}"
+            )
         log_message("#"*50)
             
     except KeyboardInterrupt:

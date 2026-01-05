@@ -9,15 +9,14 @@ from config import Config as config
 
 class DataLoader:
     def __init__(self, data_dir= DIR / "outputs" / "tokenized_data", seq_len=config.seq_len, batch_size=config.batch_size,
-                 train_sample_size=None, valid_sample_size=None, test_sample_size=None):
+                 train_sample_size=3000,valid_sample_size=2000,test_sample_size=1000):
         self.data_dir = Path(data_dir)
         self.seq_len = seq_len
         self.batch_size = batch_size
         self.pad_token = 0
-        # Use provided sample caps; set to None to use the full dataset.
-        self.train_sample_size = train_sample_size
-        self.valid_sample_size = valid_sample_size
-        self.test_sample_size = test_sample_size
+        self.train_sample_size = 3000
+        self.valid_sample_size = 2000
+        self.test_sample_size = 1000
 
     def load_and_prepare_data(self):
         """Load tokenized data and prepare for training"""

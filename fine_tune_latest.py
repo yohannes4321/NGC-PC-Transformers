@@ -46,24 +46,6 @@ def clean_memory():
         pass
     gc.collect()
 
-def set_model_eta(model, eta_value):
-    """Best-effort setter to propagate eta to major submodules."""
-    def _try_set(obj):
-        if obj is not None and hasattr(obj, "eta"):
-            try:
-                obj.eta = eta_value
-            except Exception:
-                pass
-
-    _try_set(model)
-    for attr in ["embedding", "output", "projection"]:
-        _try_set(getattr(model, attr, None))
-    blocks = getattr(model, "blocks", []) or []
-    for blk in blocks:
-        _try_set(blk)
-        _try_set(getattr(blk, "attention", None))
-        _try_set(getattr(blk, "mlp", None))
-
 # --- 2. Custom Evolutionary Algorithm (The "Shim" to replace Alogos/Grammar) ---
 
 class EvoTrial:
@@ -248,9 +230,6 @@ def objective_function(trial):
     # Regularization
     wlb = trial.suggest_float("wlb", -0.05, -0.01)
     wub = trial.suggest_float("wub", 0.01, 0.05)
-    
-    # Training schedule
-    warmup_epochs = trial.suggest_int("warmup_epochs", 1, 5)
 
     # Predictive coding / dynamics
     tau_m = trial.suggest_float("tau_m", 5.0, 50.0)
@@ -322,12 +301,10 @@ def objective_function(trial):
 
         # Training Loop
         total_efe = 0.0
-        total_ppl = 0.0
-        total_ce = 0.0
+        ce_weighted_sum = 0.0
+        token_count_total = 0
         batch_count = 0
         max_batches_per_trial = 10
-        warmup_steps = max(1, warmup_epochs)
-        warmup_factors = np.linspace(0.1, 1.0, warmup_steps)
         
         train_iter = iter(train_loader)
         
@@ -337,13 +314,7 @@ def objective_function(trial):
             except StopIteration:
                 break
 
-            # Linear warmup on eta
-            if i < warmup_steps:
-                eta_scale = float(warmup_factors[i])
-            else:
-                eta_scale = 1.0
-            effective_eta = eta * eta_scale
-            set_model_eta(model, effective_eta)
+            # eta is fixed; optimizer handles scheduling
 
             inputs = batch[0][1] 
             targets = batch[1][1]
@@ -360,19 +331,23 @@ def objective_function(trial):
                 return 1e9 
                 
             batch_ce = float(measure_CatNLL(y_pred, targets_flat).mean())
-            batch_ppl = float(np.exp(batch_ce))
             batch_efe = float(_EFE)
             
             total_efe += batch_efe
-            total_ppl += batch_ppl
-            total_ce += batch_ce
+            token_count = targets_flat.shape[0]
+            ce_weighted_sum += batch_ce * token_count
+            token_count_total += token_count
             batch_count += 1
             clean_memory()
 
         # Calculate Averages
-        avg_efe = total_efe / batch_count if batch_count > 0 else 0
-        avg_ppl = total_ppl / batch_count if batch_count > 0 else 0
-        avg_ce = total_ce / batch_count if batch_count > 0 else 0
+        if batch_count == 0 or token_count_total == 0:
+            log_message(" [!] Trial had no batches; skipping with penalty.")
+            return 1e9
+
+        avg_efe = total_efe / batch_count
+        avg_ce = ce_weighted_sum / token_count_total
+        avg_ppl = float(math.exp(avg_ce))
         eval_time = time.time() - start_time
 
         # Validation (The Fitness Function)

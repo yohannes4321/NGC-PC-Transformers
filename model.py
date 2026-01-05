@@ -52,8 +52,9 @@ class NGCTransformer:
         self.nodes = None
         self.n_layers = n_layers
         self.T = T
-        makedir(exp_dir)
-        makedir(exp_dir + "/filters")
+        if exp_dir is not None:
+            makedir(exp_dir)
+            makedir(exp_dir + "/filters")
 
         dkey, *subkeys = random.split(dkey, 50)
        

@@ -101,9 +101,9 @@ class AttentionBlock(JaxComponent):
         inputs_k=self.inputs_k.get()
         inputs_v=self.inputs_v.get()
         mask=self.mask.get()
-        n_heads=self.n_heads.get()
-        d_head=self.d_head.get()
-        dropout_rate=self.dropout_rate.get()
+        n_heads=self.n_heads
+        d_head=self.d_head
+        dropout_rate=self.dropout_rate
         key=self.key.get()
         attention = _compute_attention(
             inputs_q, inputs_k, inputs_v, mask, n_heads, d_head, dropout_rate, key
@@ -115,9 +115,9 @@ class AttentionBlock(JaxComponent):
         """
         Reset compartments to zeros
         """
-        batch_size=self.batch_size.get()
-        seq_len=self.seq_len.get()
-        n_embed=self.n_embed.get()
+        batch_size=self.batch_size
+        seq_len=self.seq_len
+        n_embed=self.n_embed
         zeros_3d = jnp.zeros((batch_size, seq_len, n_embed))
         mask = jnp.zeros((batch_size, seq_len, seq_len), dtype=bool)
         # return zeros_3d, zeros_3d, zeros_3d, mask, zeros_3d

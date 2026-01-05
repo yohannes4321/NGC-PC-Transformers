@@ -12,19 +12,15 @@ import traceback
 from itertools import count
 from pathlib import Path
 from config import Config as config
-
+from model import NGCTransformer
+from ngclearn.utils.metric_utils import measure_CatNLL
+from data_preprocess.data_loader import DataLoader
+from eval import eval_model
 # --- 1. Environment & Setup ---
 os.environ["PYTHONUNBUFFERED"] = "1"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-try:
-    from model import NGCTransformer
-    from ngclearn.utils.metric_utils import measure_CatNLL
-    from data_preprocess.data_loader import DataLoader
-    from eval import eval_model
-except ImportError as e:
-    print(f"Import Error: {e}. Check project path.")
-    sys.exit(1)
+
 
 LOG_FILE = "search_progress.log"
 RESULT_FILE = "tuning_results.txt"

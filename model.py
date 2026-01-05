@@ -70,7 +70,7 @@ class NGCTransformer:
                     
             self.output = Output(dkey=subkeys[3], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size, vocab_size=vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m,act_fx=act_fx)
                 
-            self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="identity", batch_size=batch_size * seq_len) 
+            self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="softmax", batch_size=batch_size * seq_len) 
             self.z_actfx= RateCell("z_actfx", n_units= vocab_size, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),
                     integration_type="euler")
             self.projection = Projection(dkey=subkeys[29], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size,

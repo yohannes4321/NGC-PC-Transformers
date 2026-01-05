@@ -104,7 +104,7 @@ class AttentionBlock(JaxComponent):
         n_heads=self.n_heads
         d_head=self.d_head
         dropout_rate=self.dropout_rate
-        key=self.key.get()
+        key=self.key
         attention = _compute_attention(
             inputs_q, inputs_k, inputs_v, mask, n_heads, d_head, dropout_rate, key
         )

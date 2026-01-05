@@ -52,6 +52,11 @@ class NGCTransformer:
         self.nodes = None
         self.n_layers = n_layers
         self.T = T
+        self.batch_size= batch_size
+        self.seq_len= seq_len
+        self.vocab_size= vocab_size
+        self.n_embed= n_embed
+        
         if exp_dir is not None:
             makedir(exp_dir)
             makedir(exp_dir + "/filters")
@@ -60,31 +65,31 @@ class NGCTransformer:
        
         with Context("Circuit") as self.circuit:
                 
-            self.embedding = EMBEDDING(dkey=subkeys[0], vocab_size=vocab_size, seq_len=seq_len, embed_dim=n_embed, batch_size=batch_size, pos_learnable=pos_learnable, eta=eta, optim_type=optim_type)
+            self.embedding = EMBEDDING(dkey=subkeys[0], vocab_size=self.vocab_size, seq_len=self.seq_len, embed_dim=self.n_embed, batch_size=self.batch_size, pos_learnable=pos_learnable, eta=eta, optim_type=optim_type)
                 
             self.blocks = []
             for i in range(n_layers):
                 key, subkey = random.split(subkeys[1 + i])
-                block=Block(dkey=subkey, block_id= i, n_embed=n_embed, seq_len=seq_len,
-                                batch_size=batch_size, vocab_size=vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m)
+                block=Block(dkey=subkey, block_id= i, n_embed=self.n_embed, seq_len=self.seq_len,
+                                batch_size=self.batch_size, vocab_size=self.vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m)
                 self.blocks.append(block)   
                     
-            self.output = Output(dkey=subkeys[3], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size, vocab_size=vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
+            self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
                 
-            self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="identity", batch_size=batch_size * seq_len) 
-            self.z_actfx= RateCell("z_actfx", n_units= vocab_size, tau_m=0., act_fx="softmax", batch_size=batch_size * seq_len)
-            self.projection = Projection(dkey=subkeys[29], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size,
-                                             vocab_size=vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate)
+            self.z_target=RateCell("z_target", n_units= self.vocab_size, tau_m=0., act_fx="identity", batch_size=self.batch_size * self.seq_len) 
+            self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=0., act_fx="softmax", batch_size=self.batch_size * self.seq_len)
+            self.projection = Projection(dkey=subkeys[29], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size,
+                                             vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate)
             self.reshape_4d_to_2d = ReshapeComponent("reshape_4d_to_2d",
-                                            input_shape=(batch_size, seq_len, n_embed, 1),
-                                            output_shape=(batch_size * seq_len, n_embed))
+                                            input_shape=(self.batch_size, self.seq_len, self.n_embed, 1),
+                                            output_shape=(self.batch_size * self.seq_len, self.n_embed))
                 
             self.reshape_3d_to_2d_embed = ReshapeComponent("reshape_3d_to_2d_embed",
-                                            input_shape=(batch_size, seq_len, n_embed),
-                                            output_shape=(batch_size * seq_len, n_embed))
+                                            input_shape=(self.batch_size, self.seq_len, self.n_embed),
+                                            output_shape=(self.batch_size * self.seq_len, self.n_embed))
             self.reshape_2d_to_3d_embed= ReshapeComponent("reshape_2d_to_3d_embed",
-                                            input_shape=(batch_size * seq_len, n_embed),
-                                            output_shape=(batch_size, seq_len, n_embed))
+                                            input_shape=(self.batch_size * self.seq_len, self.n_embed),
+                                            output_shape=(self.batch_size, self.seq_len, self.n_embed))
                 
                 
         if loadDir is not None:
@@ -476,8 +481,6 @@ class NGCTransformer:
 
     def process(self, obs, lab, adapt_synapses=True):
         
-   
-     
         self.reset.run()
         self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
         if self.embedding.W_embed.pos_learnable:
@@ -510,7 +513,7 @@ class NGCTransformer:
   
         self.projection.Q_out.weights.set(self.output.W_out.weights.get())
         self.projection.Q_out.biases.set(self.output.W_out.biases.get())
-        self.projection.q_target_Ratecell.j_td.set(jnp.zeros((config.batch_size * config.seq_len, config.vocab_size)))
+        self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
         
        
 

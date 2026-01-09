@@ -8,7 +8,7 @@ from eval import eval_model
 def main():
     seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.n_iter, config.optim_type
     pos_learnable= config.pos_learnable
-    num_iter= config.num_iter
+    epoch= config.epoch
     wub= config.wub 
     wlb= config.wlb
     eta = config.eta
@@ -46,7 +46,7 @@ def main():
         ce_loss = total_nll / total_tokens
         return ce_loss, jnp.exp(ce_loss)
 
-    for i in range(num_iter):
+    for i in range(epoch):
         train_EFE = 0.
         total_batches = 0
         
@@ -79,7 +79,7 @@ def main():
         
         dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
-        if  i == (num_iter-1):
+        if  i == (epoch-1):
           model.save_to_disk(params_only=False) # save final state of model to disk
 
    

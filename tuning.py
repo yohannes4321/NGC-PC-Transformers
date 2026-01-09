@@ -5,12 +5,6 @@ import jax.numpy as jnp
 import jax.random as random
 from pathlib import Path
 import os
-# Force CPU and clean CUDA environment
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-# os.environ['JAX_PLATFORM_NAME'] = 'gpu'
-# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3' 
 from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
 from eval import eval_model
@@ -22,8 +16,9 @@ EFE_STABILITY_THRESHOLD = 2e1
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
     n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 32, step=4)
+    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
     n_embed =  n_heads * embed_mult
+    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
     batch_size = trial.suggest_int("batch_size", 2, 12)
     seq_len = trial.suggest_int("seq_len", 8, 32)
 
@@ -37,7 +32,7 @@ def define_search_space(trial):
         "wub": trial.suggest_float("wub", 0.01, 0.1),
         "wlb": trial.suggest_float("wlb", -0.1, -0.01),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu", "tanh"]),
+        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
@@ -73,13 +68,10 @@ def define_search_space_phase2(trial, best_params):
     }
     
     # ALL OTHER PARAMETERS ARE FIXED FROM PHASE 1 BEST
-    embed_mult= best_params.get("embed_mult") 
-    n_heads= best_params.get("n_heads")
-    n_embed= embed_mult * n_heads
     fixed_params = {
         "n_layers": best_params.get("n_layers", 2),
-        "n_heads": n_heads,
-        "n_embed": n_embed,
+        "n_heads": best_params.get("n_heads", 3),
+        "n_embed": best_params.get("n_embed"),
         "tau_m": best_params.get("tau_m", 15),
         "n_iter": best_params.get("n_iter", 15),
         "batch_size": best_params.get("batch_size", 8),
@@ -323,7 +315,7 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=25, n_jobs= 3, show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
@@ -369,7 +361,7 @@ def case1_efe_to_ce_complete():
     def phase2_trial_wrapper(trial):
         return run_phase2_trial(trial, best_params)
 
-    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs= 3, show_progress_bar=False)
+    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs= 1, show_progress_bar=False)
 
     if study_ce.best_trial:
         best_ce = study_ce.best_value

@@ -12,11 +12,11 @@ def run_optimization():
     # Using ng.p.Dict ensures candidate.value is a clean dictionary
     # Using Choice for dimensions prevents the "prime number" shape issue
     param_space = ng.p.Dict(
-        n_embed=ng.p.Choice([128, 256, 384, 512]),
-        n_heads=ng.p.Choice([2, 4, 8]),
-        n_layers=ng.p.Scalar(lower=1, upper=6).set_integer_casting(),
-        block_size=ng.p.Choice([32, 64, 96, 128]), 
-        batch_size=ng.p.Choice([8, 16, 32, 64]),
+        n_embed=ng.p.Choice([128, 256, 384]),
+        n_heads=ng.p.Choice([2, 4]),
+        n_layers=ng.p.Scalar(lower=1, upper=5).set_integer_casting(),
+        block_size=ng.p.Choice([32, 64, 96]), 
+        batch_size=ng.p.Choice([8, 16, 32]),
         T=ng.p.Scalar(lower=1, upper=10).set_integer_casting(),
         eta=ng.p.Log(lower=1e-4, upper=1e-1),
         dropout=ng.p.Scalar(lower=0.0, upper=0.5),

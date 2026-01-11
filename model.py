@@ -52,6 +52,8 @@ class NGCTransformer:
         self.nodes = None
         self.n_layers = n_layers
         self.T = T
+        self.batch_size = batch_size
+        self.seq_len = seq_len
         makedir(exp_dir)
         makedir(exp_dir + "/filters")
 
@@ -510,7 +512,7 @@ class NGCTransformer:
   
         self.projection.Q_out.weights.set(self.output.W_out.weights.get())
         self.projection.Q_out.biases.set(self.output.W_out.biases.get())
-        self.projection.q_target_Ratecell.j_td.set(jnp.zeros((config.batch_size * config.seq_len, config.vocab_size)))
+        self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, config.vocab_size)))
         
        
 

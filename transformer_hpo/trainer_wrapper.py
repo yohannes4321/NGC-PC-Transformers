@@ -12,7 +12,7 @@ import sys
 import jax
 import jax.numpy as jnp
 # Force JAX to use the GPU for all operations
-jax.config.update("jax_default_device", jax.devices("gpu")[0])
+# jax.config.update("jax_default_device", jax.devices("gpu")[0])
 import numpy as np
 import pandas as pd
 

@@ -1,21 +1,18 @@
 # filename: trainer_wrapper.py
 import time
-import math
-import gc
-import sys
-import os
-import jax
-import jax.numpy as jnp
-# Force JAX to use the GPU for all operations
-jax.config.update("jax_default_device", jax.devices("gpu")[0])
-
-# Force HEBO to CPU (all arrays inside HEBO will be NumPy)
 import os
 os.environ["HEBO_FORCE_CPU"] = "true" 
 # Ensure JAX doesn't pre-allocate 90% of your VRAM immediately (prevents OOM)
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8"  # use at most 80% GPU memory
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8" 
+import math
+import gc
+import sys
 
+import jax
+import jax.numpy as jnp
+# Force JAX to use the GPU for all operations
+jax.config.update("jax_default_device", jax.devices("gpu")[0])
 import numpy as np
 import pandas as pd
 from experiment_logger import save_to_csv, DualLogger, LOG_DIR

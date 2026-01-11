@@ -8,5 +8,6 @@ scikit-learn>=0.24.2
 matplotlib>=3.8.0
 imageio>=2.31.5
 pandas
-alogos  
+hebo 
+pymoo
 tokenizers==0.20.3

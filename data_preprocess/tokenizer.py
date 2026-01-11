@@ -1,8 +1,6 @@
 import os
 
-# Force JAX to CPU only (avoids CuDNN/GPU issues)
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer

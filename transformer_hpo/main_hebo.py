@@ -6,7 +6,7 @@ from hebo.design_space.design_space import DesignSpace
 from hebo.optimizers.hebo import HEBO
 
 # Import the trainer wrapper
-from transformer_hpo.trainer_wrapper import train_evaluate_model
+from trainer_wrapper import train_evaluate_model
 
 def run_optimization():
     # 1. DEFINE DESIGN SPACE

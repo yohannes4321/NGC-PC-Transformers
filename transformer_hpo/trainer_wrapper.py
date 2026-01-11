@@ -18,9 +18,10 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 
 def clean_memory():
-    """Forces garbage collection and clears JAX backend memory."""
+    """Forces garbage collection and clears JAX compilation caches."""
     gc.collect()
-    jax.clear_backends()
+    # This is the modern replacement for clearing JAX memory
+    jax.clear_caches()
 
 def train_evaluate_model(params_df: pd.DataFrame):
     """

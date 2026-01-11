@@ -1,10 +1,10 @@
 # filename: trainer_wrapper.py
 import time
 import os
-os.environ["HEBO_FORCE_CPU"] = "true" 
 # Ensure JAX doesn't pre-allocate 90% of your VRAM immediately (prevents OOM)
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8" 
+
 import math
 import gc
 import sys
@@ -15,6 +15,7 @@ import jax.numpy as jnp
 jax.config.update("jax_default_device", jax.devices("gpu")[0])
 import numpy as np
 import pandas as pd
+
 from experiment_logger import save_to_csv, DualLogger, LOG_DIR
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -27,25 +28,32 @@ from data_preprocess.data_loader import DataLoader
 def clean_memory():
     """Forces garbage collection and clears JAX compilation caches."""
     gc.collect()
-    # This is the modern replacement for clearing JAX memory
     jax.clear_caches()
 
-def train_evaluate_model(params_df: pd.DataFrame):
+def dict_to_df(params_dict):
+    """Convert Nevergrad dictionary input to a one-row DataFrame."""
+    return pd.DataFrame([params_dict])
+
+def train_evaluate_model(params):
     """
-    The Objective Function for HEBO.
-    Receives a DataFrame of suggestions, trains the model, logs results, 
-    and returns the Loss (CL) to be minimized.
+    Objective function for Nevergrad hyperparameter optimization.
+    Receives a dict or DataFrame of suggestions, trains the model, logs results,
+    and returns the Cross-Entropy Loss (CL) to be minimized.
     """
+    # Accept either dict (Nevergrad) or DataFrame (legacy HEBO)
+    if isinstance(params, dict):
+        params_df = dict_to_df(params)
+    else:
+        params_df = params
+
     results = []
     
     for i in range(len(params_df)):
         # 1. SETUP LOGGING FOR THIS TRIAL
-        # Determine trial ID based on existing files to avoid overwrites
         existing_trials = len(os.listdir(LOG_DIR))
         trial_id = existing_trials
         log_path = os.path.join(LOG_DIR, f"trial_{trial_id}.txt")
         
-        # Hijack stdout to print to file and console
         original_stdout = sys.stdout
         logger = DualLogger(log_path)
         sys.stdout = logger
@@ -94,32 +102,30 @@ def train_evaluate_model(params_df: pd.DataFrame):
                 wub=float(p['wub']),
                 wlb=float(p['wlb']),
                 exp_dir="exp",
-                model_name=f"HEBO_{trial_id}"
+                model_name=f"NEVERGRAD_{trial_id}"
             )
             
             # 4. TRAINING LOOP
             total_efe = 0.0
             total_ce = 0.0
             batch_count = 0
-            max_batches = 50 # Optimization speed hack
+            max_batches = 50  # Optimization speed hack
             
             for batch_idx, batch in enumerate(train_loader):
                 if batch_idx >= max_batches: break
                 
-                # Adapt this to match your actual DataLoader output structure
                 inputs = batch[0][1] 
                 targets = batch[1][1]
                 
-                # One-hot encoding logic
+                # One-hot encoding
                 if hasattr(jax.nn, 'one_hot'):
                     targets_onehot = jax.nn.one_hot(targets, config.vocab_size)
                 else:
-                    # Fallback for dummy
                     targets_onehot = jnp.eye(config.vocab_size)[targets.astype(int)]
                     
                 targets_flat = targets_onehot.reshape(-1, config.vocab_size)
                 
-                # Forward
+                # Forward pass
                 yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 y_pred = yMu_inf.reshape(-1, config.vocab_size)
                 
@@ -146,7 +152,7 @@ def train_evaluate_model(params_df: pd.DataFrame):
             print(f"TOTAL PPL:      {avg_ppl:.2f}")
             print(f"TOTAL EFE:      {avg_efe:.4f}")
             
-            # 6. SAVE TO PROFESSIONAL CSV
+            # 6. SAVE TO CSV
             metrics = {
                 'loss_cl': avg_ce,
                 'ppl': avg_ppl,
@@ -156,7 +162,6 @@ def train_evaluate_model(params_df: pd.DataFrame):
             save_to_csv(trial_id, p, metrics)
             
             results.append(avg_ce)
-            
             del model
 
         except Exception as e:
@@ -165,7 +170,6 @@ def train_evaluate_model(params_df: pd.DataFrame):
             results.append(float('inf'))
             
         finally:
-            # Restore output and clean up
             logger.close()
             sys.stdout = original_stdout
             clean_memory()

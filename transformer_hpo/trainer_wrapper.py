@@ -6,6 +6,10 @@ import sys
 import os
 import jax
 import jax.numpy as jnp
+# Force JAX to use the GPU for all operations
+jax.config.update("jax_default_device", jax.devices("gpu")[0])
+# Ensure JAX doesn't pre-allocate 90% of your VRAM immediately (prevents OOM)
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 import numpy as np
 import pandas as pd
 from experiment_logger import save_to_csv, DualLogger, LOG_DIR

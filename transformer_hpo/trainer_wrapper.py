@@ -8,16 +8,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-
-# Import our custom logger tools
 from transformer_hpo.experiment_logger import save_to_csv, DualLogger, LOG_DIR
-
-# ==============================================================================
-# [USER ACTION REQUIRED] REPLACE THIS BLOCK WITH YOUR ACTUAL IMPORTS
-# from your_module import NGCTransformer, DataLoader, config, measure_CatNLL
-# ==============================================================================
-# --- DUMMY PLACEHOLDERS (DELETE IF RUNNING WITH REAL CODE) ---
-
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+from config import Config as config
+from model import NGCTransformer
+from ngclearn.utils.metric_utils import measure_CatNLL
+from data_preprocess.data_loader import DataLoader
 
 def clean_memory():
     """Forces garbage collection and clears JAX backend memory."""

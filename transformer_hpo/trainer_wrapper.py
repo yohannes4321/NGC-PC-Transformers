@@ -11,7 +11,7 @@ import pandas as pd
 
 # Ensure JAX memory settings
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8" 
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.6" 
 
 from experiment_logger import save_to_csv, DualLogger, LOG_DIR
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +26,16 @@ from data_preprocess.data_loader import DataLoader
 def clean_memory():
     gc.collect()
     jax.clear_caches()
+
+def estimate_trial_memory_bytes(batch_size, seq_len, n_embed, n_heads, n_layers, vocab_size):
+    # Rough estimate of peak arrays (float32 = 4 bytes)
+    B, S, D, H, L, V = batch_size, seq_len, n_embed, n_heads, n_layers, vocab_size
+    base = B * S * D
+    attn_scores = B * H * S * S
+    per_layer_elems = (3 * base) + attn_scores + (3 * base)  # Q,K,V + scores + intermediates
+    projection_target = B * S * V
+    total_elems = per_layer_elems * L + projection_target + base
+    return total_elems * 4
 
 def train_evaluate_model(params):
     if isinstance(params, dict):
@@ -72,6 +82,13 @@ def train_evaluate_model(params):
             print(f"==========================================")
             
             clean_memory()
+            # Pre-check estimated memory to avoid GPU OOM
+            est_bytes = estimate_trial_memory_bytes(curr_batch_size, block_size, n_embed, n_heads, int(p['n_layers']), config.vocab_size)
+            cap_bytes = int(os.environ.get('HPO_MEMORY_CAP_BYTES', str(800 * 1024 * 1024)))
+            if est_bytes > cap_bytes:
+                print(f"Skipping trial {trial_id}: estimated memory {est_bytes/1e6:.1f} MB exceeds cap {cap_bytes/1e6:.1f} MB")
+                results.append(float('inf'))
+                continue
             
             # 3. INITIALIZE DATA & MODEL
             loader = DataLoader(seq_len=block_size, batch_size=curr_batch_size)
@@ -161,7 +178,11 @@ def train_evaluate_model(params):
 
         except Exception as e:
             print(f"!!! CRASH IN TRIAL {trial_id} !!!")
-            print(f"Error: {str(e)}")
+            msg = str(e)
+            if 'RESOURCE_EXHAUSTED' in msg or 'Out of memory' in msg:
+                print("Detected GPU OOM; marking trial as inf and proceeding.")
+            else:
+                print(f"Error: {msg}")
             results.append(float('inf'))
             
         finally:

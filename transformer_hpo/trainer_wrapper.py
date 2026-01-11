@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from transformer_hpo.experiment_logger import save_to_csv, DualLogger, LOG_DIR
+from experiment_logger import save_to_csv, DualLogger, LOG_DIR
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)

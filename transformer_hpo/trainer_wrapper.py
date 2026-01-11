@@ -58,7 +58,17 @@ def train_evaluate_model(params):
             
             print(f"==========================================")
             print(f"STARTING TRIAL {trial_id}")
-            print(f"Params: n_embed={n_embed}, heads={n_heads}, batch={curr_batch_size}, block={block_size}")
+            # Print full parameter set for visibility
+            keys_to_show = [
+                'n_embed','n_heads','n_layers','block_size','batch_size',
+                'T','eta','dropout','wlb','wub','tau_m','act_fx'
+            ]
+            summary_items = []
+            for k in keys_to_show:
+                if k in p.index:
+                    summary_items.append(f"{k}={p[k]}")
+            summary_items.append(f"n_embed_adjusted={n_embed}")
+            print("Params: " + ", ".join(summary_items))
             print(f"==========================================")
             
             clean_memory()

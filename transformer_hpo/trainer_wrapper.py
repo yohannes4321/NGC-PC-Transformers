@@ -95,6 +95,8 @@ def train_evaluate_model(params):
             batch_count = 0
             max_batches = 50 
             
+            nan_found = False
+
             # 4. TRAINING LOOP
             for batch_idx, batch in enumerate(train_loader):
                 if batch_idx >= max_batches: break
@@ -117,17 +119,30 @@ def train_evaluate_model(params):
                 y_pred = yMu_inf.reshape(-1, config.vocab_size)
                 
                 batch_ce = float(measure_CatNLL(y_pred, targets_flat).mean())
+                batch_efe = float(_EFE)
+                batch_ppl = math.exp(batch_ce) if batch_ce < 100 else float('inf')
+
+                if math.isnan(batch_ce) or math.isnan(batch_ppl) or math.isnan(batch_efe):
+                    print(f"Batch {batch_idx}: NaN detected (CL={batch_ce}, PPL={batch_ppl}, EFE={batch_efe}) -> stopping trial")
+                    nan_found = True
+                    break
+
                 total_ce += batch_ce
-                total_efe += float(_EFE)
+                total_efe += batch_efe
                 batch_count += 1
                 
                 if batch_idx % 10 == 0:
-                    print(f"Batch {batch_idx}: CE={batch_ce:.4f}")
+                    print(f"Batch {batch_idx}: CL={batch_ce:.4f}, PPL={batch_ppl:.4f}, EFE={batch_efe:.4f}")
 
             # 5. CALCULATE METRICS
-            avg_ce = total_ce / batch_count if batch_count > 0 else float('inf')
-            avg_efe = total_efe / batch_count if batch_count > 0 else float('inf')
-            avg_ppl = math.exp(avg_ce) if avg_ce < 100 else float('inf')
+            if nan_found:
+                avg_ce = float('inf')
+                avg_efe = float('inf')
+                avg_ppl = float('inf')
+            else:
+                avg_ce = total_ce / batch_count if batch_count > 0 else float('inf')
+                avg_efe = total_efe / batch_count if batch_count > 0 else float('inf')
+                avg_ppl = math.exp(avg_ce) if avg_ce < 100 else float('inf')
             
             metrics = {'loss_cl': avg_ce, 'ppl': avg_ppl, 'efe': avg_efe, 'actual_n_embed': n_embed}
             save_to_csv(trial_id, p, metrics)

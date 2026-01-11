@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 import jax
 # Force JAX to use GPU
-jax.config.update("jax_default_device", jax.devices("gpu")[0])
+jax.config.update("jax_platform_name", "cpu")
 
 from trainer_wrapper import train_evaluate_model
 

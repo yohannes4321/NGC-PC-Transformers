@@ -1,20 +1,22 @@
+# filename: main_nevergrad.py
 import os
 import math
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 import nevergrad as ng
 from trainer_wrapper import train_evaluate_model
 
 def run_optimization():
-    # 1. DEFINE PARAMETER SPACE using ng.p.Dict
-    # This ensures candidate.value returns a clean dictionary
+    # 1. DEFINE PARAMETER SPACE
+    # Using ng.p.Dict ensures candidate.value is a clean dictionary
+    # Using Choice for dimensions prevents the "prime number" shape issue
     param_space = ng.p.Dict(
-        n_embed=ng.p.Scalar(lower=32, upper=512).set_integer_casting(),
+        n_embed=ng.p.Choice([128, 256, 384, 512]),
         n_heads=ng.p.Choice([2, 4, 8]),
         n_layers=ng.p.Scalar(lower=1, upper=6).set_integer_casting(),
-        block_size=ng.p.Scalar(lower=32, upper=128).set_integer_casting(),
-        batch_size=ng.p.Scalar(lower=8, upper=64).set_integer_casting(),
+        block_size=ng.p.Choice([32, 64, 96, 128]), 
+        batch_size=ng.p.Choice([8, 16, 32, 64]),
         T=ng.p.Scalar(lower=1, upper=10).set_integer_casting(),
         eta=ng.p.Log(lower=1e-4, upper=1e-1),
         dropout=ng.p.Scalar(lower=0.0, upper=0.5),
@@ -25,7 +27,6 @@ def run_optimization():
     )
 
     # 2. CREATE OPTIMIZER
-    # NGOpt is a powerful meta-optimizer that chooses the best algorithm for your space
     optimizer = ng.optimizers.NGOpt(parametrization=param_space, budget=20)
 
     history_loss = []
@@ -37,22 +38,14 @@ def run_optimization():
     # 3. OPTIMIZATION LOOP
     for iteration in range(optimizer.budget):
         candidate = optimizer.ask()
-        
-        # Because we used ng.p.Dict, x_dict is now exactly what we need
         x_dict = candidate.value 
 
-        # Convert to DataFrame to maintain compatibility with your trainer
-        params_df = pd.DataFrame([x_dict])
-
         # Evaluate the model
-        # train_evaluate_model returns a 2D array [[loss]]
-        loss_array = train_evaluate_model(params_df)
+        loss_array = train_evaluate_model(x_dict)
         loss_value = float(loss_array[0][0])
 
-        # Tell optimizer the result
         optimizer.tell(candidate, loss_value)
 
-        # Track history
         history_loss.append(loss_value)
         if loss_value < best_loss:
             best_loss = loss_value
@@ -66,21 +59,17 @@ def run_optimization():
     print(f"Best Loss (CL): {best_loss:.4f}")
     if best_loss < float('inf'):
         print(f"Best PPL:       {math.exp(best_loss):.2f}")
-    print("Best Parameters:")
-    print(best_params)
+    print("Best Parameters:", best_params)
 
     # 5. VISUALIZATION
     plt.figure(figsize=(10,6))
-    valid_losses = [l if l != float('inf') else 10.0 for l in history_loss] # Cap inf for plotting
-    plt.plot(valid_losses, marker='o', label='Trial Loss')
-    plt.plot(np.minimum.accumulate(valid_losses), 'r--', linewidth=2, label='Best So Far')
+    # Filter out inf for the plot
+    plot_data = [l if l != float('inf') else 10.0 for l in history_loss]
+    plt.plot(plot_data, marker='o', label='Trial Loss')
+    plt.plot(np.minimum.accumulate(plot_data), 'r--', label='Best So Far')
     plt.title('Nevergrad Optimization Convergence')
-    plt.xlabel('Iteration')
     plt.ylabel('Cross Entropy Loss')
-    plt.legend()
-    plt.grid(True)
     plt.savefig('nevergrad_optimization_log.png')
-    print("Visualization saved to nevergrad_optimization_log.png")
 
 if __name__ == "__main__":
     run_optimization()

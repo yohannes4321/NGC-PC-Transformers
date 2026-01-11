@@ -1,55 +1,41 @@
 # filename: trainer_wrapper.py
 import time
 import os
-# Ensure JAX doesn't pre-allocate 90% of your VRAM immediately (prevents OOM)
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8" 
-
 import math
 import gc
 import sys
-
 import jax
 import jax.numpy as jnp
-# Force JAX to use the GPU for all operations
-# jax.config.update("jax_default_device", jax.devices("gpu")[0])
 import numpy as np
 import pandas as pd
+
+# Ensure JAX memory settings
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8" 
 
 from experiment_logger import save_to_csv, DualLogger, LOG_DIR
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
+
 from config import Config as config
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 
 def clean_memory():
-    """Forces garbage collection and clears JAX compilation caches."""
     gc.collect()
     jax.clear_caches()
 
-def dict_to_df(params_dict):
-    """Convert Nevergrad dictionary input to a one-row DataFrame."""
-    return pd.DataFrame([params_dict])
-
 def train_evaluate_model(params):
-    """
-    Objective function for Nevergrad hyperparameter optimization.
-    Receives a dict or DataFrame of suggestions, trains the model, logs results,
-    and returns the Cross-Entropy Loss (CL) to be minimized.
-    """
-    # Accept either dict (Nevergrad) or DataFrame (legacy HEBO)
     if isinstance(params, dict):
-        params_df = dict_to_df(params)
+        params_df = pd.DataFrame([params])
     else:
         params_df = params
 
     results = []
     
     for i in range(len(params_df)):
-        # 1. SETUP LOGGING FOR THIS TRIAL
         existing_trials = len(os.listdir(LOG_DIR))
         trial_id = existing_trials
         log_path = os.path.join(LOG_DIR, f"trial_{trial_id}.txt")
@@ -61,10 +47,9 @@ def train_evaluate_model(params):
         try:
             # 2. PARSE PARAMETERS
             p = params_df.iloc[i]
-            
-            # --- Enforce Constraint: n_embed % n_heads == 0 ---
             n_heads = int(p['n_heads'])
             raw_n_embed = int(p['n_embed'])
+            # Enforce head divisibility constraint
             n_embed = (raw_n_embed // n_heads) * n_heads
             if n_embed == 0: n_embed = n_heads
             
@@ -73,12 +58,12 @@ def train_evaluate_model(params):
             
             print(f"==========================================")
             print(f"STARTING TRIAL {trial_id}")
-            print(f"Params: n_embed={n_embed} (adj), heads={n_heads}, layers={int(p['n_layers'])}")
+            print(f"Params: n_embed={n_embed}, heads={n_heads}, batch={curr_batch_size}, block={block_size}")
             print(f"==========================================")
             
             clean_memory()
             
-            # 3. INITIALIZE MODEL & DATA
+            # 3. INITIALIZE DATA & MODEL
             loader = DataLoader(seq_len=block_size, batch_size=curr_batch_size)
             train_loader, _, _ = loader.load_and_prepare_data()
             dkey = jax.random.PRNGKey(int(time.time()))
@@ -105,24 +90,26 @@ def train_evaluate_model(params):
                 model_name=f"NEVERGRAD_{trial_id}"
             )
             
-            # 4. TRAINING LOOP
-            total_efe = 0.0
             total_ce = 0.0
+            total_efe = 0.0
             batch_count = 0
-            max_batches = 50  # Optimization speed hack
+            max_batches = 50 
             
+            # 4. TRAINING LOOP
             for batch_idx, batch in enumerate(train_loader):
                 if batch_idx >= max_batches: break
                 
                 inputs = batch[0][1] 
                 targets = batch[1][1]
                 
+                # --- CRITICAL FIX: Skip partial/remainder batches ---
+                if inputs.shape[0] != curr_batch_size:
+                    continue
+
                 # One-hot encoding
-                if hasattr(jax.nn, 'one_hot'):
-                    targets_onehot = jax.nn.one_hot(targets, config.vocab_size)
-                else:
-                    targets_onehot = jnp.eye(config.vocab_size)[targets.astype(int)]
-                    
+                targets_onehot = jax.nn.one_hot(targets, config.vocab_size)
+                
+                # Reshape with dynamic dimensions based on actual batch size
                 targets_flat = targets_onehot.reshape(-1, config.vocab_size)
                 
                 # Forward pass
@@ -130,43 +117,26 @@ def train_evaluate_model(params):
                 y_pred = yMu_inf.reshape(-1, config.vocab_size)
                 
                 batch_ce = float(measure_CatNLL(y_pred, targets_flat).mean())
-                batch_efe = float(_EFE)
-                
                 total_ce += batch_ce
-                total_efe += batch_efe
+                total_efe += float(_EFE)
                 batch_count += 1
                 
                 if batch_idx % 10 == 0:
-                    print(f"Batch {batch_idx}: CE={batch_ce:.4f}, EFE={batch_efe:.4f}")
+                    print(f"Batch {batch_idx}: CE={batch_ce:.4f}")
 
             # 5. CALCULATE METRICS
             avg_ce = total_ce / batch_count if batch_count > 0 else float('inf')
             avg_efe = total_efe / batch_count if batch_count > 0 else float('inf')
-            try:
-                avg_ppl = math.exp(avg_ce)
-            except OverflowError:
-                avg_ppl = float('inf')
-                
-            print(f"\n--- TRIAL COMPLETE ---")
-            print(f"TOTAL CL (Avg): {avg_ce:.4f}")
-            print(f"TOTAL PPL:      {avg_ppl:.2f}")
-            print(f"TOTAL EFE:      {avg_efe:.4f}")
+            avg_ppl = math.exp(avg_ce) if avg_ce < 100 else float('inf')
             
-            # 6. SAVE TO CSV
-            metrics = {
-                'loss_cl': avg_ce,
-                'ppl': avg_ppl,
-                'efe': avg_efe,
-                'actual_n_embed': n_embed
-            }
+            metrics = {'loss_cl': avg_ce, 'ppl': avg_ppl, 'efe': avg_efe, 'actual_n_embed': n_embed}
             save_to_csv(trial_id, p, metrics)
-            
             results.append(avg_ce)
             del model
 
         except Exception as e:
             print(f"!!! CRASH IN TRIAL {trial_id} !!!")
-            print(str(e))
+            print(f"Error: {str(e)}")
             results.append(float('inf'))
             
         finally:

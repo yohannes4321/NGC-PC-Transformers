@@ -149,10 +149,7 @@ def train_evaluate_model(params):
                 batch_efe = float(_EFE)
                 batch_ppl = math.exp(batch_ce) if batch_ce < 100 else float('inf')
 
-                if math.isnan(batch_ce) or math.isnan(batch_ppl) or math.isnan(batch_efe):
-                    print(f"Batch {batch_idx}: NaN detected (CL={batch_ce}, PPL={batch_ppl}, EFE={batch_efe}) -> stopping trial")
-                    nan_found = True
-                    break
+                
 
                 total_ce += batch_ce
                 total_efe += batch_efe

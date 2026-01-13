@@ -1,14 +1,26 @@
+import os
+import sys
+import warnings
+import logging
 import optuna
+
+warnings.filterwarnings('ignore')
+
+logging.getLogger().setLevel(logging.ERROR)
+optuna.logging.set_verbosity(optuna.logging.WARNING)
+logging.getLogger('optuna').setLevel(logging.WARNING)
+
+
 import time
 import jax
 import jax.numpy as jnp
 import jax.random as random
 from pathlib import Path
-import os
 from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
 from eval import eval_model
 from config import Config as base_config
+from ngclearn.utils.metric_utils import measure_CatNLL
 
 EFE_STABILITY_THRESHOLD = 2e1
 
@@ -50,7 +62,7 @@ def define_search_space_phase2(trial, best_params):
     wlb_best = best_params.get("wlb", -0.05)
     
     # Only tune these continuous parameters with narrow search
-    continuous_params = {
+    return {
         "eta": trial.suggest_float("eta",
                                    eta_best * 0.2,      
                                    eta_best * 5.0,      
@@ -68,20 +80,7 @@ def define_search_space_phase2(trial, best_params):
     }
     
     # ALL OTHER PARAMETERS ARE FIXED FROM PHASE 1 BEST
-    fixed_params = {
-        "n_layers": best_params.get("n_layers", 2),
-        "n_heads": best_params.get("n_heads", 3),
-        "n_embed": best_params.get("n_embed"),
-        "tau_m": best_params.get("tau_m", 15),
-        "n_iter": best_params.get("n_iter", 15),
-        "batch_size": best_params.get("batch_size", 8),
-        "seq_len": best_params.get("seq_len", 16),
-        "pos_learnable": best_params.get("pos_learnable", True),
-        "optim_type": best_params.get("optim_type", "adam"),
-        "act_fx": best_params.get("act_fx", "identity"),
-    }
     
-    return {**fixed_params, **continuous_params}
 
 def create_model_with_all_params(trial_number, params, cfg):
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
@@ -213,11 +212,11 @@ def run_single_trial_efe(trial):
             pass
 
 def run_phase2_trial(trial, best_params):
-    """Phase 2: Only tune continuous parameters, others fixed from Phase 1 best"""
-    params = define_search_space_phase2(trial, best_params)
-    
+    """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
+    continuous_params = define_search_space_phase2(trial, best_params)
+    params = {**best_params, **continuous_params}
     tuning_params = {k: v for k, v in params.items() if k in ['eta', 'dropout_rate', 'wub', 'wlb']}
-    print(f"[CE Phase - Continuous Only] Trial {trial.number} | params: {params}")
+    print(f"[CE Phase - Continuous Only] Trial {trial.number} | params: {tuning_params}")
     print(f"[CE Phase - Fixed] Architecture: n_layers={params['n_layers']}, n_heads={params['n_heads']}, "
           f"tau_m={params['tau_m']}, n_iter={params['n_iter']}")
 
@@ -238,9 +237,11 @@ def run_phase2_trial(trial, best_params):
         print(reason)
         raise optuna.TrialPruned()
 
-    max_batches = 20
+    total_train_ce = 0.0  
+    batches_processed = 0
     start_time = time.time()
-    best_ce = float('inf')
+    max_batches = 20
+    best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
             break
@@ -249,8 +250,13 @@ def run_phase2_trial(trial, best_params):
         targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
         try:
-            _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             EFE = abs(float(EFE))
+            
+            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
+            batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
+            batch_train_ce = batch_nll / targets_flat.shape[0]
+            
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
                 reason = f"Unstable EFE during CE: {EFE}"
                 trial.set_user_attr("prune_reason", reason)
@@ -262,33 +268,27 @@ def run_phase2_trial(trial, best_params):
             print(reason)
             raise optuna.TrialPruned()
 
+        total_train_ce += float(batch_train_ce)
+        batches_processed += 1
+        avg_train_ce = total_train_ce / batches_processed
+
+        trial.report(avg_train_ce, batch_idx)
+        if trial.should_prune():
+            reason = f"CMA-ES pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
+            trial.set_user_attr("prune_reason", reason)
+            print(reason)
+            raise optuna.TrialPruned()
+        if float(batch_train_ce) < best_train_ce:
+            best_train_ce = float(batch_train_ce)
         if batch_idx % 2 == 0:
-            ce, ppl = eval_model(model, train_loader, cfg.vocab_size)
-            print(f"Batch {batch_idx} | CE={ce:.4f} | PPL={ppl:.4f}")
-            try:
-                current_ce, _ = eval_model(model, valid_loader, cfg.vocab_size)
-                current_ce = float(current_ce)
-            except:
-                current_ce = 100.0
-
-            trial.report(current_ce, batch_idx)
-            if trial.should_prune():
-                reason = f"CMA-ES pruned at batch {batch_idx} | current CE={current_ce:.4f}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
-
-            if current_ce < best_ce:
-                best_ce = current_ce
-
             elapsed = time.time() - start_time
-            print(f"Batch {batch_idx} | CE={current_ce:.4f} | Best CE={best_ce:.4f} | Time={elapsed:.1f}s")
+            print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
     try:
         final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
         final_ce = float(final_ce)
     except:
-        final_ce = 100.0
+        final_ce = avg_train_ce if batches_processed > 0 else 100.0
         final_ppl = float('inf')
 
     total_time = time.time() - start_time
@@ -298,8 +298,8 @@ def run_phase2_trial(trial, best_params):
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(f"Trial {trial.number} Complete | CE={final_ce:.4f} | Time={total_time:.1f}s")
-    return float(final_ce)
+    print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
+    return float(final_ce)  
 
 def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)

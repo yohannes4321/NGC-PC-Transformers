@@ -5,83 +5,128 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 from eval import eval_model
 
-def main():
-    seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.n_iter, config.optim_type
-    pos_learnable= config.pos_learnable
-    num_iter= config.num_iter
-    wub= config.wub 
-    wlb= config.wlb
-    eta = config.eta
-    T = config.n_iter
-    tau_m= config.tau_m
-    act_fx= config.act_fx
-    dropout_rate= config.dropout_rate
+
+def _build_cfg(params_override=None):
+    """Create a config-like object, applying overrides if provided."""
+    cfg = type("Cfg", (), {})()
+    # Copy base config attributes
+    for key, value in config.__dict__.items():
+        if not key.startswith("_"):
+            setattr(cfg, key, value)
+    # Apply overrides
+    if isinstance(params_override, dict):
+        for k, v in params_override.items():
+            setattr(cfg, k, v)
+        # Ensure n_embed consistency if embed_mult provided
+        if hasattr(cfg, "embed_mult") and hasattr(cfg, "n_heads") and not getattr(params_override, "n_embed", None):
+            try:
+                cfg.n_embed = int(cfg.n_heads) * int(cfg.embed_mult)
+            except Exception:
+                pass
+    return cfg
+
+
+def run_training(params_override=None, save_model=False):
+    """
+    Train the model and return metrics.
+
+    - When called directly (no overrides), uses Config values.
+    - When called by HPO (trainer_wrapper), applies provided overrides.
+
+    Returns a dict with keys: 'val_ce', 'val_ppl', 'avg_train_efe', 'avg_train_ce'.
+    """
+    cfg = _build_cfg(params_override)
+
     dkey = random.PRNGKey(1234)
-    
-    data_loader = DataLoader(seq_len=seq_len, batch_size=batch_size)
-    train_loader, valid_loader, test_loader = data_loader.load_and_prepare_data()
-    
-    model = NGCTransformer(dkey, batch_size=batch_size, seq_len=seq_len, n_embed=n_embed, vocab_size=vocab_size, n_layers=n_layers, n_heads=config.n_heads,
-                          T=T, dt=1., tau_m=tau_m , act_fx=act_fx, eta=eta, dropout_rate= dropout_rate, exp_dir="exp",
-                  loadDir= None, pos_learnable= pos_learnable, optim_type=optim_type, wub = wub, wlb= wlb, model_name="ngc_transformer" )
+    data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
+    train_loader, valid_loader, _ = data_loader.load_and_prepare_data()
 
-    def train_model(data_loader):
-        total_nll, total_tokens = 0., 0
-        
-        for batch in data_loader:
-            inputs = batch[0][1]
-            targets = batch[1][1]
-            
-            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
-            targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
+    model = NGCTransformer(
+        dkey,
+        batch_size=cfg.batch_size,
+        seq_len=cfg.seq_len,
+        n_embed=cfg.n_embed,
+        vocab_size=cfg.vocab_size,
+        n_layers=cfg.n_layers,
+        n_heads=cfg.n_heads,
+        T=cfg.n_iter,
+        dt=1.0,
+        tau_m=cfg.tau_m,
+        act_fx=cfg.act_fx,
+        eta=cfg.eta,
+        dropout_rate=cfg.dropout_rate,
+        exp_dir="exp",
+        loadDir=None,
+        pos_learnable=cfg.pos_learnable,
+        optim_type=cfg.optim_type,
+        wub=cfg.wub,
+        wlb=cfg.wlb,
+        model_name="ngc_transformer",
+    )
 
-            yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=False)
-            
-            y_pred = yMu_inf.reshape(-1, vocab_size)
-            y_true = targets_flat
-            
-            total_nll += measure_CatNLL(y_pred, y_true) * y_true.shape[0]
-            total_tokens += y_true.shape[0]
-        
-        ce_loss = total_nll / total_tokens
-        return ce_loss, jnp.exp(ce_loss)
+    total_efe = 0.0
+    total_ce = 0.0
+    total_batches = 0
 
-    for i in range(num_iter):
-        train_EFE = 0.
-        total_batches = 0
-        
+    for i in range(cfg.num_iter):
         print(f"\n iter {i}:")
-        
         for batch_idx, batch in enumerate(train_loader):
             inputs = batch[0][1]
             targets = batch[1][1]
-            
-            #Convert targets to one-hot and flatten
-            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
-            targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
 
-            
-            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            train_EFE += _EFE
+            # Convert targets to one-hot and flatten
+            targets_onehot = jnp.eye(cfg.vocab_size)[targets]
+            targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
+
+            yMu_inf, _, efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            total_efe += float(efe)
             total_batches += 1
 
-            if batch_idx % 10 == 0:
-                y_pred = yMu_inf.reshape(-1, vocab_size)
-                y_true = jnp.eye(vocab_size)[targets.flatten()]
-                
-                batch_nll = measure_CatNLL(y_pred, y_true)
-                batch_ce_loss = batch_nll.mean()  
-                batch_ppl = jnp.exp(batch_ce_loss)
-                
-                print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
-        
-        avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
-        
-        dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
-        print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
-        if  i == (num_iter-1):
-          model.save_to_disk(params_only=False) # save final state of model to disk
+            # Compute CE/PPL per batch
+            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
+            y_true = jnp.eye(cfg.vocab_size)[targets.flatten()]
+            batch_nll = measure_CatNLL(y_pred, y_true)
+            batch_ce = batch_nll.mean()
+            total_ce += float(batch_ce)
+            batch_ppl = jnp.exp(batch_ce)
 
-   
+            if batch_idx % 10 == 0:
+                print(
+                    f"  Batch {batch_idx}: EFE = {float(efe):.4f}, CE = {float(batch_ce):.4f}, PPL = {float(batch_ppl):.4f}"
+                )
+
+    avg_train_efe = (total_efe / total_batches) if total_batches > 0 else 0.0
+    avg_train_ce = (total_ce / total_batches) if total_batches > 0 else 0.0
+
+    # Validation metrics
+    dev_ce, dev_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+    dev_ce = float(dev_ce)
+    dev_ppl = float(dev_ppl)
+
+    print(f"Training Summary: Val CE = {dev_ce:.4f}, Val PPL = {dev_ppl:.4f}, Avg Train EFE = {avg_train_efe:.4f}")
+
+    if save_model:
+        try:
+            model.save_to_disk(params_only=False)
+        except Exception:
+            pass
+
+    return {
+        "val_ce": dev_ce,
+        "val_ppl": dev_ppl,
+        "avg_train_efe": avg_train_efe,
+        "avg_train_ce": avg_train_ce,
+    }
+
+
+def main():
+    # Standalone run: use only Config values
+    metrics = run_training(params_override=None, save_model=True)
+    print(
+        f"Final: Val CE={metrics['val_ce']:.4f}, Val PPL={metrics['val_ppl']:.4f}, "
+        f"Avg Train EFE={metrics['avg_train_efe']:.4f}, Avg Train CE={metrics['avg_train_ce']:.4f}"
+    )
+
+
 if __name__ == "__main__":
     main()

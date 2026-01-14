@@ -28,7 +28,7 @@ def phase1_space():
         eta=ng.p.Log(lower=1e-6, upper=1e-4),
         tau_m=ng.p.Scalar(lower=10, upper=20).set_integer_casting(),
         n_iter=ng.p.Scalar(lower=1, upper=30).set_integer_casting(),
-        dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),  # fixed 0.0
+        dropout_rate=ng.p.Constant(0.0),  # fixed at 0.0 without bounds error
         wub=ng.p.Scalar(lower=0.01, upper=0.1),
         wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
         optim_type=ng.p.Choice(["adam", "sgd"]),
@@ -109,7 +109,7 @@ def run_two_phase_optimization(phase1_budget=30, phase2_budget=40):
     # Inoculate optimizer with known good values from Phase 1
     opt2.suggest(**{
         "eta": float(best_params_efe.get("eta", 1e-3)),
-        "dropout": float(best_params_efe.get("dropout", 0.1)),
+        "dropout_rate": float(best_params_efe.get("dropout_rate", 0.0)),
         "wub": float(best_params_efe.get("wub", 0.02)),
         "wlb": float(best_params_efe.get("wlb", -0.02)),
     })
@@ -171,7 +171,7 @@ def run_two_phase_parallel(phase1_budget=30, phase2_budget=40, num_workers=4):
     # inoculate
     opt2.suggest(**{
         "eta": float(best_params_efe.get("eta", 1e-3)),
-        "dropout": float(best_params_efe.get("dropout", 0.1)),
+        "dropout_rate": float(best_params_efe.get("dropout_rate", 0.0)),
         "wub": float(best_params_efe.get("wub", 0.02)),
         "wlb": float(best_params_efe.get("wlb", -0.02)),
     })
@@ -195,7 +195,7 @@ def run_two_phase_with_portfolio(phase1_budget=30, phase2_budget=40):
     opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget)
     opt2.suggest(**{
         "eta": float(best_params_efe.get("eta", 1e-3)),
-        "dropout": float(best_params_efe.get("dropout", 0.1)),
+        "dropout_rate": float(best_params_efe.get("dropout_rate", 0.0)),
         "wub": float(best_params_efe.get("wub", 0.02)),
         "wlb": float(best_params_efe.get("wlb", -0.02)),
     })

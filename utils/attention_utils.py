@@ -7,14 +7,14 @@ from functools import partial
 from config import Config as config
 import jax.random as random
 @partial(jit, static_argnums=[4, 5, 6])
-def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, key):
+def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len,key):
     """
     Compute multi-head attention 
     """
     if Q.ndim == 2:
         # 2D input: (batch_size * seq_len, n_embed) -> reshape to 3D
         M, D = Q.shape
-        S = config.seq_len        
+        S = seq_len        
         B = M // S  # batch_size
         Q_3d = Q.reshape(B, S, D)
         K_3d = K.reshape(B, S, D)
@@ -104,9 +104,10 @@ class AttentionBlock(JaxComponent):
         n_heads=self.n_heads
         d_head=self.d_head
         dropout_rate=self.dropout_rate
+        seq_len=self.seq_len
         key=self.key
         attention = _compute_attention(
-            inputs_q, inputs_k, inputs_v, mask, n_heads, d_head, dropout_rate, key
+            inputs_q, inputs_k, inputs_v, mask, n_heads, d_head, dropout_rate,seq_len, key
         )
         
         self.outputs.set(attention)

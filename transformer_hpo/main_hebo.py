@@ -19,7 +19,6 @@ def phase1_space():
     return ng.p.Dict(
         n_heads=ng.p.Scalar(lower=2, upper=8).set_integer_casting(),
         embed_mult=ng.p.Choice([8, 12, 16]),
-        n_embed=ng.p.Scalar(lower=16, upper=4096).set_integer_casting(),  # will be overridden to n_heads*embed_mult
         batch_size=ng.p.Scalar(lower=2, upper=12).set_integer_casting(),
         seq_len=ng.p.Scalar(lower=8, upper=32).set_integer_casting(),
 
@@ -96,8 +95,6 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
 def run_two_phase_optimization(phase1_budget=30, phase2_budget=40):
     print("Starting Phase 1 (minimize EFE proxy)...")
     opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=phase1_budget)
-    # Ensure architecture validity: n_embed divisible by n_heads
-    opt1.parametrization.register_cheap_constraint(constraint_embed_divisible)
     best_efe, best_params_efe, history1 = run_phase(opt1, "efe")
 
     print("\nPhase 1 done.")
@@ -152,8 +149,6 @@ def run_two_phase_parallel(phase1_budget=30, phase2_budget=40, num_workers=4):
         return float(arr[0][0])
 
     opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=phase1_budget, num_workers=num_workers)
-    # Cheap constraint: ensure n_embed % n_heads == 0
-    opt1.parametrization.register_cheap_constraint(constraint_embed_divisible)
 
     with futures.ProcessPoolExecutor(max_workers=opt1.num_workers) as executor:
         rec1 = opt1.minimize(func_phase1, executor=executor, batch_mode=False)
@@ -187,8 +182,6 @@ def run_two_phase_with_portfolio(phase1_budget=30, phase2_budget=40):
     """Use PortfolioDiscreteOnePlusOne for mixed discrete space in Phase 1."""
     print("Phase 1 with PortfolioDiscreteOnePlusOne (EFE)...")
     opt1 = ng.optimizers.PortfolioDiscreteOnePlusOne(parametrization=phase1_space(), budget=phase1_budget)
-    # constraint for divisibility
-    opt1.parametrization.register_cheap_constraint(constraint_embed_divisible)
     best_efe, best_params_efe, _ = run_phase(opt1, "efe")
 
     print("\nPhase 2 with NGOpt (CE)...")
@@ -207,7 +200,6 @@ def run_two_phase_with_chaining(phase1_budget=30, phase2_budget=40):
     """Use LHS then DE in Phase 2 via Chaining for refinement."""
     print("Phase 1 with NGOpt (EFE)...")
     opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=phase1_budget)
-    opt1.parametrization.register_cheap_constraint(constraint_embed_divisible)
     _, best_params_efe, _ = run_phase(opt1, "efe")
 
     print("\nPhase 2 with Chaining(LHS -> DE) (CE)...")

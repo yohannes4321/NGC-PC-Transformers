@@ -26,7 +26,7 @@ def _build_cfg(params_override=None):
     return cfg
 
 
-def run_training(params_override=None, save_model=False):
+def run_training(params_override=None, save_model=False, max_train_batches=None):
     """
     Train the model and return metrics.
 
@@ -68,9 +68,12 @@ def run_training(params_override=None, save_model=False):
     total_ce = 0.0
     total_batches = 0
 
+    train_batches_seen = 0
     for i in range(cfg.num_iter):
         print(f"\n iter {i}:")
         for batch_idx, batch in enumerate(train_loader):
+            if max_train_batches is not None and train_batches_seen >= max_train_batches:
+                break
             inputs = batch[0][1]
             targets = batch[1][1]
 
@@ -94,6 +97,7 @@ def run_training(params_override=None, save_model=False):
                 print(
                     f"  Batch {batch_idx}: EFE = {float(efe):.4f}, CE = {float(batch_ce):.4f}, PPL = {float(batch_ppl):.4f}"
                 )
+            train_batches_seen += 1
 
     avg_train_efe = (total_efe / total_batches) if total_batches > 0 else 0.0
     avg_train_ce = (total_ce / total_batches) if total_batches > 0 else 0.0

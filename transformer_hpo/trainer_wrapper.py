@@ -92,7 +92,7 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
 
         clean_memory()
 
-        metrics = run_training(params_override=params, save_model=False)
+        metrics = run_training(params_override=params, save_model=False, max_train_batches=20)
 
         if objective == "efe":
             loss = float(abs(metrics.get("avg_train_efe", float("inf"))))

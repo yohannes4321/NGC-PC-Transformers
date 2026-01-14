@@ -1,10 +1,4 @@
 # filename: main_nevergrad.py
-"""
-Two-phase Nevergrad :
-  Phase 1: search architecture + continuous params minimizing avg_train_efe (proxy).
-  Phase 2: refine continuous params around Phase 1 best, minimizing validation CE.
-"""
-
 import os
 import math
 import numpy as np
@@ -13,54 +7,40 @@ import nevergrad as ng
 from concurrent import futures
 from trainer_wrapper import train_evaluate_model
 
-
 def phase1_space():
-  
+    """
+    Architecture search space. 
+    Note: n_embed is NOT in the dict. We derive it from n_heads * embed_mult.
+    """
     return ng.p.Dict(
         n_heads=ng.p.Scalar(lower=2, upper=8).set_integer_casting(),
-        embed_mult=ng.p.Choice([8, 12, 16]),
+        embed_mult=ng.p.Choice([8, 12, 16, 32]), # This ensures n_embed is always a multiple
         batch_size=ng.p.Scalar(lower=2, upper=12).set_integer_casting(),
         seq_len=ng.p.Scalar(lower=8, upper=32).set_integer_casting(),
-
         n_layers=ng.p.Scalar(lower=1, upper=8).set_integer_casting(),
         pos_learnable=ng.p.Choice([True, False]),
         eta=ng.p.Log(lower=1e-6, upper=1e-4),
         tau_m=ng.p.Scalar(lower=10, upper=20).set_integer_casting(),
         n_iter=ng.p.Scalar(lower=1, upper=30).set_integer_casting(),
-        dropout_rate=ng.p.Constant(0.0),  # fixed at 0.0 without bounds error
+        dropout_rate=ng.p.Constant(0.0),
         wub=ng.p.Scalar(lower=0.01, upper=0.1),
         wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
         optim_type=ng.p.Choice(["adam", "sgd"]),
         act_fx=ng.p.Choice(["identity", "relu"]),
     )
 
-
 def phase2_space(best):
-    """Phase 2: only continuous params around Phase 1 best, same names as Phase 1."""
+    """Refine continuous params while keeping the 'best' architecture from Phase 1."""
     eta_best = float(best.get("eta", 1e-5))
-    dropout_best = float(best.get("dropout_rate", 0.0))
     wub_best = float(best.get("wub", 0.05))
     wlb_best = float(best.get("wlb", -0.05))
 
     return ng.p.Dict(
-        eta=ng.p.Log(lower=max(eta_best * 0.2, 1e-6), upper=eta_best * 5.0),
-        dropout_rate=ng.p.Scalar(lower=max(0.0, dropout_best - 0.05), upper=min(0.3, dropout_best + 0.05)),
+        eta=ng.p.Log(lower=max(eta_best * 0.2, 1e-7), upper=eta_best * 5.0),
         wub=ng.p.Scalar(lower=max(0.01, wub_best - 0.02), upper=min(0.1, wub_best + 0.02)),
         wlb=ng.p.Scalar(lower=max(-0.1, wlb_best - 0.02), upper=min(-0.01, wlb_best + 0.02)),
+        dropout_rate=ng.p.Scalar(lower=0.0, upper=0.3)
     )
-
-
-# Cheap constraint: ensure architecture validity (picklable function, no lambda)
-def constraint_embed_divisible(value_dict):
-    try:
-        n_embed = int(value_dict["n_embed"])  # may be numpy or float
-        n_heads = int(value_dict["n_heads"]) or 1
-        embed_mult = int(value_dict.get("embed_mult", max(1, n_embed // max(1, n_heads))))
-        # Enforce exact equality n_embed == n_heads * embed_mult
-        return 0.0 if n_embed == n_heads * embed_mult else -1.0
-    except Exception:
-        return -1.0
-
 
 def run_phase(optimizer, objective_name, fixed_params=None, history=None):
     best_loss = float("inf")
@@ -70,167 +50,65 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
     for iteration in range(optimizer.budget):
         candidate = optimizer.ask()
         x_dict = candidate.value
-        # Enforce exact n_embed = n_heads * embed_mult (overwrite before eval)
-        if "n_heads" in x_dict and "embed_mult" in x_dict:
-            x_dict = {**x_dict, "n_embed": int(x_dict["n_heads"]) * int(x_dict["embed_mult"]) }
-        if fixed_params:
-            x_dict = {**fixed_params, **x_dict}
+        
+        # --- THE FIX: ENFORCE DIVISIBILITY ---
+        # If we have fixed_params (Phase 2), merge them first
+        full_params = {**fixed_params, **x_dict} if fixed_params else x_dict.copy()
+        
+        # Explicitly calculate n_embed so it's guaranteed to be divisible by n_heads
+        h = int(full_params["n_heads"])
+        m = int(full_params["embed_mult"])
+        full_params["n_embed"] = h * m
+        
+        # Ensure all shape-related params are strictly integers for JAX
+        for k in ["n_heads", "n_embed", "batch_size", "seq_len", "n_layers", "tau_m", "n_iter"]:
+            if k in full_params:
+                full_params[k] = int(full_params[k])
 
-        loss_array = train_evaluate_model(x_dict, objective=objective_name)
-        loss_value = float(loss_array[0][0])
+        try:
+            print(f"\nTrial {iteration} | heads: {full_params['n_heads']} | d_model: {full_params['n_embed']}")
+            loss_array = train_evaluate_model(full_params, objective=objective_name)
+            loss_value = float(loss_array[0][0])
+            
+            if np.isnan(loss_value):
+                loss_value = float("inf")
+        except Exception as e:
+            # If the model still crashes (e.g. out of memory), report it as inf so Nevergrad learns
+            print(f"!!! CRASH IN TRIAL {iteration} !!! Error: {e}")
+            loss_value = float("inf")
 
         optimizer.tell(candidate, loss_value)
         losses.append(loss_value)
 
         if loss_value < best_loss:
             best_loss = loss_value
-            best_params = x_dict
-            print(f">>> Iter {iteration+1}: NEW BEST {objective_name.upper()} = {best_loss:.4f}")
-        else:
-            print(f"Iter {iteration+1}: {objective_name} = {loss_value:.4f}")
+            best_params = full_params
+            print(f">>> NEW BEST {objective_name.upper()} = {best_loss:.4f}")
 
     return best_loss, best_params, losses
 
+def run_two_phase_optimization(p1_budget=30, p2_budget=40):
+    print("--- Phase 1: Arch Search (EFE) ---")
+    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=p1_budget)
+    best_efe, best_arch, history1 = run_phase(opt1, "efe")
 
-def run_two_phase_optimization(phase1_budget=30, phase2_budget=40):
-    print("Starting Phase 1 (minimize EFE proxy)...")
-    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=phase1_budget)
-    best_efe, best_params_efe, history1 = run_phase(opt1, "efe")
+    if best_arch is None:
+        print("Search failed.")
+        return
 
-    print("\nPhase 1 done.")
-    print(f"Best EFE: {best_efe:.4f}")
-    print(f"Best params (arch + cont): {best_params_efe}")
+    print(f"\n--- Phase 2: Hyperparam Refinement (CE) ---")
+    # We fix the architecture (n_heads, embed_mult) and only tune continuous params
+    opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_arch), budget=p2_budget)
+    
+    # Inoculate with the best result from Phase 1
+    opt2.suggest(eta=best_arch["eta"], wub=best_arch["wub"], wlb=best_arch["wlb"])
 
-    print("\nStarting Phase 2 (refine continuous, minimize CE)...")
-    opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget)
-    # Inoculate optimizer with known good values from Phase 1
-    opt2.suggest(**{
-        "eta": float(best_params_efe.get("eta", 1e-3)),
-        "dropout_rate": float(best_params_efe.get("dropout_rate", 0.0)),
-        "wub": float(best_params_efe.get("wub", 0.02)),
-        "wlb": float(best_params_efe.get("wlb", -0.02)),
-    })
-    # Optional: register a callback to log each tell
-    def _cb_logger(optimizer, candidate, value):
-        try:
-            print(f"Callback tell -> loss={value} for {candidate.value}")
-        except Exception:
-            pass
-    opt2.register_callback("tell", _cb_logger)
-    best_ce, best_params_ce, history2 = run_phase(opt2, "ce", fixed_params=best_params_efe, history=history1)
+    # Pass the best_arch as 'fixed_params' so the architecture doesn't change
+    best_ce, best_final, history2 = run_phase(opt2, "ce", fixed_params=best_arch, history=history1)
 
-    print("\n--- Two-Phase Optimization Finished ---")
-    print(f"Phase 1 best EFE: {best_efe:.4f}")
-    print(f"Phase 2 best CE:  {best_ce:.4f}")
-    if best_ce < float("inf"):
-        print(f"Best PPL:       {math.exp(best_ce):.2f}")
-    print("Best Params (arch + tuned cont):", best_params_ce)
-
-    # Plot combined history (phase1 + phase2) for CE axis (proxy for efe shown too)
-    plt.figure(figsize=(10, 6))
-    plot_data = [l if l != float("inf") else 10.0 for l in history2]
-    plt.plot(plot_data, marker="o", label="Trial Loss")
-    plt.plot(np.minimum.accumulate(plot_data), "r--", label="Best So Far")
-    plt.title("Nevergrad Two-Phase Optimization")
-    plt.ylabel("Loss (phase1 EFE proxy, phase2 CE)")
-    plt.xlabel("Trial")
-    plt.legend()
-    plt.savefig("nevergrad_two_phase_log.png")
-
-
-# ------------------------------ Advanced Examples ------------------------------
-
-def run_two_phase_parallel(phase1_budget=30, phase2_budget=40, num_workers=4):
-    """Asynchronous parallel evaluation using ProcessPoolExecutor and minimize."""
-    print("Starting Phase 1 (async minimize, EFE)...")
-
-    def func_phase1(**x):
-        arr = train_evaluate_model(x, objective="efe")
-        return float(arr[0][0])
-
-    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=phase1_budget, num_workers=num_workers)
-
-    with futures.ProcessPoolExecutor(max_workers=opt1.num_workers) as executor:
-        rec1 = opt1.minimize(func_phase1, executor=executor, batch_mode=False)
-
-    best_params_efe = rec1.value
-
-    print("\nStarting Phase 2 (async minimize, CE)...")
-
-    def func_phase2(**x):
-        merged = {**best_params_efe, **x}
-        arr = train_evaluate_model(merged, objective="ce")
-        return float(arr[0][0])
-
-    opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget, num_workers=num_workers)
-    # inoculate
-    opt2.suggest(**{
-        "eta": float(best_params_efe.get("eta", 1e-3)),
-        "dropout_rate": float(best_params_efe.get("dropout_rate", 0.0)),
-        "wub": float(best_params_efe.get("wub", 0.02)),
-        "wlb": float(best_params_efe.get("wlb", -0.02)),
-    })
-    with futures.ProcessPoolExecutor(max_workers=opt2.num_workers) as executor:
-        rec2 = opt2.minimize(func_phase2, executor=executor, batch_mode=False)
-
-    print("Parallel two-phase finished.")
-    print("Best Phase1 params:", best_params_efe)
-    print("Best Phase2 params:", rec2.value)
-
-
-def run_two_phase_with_portfolio(phase1_budget=30, phase2_budget=40):
-    """Use PortfolioDiscreteOnePlusOne for mixed discrete space in Phase 1."""
-    print("Phase 1 with PortfolioDiscreteOnePlusOne (EFE)...")
-    opt1 = ng.optimizers.PortfolioDiscreteOnePlusOne(parametrization=phase1_space(), budget=phase1_budget)
-    best_efe, best_params_efe, _ = run_phase(opt1, "efe")
-
-    print("\nPhase 2 with NGOpt (CE)...")
-    opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget)
-    opt2.suggest(**{
-        "eta": float(best_params_efe.get("eta", 1e-3)),
-        "dropout_rate": float(best_params_efe.get("dropout_rate", 0.0)),
-        "wub": float(best_params_efe.get("wub", 0.02)),
-        "wlb": float(best_params_efe.get("wlb", -0.02)),
-    })
-    best_ce, best_params_ce, _ = run_phase(opt2, "ce", fixed_params=best_params_efe)
-    print("Done. Phase1 EFE:", best_efe, "Phase2 CE:", best_ce)
-
-
-def run_two_phase_with_chaining(phase1_budget=30, phase2_budget=40):
-    """Use LHS then DE in Phase 2 via Chaining for refinement."""
-    print("Phase 1 with NGOpt (EFE)...")
-    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=phase1_budget)
-    _, best_params_efe, _ = run_phase(opt1, "efe")
-
-    print("\nPhase 2 with Chaining(LHS -> DE) (CE)...")
-    ChainOpt = ng.optimizers.Chaining([ng.optimizers.LHSSearch, ng.optimizers.DE], [int(phase2_budget * 0.2)])
-    opt2 = ChainOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget)
-    best_ce, best_params_ce, _ = run_phase(opt2, "ce", fixed_params=best_params_efe)
-    print("Chaining finished. Best CE:", best_ce)
-
-
-def run_phase2_multiobjective_de(best_params, phase2_budget=40):
-    """Multi-objective DE: minimize [CE, |EFE|], show Pareto front."""
-    print("Phase 2 multi-objective DE ([CE, |EFE|])...")
-    opt = ng.optimizers.DE(parametrization=phase2_space(best_params), budget=phase2_budget)
-    # Provide a reference point (upper bounds) for [CE, |EFE|]
-    opt.tell(ng.p.MultiobjectiveReference(), [10.0, 10.0])
-
-    for _ in range(phase2_budget):
-        cand = opt.ask()
-        x = cand.value
-        merged = {**best_params, **x}
-        # Direct call to wrapper for metrics
-        arr_ce = train_evaluate_model(merged, objective="ce")
-        ce = float(arr_ce[0][0])
-        arr_efe = train_evaluate_model(merged, objective="efe")
-        efe = float(arr_efe[0][0])
-        opt.tell(cand, [ce, abs(efe)])
-
-    print("Pareto front (params and losses):")
-    for p in sorted(opt.pareto_front(), key=lambda c: c.losses):
-        print({"params": p.value, "losses": p.losses})
-
+    print("\nDone!")
+    print(f"Final Architecture: Heads={best_final['n_heads']}, D_Model={best_final['n_embed']}")
+    print(f"Final Loss (CE): {best_ce:.4f}")
 
 if __name__ == "__main__":
     run_two_phase_optimization()

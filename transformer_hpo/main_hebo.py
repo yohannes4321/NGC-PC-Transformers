@@ -30,6 +30,11 @@ def phase1_space():
         wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
         optim_type=ng.p.Choice(["adam", "sgd"]),
         act_fx=ng.p.Choice(["identity", "relu"]),
+
+        # Request live per-batch logging from the trainer (if run_training supports it).
+        # Set interval to 10 to print EFE, CE and PPL every 10 batches.
+        live_logging=ng.p.Constant(True),
+        log_batch_interval=ng.p.Constant(10),
     )
 
 def phase2_space(best):

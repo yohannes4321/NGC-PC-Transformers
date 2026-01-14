@@ -9,6 +9,8 @@ warnings.filterwarnings('ignore')
 logging.getLogger().setLevel(logging.ERROR)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 logging.getLogger('optuna').setLevel(logging.WARNING)
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3' 
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
 
 import time
@@ -22,7 +24,7 @@ from eval import eval_model
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 
-EFE_STABILITY_THRESHOLD = 2e1
+EFE_STABILITY_THRESHOLD = 5e0
 
 
 def define_search_space(trial):
@@ -274,7 +276,7 @@ def run_phase2_trial(trial, best_params):
 
         trial.report(avg_train_ce, batch_idx)
         if trial.should_prune():
-            reason = f"CMA-ES pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
+            reason = f"TPE pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
             trial.set_user_attr("prune_reason", reason)
             print(reason)
             raise optuna.TrialPruned()
@@ -338,25 +340,28 @@ def case1_efe_to_ce_complete():
         return None
 
     print(f"\n{'='*60}")
-    print("PHASE 2: CMA-ES optimizing CE (continuous parameters only)")
+    print("PHASE 2: TPE optimizing CE (continuous parameters only)")
     print(f"{'='*60}")
     print("Strategy: Keep architecture/discrete/categorical parameters FIXED")
     print("Only fine-tune: eta, dropout_rate, wub, wlb")
     
     study_ce = optuna.create_study(
-        study_name="case1_complete_phase2_ce",
-        storage="sqlite:///tuning/case1_complete_phase2_ce.db",
-        load_if_exists=True,
-        direction="minimize",
-        sampler=optuna.samplers.CmaEsSampler(
-            seed=42,
-            restart_strategy='ipop',
-            x0=[best_params['eta'], best_params['dropout_rate'], 
-                best_params['wub'], best_params['wlb']],
-            sigma0=0.1 
-        ),
-        pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
+    study_name="case1_complete_phase2_ce",
+    storage="sqlite:///tuning/case1_complete_phase2_ce.db",
+    load_if_exists=True,
+    direction="minimize",
+    sampler=optuna.samplers.TPESampler(
+        seed=42,
+        n_startup_trials=5,
+        multivariate=True,    
+        group=True,          
+        prior_weight=1.0,     
+        consider_endpoints=True  
+    ),
+    pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15)
     )
+    
+    print(f"Resuming with {len(study_ce.trials)} previous trials")
 
     def phase2_trial_wrapper(trial):
         return run_phase2_trial(trial, best_params)

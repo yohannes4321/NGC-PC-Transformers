@@ -92,7 +92,13 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
 
         clean_memory()
 
-        metrics = run_training(params_override=params, save_model=False, max_train_batches=20)
+        # Ensure Nevergrad-provided batch/seq flow consistently into model and DataLoader
+        if "batch_size" in params:
+            params["batch_size"] = int(params["batch_size"])
+        if "seq_len" in params:
+            params["seq_len"] = int(params["seq_len"])
+
+        metrics = run_training(params_override=params, save_model=False, max_train_batches=5)
 
         if objective == "efe":
             loss = float(abs(metrics.get("avg_train_efe", float("inf"))))

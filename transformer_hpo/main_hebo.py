@@ -14,14 +14,14 @@ def phase1_space():
     """
     return ng.p.Dict(
         n_heads=ng.p.Scalar(lower=2, upper=8).set_integer_casting(),
-        embed_mult=ng.p.Choice([8, 12, 16, 32]), # This ensures n_embed is always a multiple
-        batch_size=ng.p.Scalar(lower=2, upper=12).set_integer_casting(),
-        seq_len=ng.p.Scalar(lower=8, upper=32).set_integer_casting(),
-        n_layers=ng.p.Scalar(lower=1, upper=8).set_integer_casting(),
+        embed_mult=ng.p.Choice([8, 12, 16, 32]),
+        batch_size=ng.p.Scalar(lower=2, upper=8).set_integer_casting(),
+        seq_len=ng.p.Scalar(lower=8, upper=24).set_integer_casting(),
+        n_layers=ng.p.Scalar(lower=1, upper=6).set_integer_casting(),
         pos_learnable=ng.p.Choice([True, False]),
         eta=ng.p.Log(lower=1e-6, upper=1e-4),
         tau_m=ng.p.Scalar(lower=10, upper=20).set_integer_casting(),
-        n_iter=ng.p.Scalar(lower=1, upper=30).set_integer_casting(),
+        n_iter=ng.p.Scalar(lower=1, upper=20).set_integer_casting(),
         dropout_rate=ng.p.Constant(0.0),
         wub=ng.p.Scalar(lower=0.01, upper=0.1),
         wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),

@@ -6,7 +6,7 @@ import jax
 from functools import partial
 from config import Config as config
 import jax.random as random
-@partial(jit, static_argnums=[4, 5, 6])
+@partial(jit, static_argnums=[4, 5, 6,7])
 def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len,key):
     """
     Compute multi-head attention 

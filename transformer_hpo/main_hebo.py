@@ -2,23 +2,26 @@
 import os
 import math
 import numpy as np
-import matplotlib.pyplot as plt
 import nevergrad as ng
-from concurrent import futures
 from trainer_wrapper import train_evaluate_model
 
 def phase1_space():
     """
-    Architecture search space. 
-    Note: n_embed is NOT in the dict. We derive it from n_heads * embed_mult.
+    Architecture search space constrained to prevent JAX Tracer and Reshape errors.
     """
     return ng.p.Dict(
-        n_heads=ng.p.Scalar(lower=2, upper=8).set_integer_casting(),
-        embed_mult=ng.p.Choice([8, 12, 16, 32]),
-        batch_size=ng.p.Scalar(lower=2, upper=8).set_integer_casting(),
-        seq_len=ng.p.Scalar(lower=8, upper=24).set_integer_casting(),
-        n_layers=ng.p.Scalar(lower=1, upper=6).set_integer_casting(),
+        # FIX 1: Discrete choices for architecture to prevent constant JIT recompilation
+        n_heads=ng.p.Choice([2, 4, 8]), 
+        embed_mult=ng.p.Choice([8, 16, 32]),
+        
+        # FIX 2: Constrain batch/seq to powers of 2 or common factors to avoid reshape mismatches
+        batch_size=ng.p.Choice([4, 8]),
+        seq_len=ng.p.Choice([16, 32]), 
+        
+        n_layers=ng.p.Choice([1, 2, 4]),
         pos_learnable=ng.p.Choice([True, False]),
+        
+        # Continuous hyperparameters are fine as they don't change tensor shapes
         eta=ng.p.Log(lower=1e-6, upper=1e-4),
         tau_m=ng.p.Scalar(lower=10, upper=20).set_integer_casting(),
         n_iter=ng.p.Scalar(lower=1, upper=20).set_integer_casting(),
@@ -30,7 +33,7 @@ def phase1_space():
     )
 
 def phase2_space(best):
-    """Refine continuous params while keeping the 'best' architecture from Phase 1."""
+    """Refine continuous params while keeping the 'best' architecture fixed."""
     eta_best = float(best.get("eta", 1e-5))
     wub_best = float(best.get("wub", 0.05))
     wlb_best = float(best.get("wlb", -0.05))
@@ -51,29 +54,29 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
         candidate = optimizer.ask()
         x_dict = candidate.value
         
-        # --- THE FIX: ENFORCE DIVISIBILITY ---
-        # If we have fixed_params (Phase 2), merge them first
+        # Merge fixed architecture (if in Phase 2)
         full_params = {**fixed_params, **x_dict} if fixed_params else x_dict.copy()
         
-        # Explicitly calculate n_embed so it's guaranteed to be divisible by n_heads
+        # --- THE DIVISIBILITY FIX ---
         h = int(full_params["n_heads"])
         m = int(full_params["embed_mult"])
         full_params["n_embed"] = h * m
         
-        # Ensure all shape-related params are strictly integers for JAX
-        for k in ["n_heads", "n_embed", "batch_size", "seq_len", "n_layers", "tau_m", "n_iter"]:
+        # --- THE JAX CONCRETE TYPE FIX ---
+        # Ensure all dimensions are standard Python ints (not numpy types)
+        int_keys = ["n_heads", "n_embed", "batch_size", "seq_len", "n_layers", "tau_m", "n_iter"]
+        for k in int_keys:
             if k in full_params:
                 full_params[k] = int(full_params[k])
 
         try:
-            print(f"\nTrial {iteration} | heads: {full_params['n_heads']} | d_model: {full_params['n_embed']}")
+            print(f"\nTrial {iteration} | Heads: {full_params['n_heads']} | D_Model: {full_params['n_embed']} | Seq: {full_params['seq_len']}")
             loss_array = train_evaluate_model(full_params, objective=objective_name)
             loss_value = float(loss_array[0][0])
             
             if np.isnan(loss_value):
                 loss_value = float("inf")
         except Exception as e:
-            # If the model still crashes (e.g. out of memory), report it as inf so Nevergrad learns
             print(f"!!! CRASH IN TRIAL {iteration} !!! Error: {e}")
             loss_value = float("inf")
 
@@ -97,17 +100,16 @@ def run_two_phase_optimization(p1_budget=30, p2_budget=40):
         return
 
     print(f"\n--- Phase 2: Hyperparam Refinement (CE) ---")
-    # We fix the architecture (n_heads, embed_mult) and only tune continuous params
     opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_arch), budget=p2_budget)
     
-    # Inoculate with the best result from Phase 1
+    # Suggest best from Phase 1 to seed Phase 2
     opt2.suggest(eta=best_arch["eta"], wub=best_arch["wub"], wlb=best_arch["wlb"])
 
-    # Pass the best_arch as 'fixed_params' so the architecture doesn't change
     best_ce, best_final, history2 = run_phase(opt2, "ce", fixed_params=best_arch, history=history1)
 
-    print("\nDone!")
+    print("\nOptimization Finished Successfully!")
     print(f"Final Architecture: Heads={best_final['n_heads']}, D_Model={best_final['n_embed']}")
+    print(f"Final Params: Batch={best_final['batch_size']}, Seq={best_final['seq_len']}")
     print(f"Final Loss (CE): {best_ce:.4f}")
 
 if __name__ == "__main__":

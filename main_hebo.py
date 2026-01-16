@@ -106,7 +106,7 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
 
     return best_loss, best_params, losses
 
-def run_two_phase_optimization(p1_budget=2 , p2_budget=2):
+def run_two_phase_optimization(p1_budget=3 , p2_budget=3):
     print("--- Phase 1: Arch Search (EFE) ---")
     opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=p1_budget)
     best_efe, best_arch, history1 = run_phase(opt1, "efe")
@@ -131,7 +131,7 @@ def run_two_phase_optimization(p1_budget=2 , p2_budget=2):
 
 # ------------------------------ Advanced Examples ------------------------------
 
-def run_two_phase_parallel(phase1_budget=30, phase2_budget=40, num_workers=4):
+def run_two_phase_parallel(phase1_budget=3, phase2_budget=2, num_workers=4):
     """Asynchronous parallel evaluation using ProcessPoolExecutor and minimize."""
     print("Starting Phase 1 (async minimize, EFE)...")
 

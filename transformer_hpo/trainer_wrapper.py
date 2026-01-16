@@ -106,8 +106,9 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
         )
 
         if objective == "efe":
-            # Preserve sign so reported EFE matches batch logging
-            loss = float(metrics.get("avg_train_efe", float("inf")))
+            # Move EFE toward zero: minimize absolute value of avg_train_efe
+            efe_raw = float(metrics.get("avg_train_efe", float("inf")))
+            loss = abs(efe_raw)
         else:  # default CE objective
             loss = float(metrics["val_ce"])
 

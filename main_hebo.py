@@ -119,7 +119,17 @@ def run_two_phase_optimization(p1_budget=3 , p2_budget=3):
     opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_arch), budget=p2_budget)
     
     # Suggest best from Phase 1 to seed Phase 2
-    opt2.suggest(eta=best_arch["eta"], wub=best_arch["wub"], wlb=best_arch["wlb"])
+    try:
+        warm = opt2.parametrization.spawn_child(
+            new_value={
+                "eta": float(best_arch.get("eta", 1e-5)),
+                "wub": float(best_arch.get("wub", 0.05)),
+                "wlb": float(best_arch.get("wlb", -0.05)),
+            }
+        )
+        opt2.suggest(warm)
+    except Exception as e:
+        print("Warm-start suggest failed (Phase 2):", e)
 
     best_ce, best_final, history2 = run_phase(opt2, "ce", fixed_params=best_arch, history=history1)
 
@@ -158,12 +168,18 @@ def run_two_phase_parallel(phase1_budget=3, phase2_budget=2, num_workers=4):
 
     opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget, num_workers=num_workers)
     # inoculate
-    opt2.suggest(**{
-        "eta": float(best_params_efe.get("eta", 1e-3)),
-        "dropout": float(best_params_efe.get("dropout", 0.1)),
-        "wub": float(best_params_efe.get("wub", 0.02)),
-        "wlb": float(best_params_efe.get("wlb", -0.02)),
-    })
+    try:
+        warm = opt2.parametrization.spawn_child(
+            new_value={
+                "eta": float(best_params_efe.get("eta", 1e-3)),
+                "dropout": float(best_params_efe.get("dropout", 0.1)),
+                "wub": float(best_params_efe.get("wub", 0.02)),
+                "wlb": float(best_params_efe.get("wlb", -0.02)),
+            }
+        )
+        opt2.suggest(warm)
+    except Exception as e:
+        print("Warm-start suggest failed (parallel Phase 2):", e)
     with futures.ProcessPoolExecutor(max_workers=opt2.num_workers) as executor:
         rec2 = opt2.minimize(func_phase2, executor=executor, batch_mode=False)
 
@@ -191,12 +207,18 @@ def run_two_phase_with_portfolio(phase1_budget=30, phase2_budget=40):
 
     print("\nPhase 2 with NGOpt (CE)...")
     opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget)
-    opt2.suggest(**{
-        "eta": float(best_params_efe.get("eta", 1e-3)),
-        "dropout": float(best_params_efe.get("dropout", 0.1)),
-        "wub": float(best_params_efe.get("wub", 0.02)),
-        "wlb": float(best_params_efe.get("wlb", -0.02)),
-    })
+    try:
+        warm = opt2.parametrization.spawn_child(
+            new_value={
+                "eta": float(best_params_efe.get("eta", 1e-3)),
+                "dropout": float(best_params_efe.get("dropout", 0.1)),
+                "wub": float(best_params_efe.get("wub", 0.02)),
+                "wlb": float(best_params_efe.get("wlb", -0.02)),
+            }
+        )
+        opt2.suggest(warm)
+    except Exception as e:
+        print("Warm-start suggest failed (portfolio Phase 2):", e)
     best_ce, best_params_ce, _ = run_phase(opt2, "ce", fixed_params=best_params_efe)
     print("Done. Phase1 EFE:", best_efe, "Phase2 CE:", best_ce)
     return {

@@ -75,8 +75,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     for i in range(cfg.num_iter):
         print(f"\n iter {i}:")
         for batch_idx, batch in enumerate(train_loader):
-            if max_batches is not None and train_batches_seen >= max_batches:
-                break
+           
             inputs = batch[0][1]
             targets = batch[1][1]
 

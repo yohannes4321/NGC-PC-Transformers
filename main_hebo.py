@@ -38,8 +38,8 @@ def phase1_space():
         
         # Weight Initialization: MUCH tighter bounds. 
         # Large initial weights in NGC lead to instant NaNs.
-        wub=ng.p.Scalar(lower=0.001, upper=0.02),
-        wlb=ng.p.Scalar(lower=-0.02, upper=-0.001),
+        wub=ng.p.Scalar(lower=0.01, upper=0.02),
+        wlb=ng.p.Scalar(lower=-0.02, upper=-0.01),
         
         dropout_rate=ng.p.Constant(0.0), # Keep 0.0 for stability during search
         optim_type=ng.p.Choice(["adam", "sgd"]),

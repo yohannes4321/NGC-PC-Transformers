@@ -37,6 +37,13 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     """
     cfg = _build_cfg(params_override)
 
+    # Logging/loop controls: allow overrides from config or HPO params
+    log_interval = max(1, int(getattr(cfg, "log_batch_interval", 10)))
+    live_logging = bool(getattr(cfg, "live_logging", False))
+    max_batches = max_train_batches if max_train_batches is not None else getattr(cfg, "max_train_batches", None)
+    if max_batches is not None:
+        max_batches = int(max_batches)
+
     dkey = random.PRNGKey(1234)
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
     train_loader, valid_loader, _ = data_loader.load_and_prepare_data()
@@ -72,7 +79,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     for i in range(cfg.num_iter):
         print(f"\n iter {i}:")
         for batch_idx, batch in enumerate(train_loader):
-            if max_train_batches is not None and train_batches_seen >= max_train_batches:
+            if max_batches is not None and train_batches_seen >= max_batches:
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
@@ -93,7 +100,8 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             total_ce += float(batch_ce)
             batch_ppl = jnp.exp(batch_ce)
 
-            if batch_idx % 10 == 0:
+            should_log = live_logging or (batch_idx % log_interval == 0)
+            if should_log:
                 print(
                     f"  Batch {batch_idx}: EFE = {float(efe):.4f}, CE = {float(batch_ce):.4f}, PPL = {float(batch_ppl):.4f}"
                 )

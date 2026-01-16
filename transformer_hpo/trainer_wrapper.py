@@ -98,7 +98,13 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
         if "seq_len" in params:
             params["seq_len"] = int(params["seq_len"])
 
-        metrics = run_training(params_override=params, save_model=False, max_train_batches=5)
+        # Allow callers to lift the training batch cap for more verbose logging
+        max_batches = int(params.get("max_train_batches", 5)) if isinstance(params, dict) else 5
+        metrics = run_training(
+            params_override=params,
+            save_model=False,
+            max_train_batches=max_batches,
+        )
 
         if objective == "efe":
             loss = float(abs(metrics.get("avg_train_efe", float("inf"))))

@@ -1,6 +1,9 @@
 class Config:
     SEED = 42
 
+    # Default selector for Nevergrad HPO main
+    case_nevergrad = 1
+
     seq_len =  12
     n_embed = 12
     

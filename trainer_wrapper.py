@@ -105,9 +105,12 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
             max_train_batches=None,
         )
 
+        # Inside train_evaluate_model function
         if objective == "efe":
-            # Preserve sign so reported EFE matches batch logging
-            loss = float(metrics.get("avg_train_efe", float("inf")))
+            # Use abs() so that -100 is "better" than -5000 
+            # (Optimizer will minimize the distance to zero)
+            raw_efe = float(metrics.get("avg_train_efe", float("inf")))
+            loss = abs(raw_efe) 
         else:  # default CE objective
             loss = float(metrics["val_ce"])
 

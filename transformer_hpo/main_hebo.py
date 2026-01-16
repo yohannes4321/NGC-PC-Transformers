@@ -4,6 +4,14 @@ import math
 from concurrent import futures
 import numpy as np
 import nevergrad as ng
+import sys
+from pathlib import Path
+
+# Ensure project root is on path when running from transformer_hpo/
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
+
 from config import Config as config
 from trainer_wrapper import train_evaluate_model
 

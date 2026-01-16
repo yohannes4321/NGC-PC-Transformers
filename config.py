@@ -4,6 +4,10 @@ class Config:
     # Default selector for Nevergrad HPO main
     case_nevergrad = 1
 
+    # Two-phase Nevergrad budgets
+    p1_budget = 3
+    p2_budget = 3
+
     seq_len =  12
     n_embed = 12
     

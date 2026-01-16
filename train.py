@@ -38,11 +38,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     cfg = _build_cfg(params_override)
 
     # Logging/loop controls: allow overrides from config or HPO params
-    log_interval = max(1, int(getattr(cfg, "log_batch_interval", 10)))
-    live_logging = bool(getattr(cfg, "live_logging", False))
-    max_batches = max_train_batches if max_train_batches is not None else getattr(cfg, "max_train_batches", None)
-    if max_batches is not None:
-        max_batches = int(max_batches)
+  
 
     dkey = random.PRNGKey(1234)
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)

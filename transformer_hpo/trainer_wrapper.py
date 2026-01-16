@@ -98,12 +98,11 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
         if "seq_len" in params:
             params["seq_len"] = int(params["seq_len"])
 
-        # Allow callers to lift the training batch cap for more verbose logging
-        max_batches = int(params.get("max_train_batches", None)) if isinstance(params, dict) else 5
+        # Run full training (no batch cap); adjust in params if you need a limit
         metrics = run_training(
             params_override=params,
             save_model=False,
-            max_train_batches=max_batches,
+            max_train_batches=None,
         )
 
         if objective == "efe":

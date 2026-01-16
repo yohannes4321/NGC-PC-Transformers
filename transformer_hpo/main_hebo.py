@@ -4,14 +4,6 @@ import math
 from concurrent import futures
 import numpy as np
 import nevergrad as ng
-import sys
-from pathlib import Path
-
-# Ensure project root is on path when running from transformer_hpo/
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))
-
 from config import Config as config
 from trainer_wrapper import train_evaluate_model
 
@@ -31,40 +23,42 @@ def phase1_space():
         # FIX 1: Discrete choices for architecture to prevent constant JIT recompilation
         n_heads=ng.p.Choice([2, 4, 8]), 
         embed_mult=ng.p.Choice([8, 16, 32]),
-        
-        # FIX 2: Constrain batch/seq to powers of 2 or common factors to avoid reshape mismatches
         batch_size=ng.p.Choice([4, 8]),
         seq_len=ng.p.Choice([16, 32]), 
-        
         n_layers=ng.p.Choice([1, 2, 4]),
         pos_learnable=ng.p.Choice([True, False]),
         
-        # Continuous hyperparameters are fine as they don't change tensor shapes
-        eta=ng.p.Log(lower=1e-6, upper=1e-4),
-        tau_m=ng.p.Scalar(lower=10, upper=20).set_integer_casting(),
-        n_iter=ng.p.Scalar(lower=1, upper=20).set_integer_casting(),
-        dropout_rate=ng.p.Constant(0.0),
-        wub=ng.p.Scalar(lower=0.01, upper=0.1),
-        wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
+        # --- STABILITY FIXES ---
+        # eta: Lowered upper bound to prevent gradient explosion
+        eta=ng.p.Log(lower=1e-7, upper=5e-5), 
+        
+        # tau_m & n_iter: Keep n_iter relatively low if weights are large
+        tau_m=ng.p.Scalar(lower=5, upper=15).set_integer_casting(),
+        n_iter=ng.p.Scalar(lower=1, upper=10).set_integer_casting(),
+        
+        # Weight Initialization: MUCH tighter bounds. 
+        # Large initial weights in NGC lead to instant NaNs.
+        wub=ng.p.Scalar(lower=0.001, upper=0.02),
+        wlb=ng.p.Scalar(lower=-0.02, upper=-0.001),
+        
+        dropout_rate=ng.p.Constant(0.0), # Keep 0.0 for stability during search
         optim_type=ng.p.Choice(["adam", "sgd"]),
         act_fx=ng.p.Choice(["identity", "relu"]),
 
-        # Request live per-batch logging from the trainer (if run_training supports it).
-        # Set interval to 10 to print EFE, CE and PPL every 10 batches.
 
     )
 
 def phase2_space(best):
-    """Refine continuous params while keeping the 'best' architecture fixed."""
     eta_best = float(best.get("eta", 1e-5))
-    wub_best = float(best.get("wub", 0.05))
-    wlb_best = float(best.get("wlb", -0.05))
+    wub_best = float(best.get("wub", 0.01))
+    wlb_best = float(best.get("wlb", -0.01))
 
     return ng.p.Dict(
-        eta=ng.p.Log(lower=max(eta_best * 0.2, 1e-7), upper=eta_best * 5.0),
-        wub=ng.p.Scalar(lower=max(0.01, wub_best - 0.02), upper=min(0.1, wub_best + 0.02)),
-        wlb=ng.p.Scalar(lower=max(-0.1, wlb_best - 0.02), upper=min(-0.01, wlb_best + 0.02)),
-        dropout_rate=ng.p.Scalar(lower=0.0, upper=0.5)
+        # Allow refinement but don't let it jump back into the "danger zone"
+        eta=ng.p.Log(lower=eta_best * 0.5, upper=min(eta_best * 2.0, 1e-4)),
+        wub=ng.p.Scalar(lower=max(0.001, wub_best - 0.005), upper=min(0.04, wub_best + 0.005)),
+        wlb=ng.p.Scalar(lower=max(-0.04, wlb_best - 0.005), upper=min(-0.001, wlb_best + 0.005)),
+        dropout_rate=ng.p.Scalar(lower=0.0, upper=0.2)
     )
 
 def run_phase(optimizer, objective_name, fixed_params=None, history=None):

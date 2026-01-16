@@ -106,7 +106,7 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
 
     return best_loss, best_params, losses
 
-def run_two_phase_optimization(p1_budget=30, p2_budget=40):
+def run_two_phase_optimization(p1_budget=2 , p2_budget=2):
     print("--- Phase 1: Arch Search (EFE) ---")
     opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=p1_budget)
     best_efe, best_arch, history1 = run_phase(opt1, "efe")

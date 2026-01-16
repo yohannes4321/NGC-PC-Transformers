@@ -1,15 +1,11 @@
 # filename: main_nevergrad.py
-import sys
-from pathlib import Path
-
-# Ensure project root is on path even if script is nested oddly
-this_file = Path(__file__).resolve()
-for parent in [this_file.parent, *this_file.parents]:
-    cfg = parent / "config.py"
-    if cfg.exists():
-        if str(parent) not in sys.path:
-            sys.path.append(str(parent))
-        break
+import os
+import math
+from concurrent import futures
+import numpy as np
+import nevergrad as ng
+from config import Config as config
+from trainer_wrapper import train_evaluate_model
 
 
 def constraint_embed_divisible(x):

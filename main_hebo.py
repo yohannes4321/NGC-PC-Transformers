@@ -23,8 +23,8 @@ def phase1_space():
         # FIX 1: Discrete choices for architecture to prevent constant JIT recompilation
         n_heads=ng.p.Choice([2, 4, 8]), 
         embed_mult=ng.p.Choice([8, 16, 32]),
-        batch_size=ng.p.Choice([4, 8]),
-        seq_len=ng.p.Choice([16, 32]), 
+        batch_size=ng.p.Choice([16,32,64]),
+        seq_len=ng.p.Choice([16, 32,64]), 
         n_layers=ng.p.Choice([1, 2, 4]),
         pos_learnable=ng.p.Choice([True, False]),
         

@@ -5,8 +5,8 @@ class Config:
     case_nevergrad = 2
 
     # Two-phase Nevergrad budgets
-    p1_budget = 3
-    p2_budget = 3
+    p1_budget = 6
+    p2_budget = 6
 
     seq_len =  12
     n_embed = 12

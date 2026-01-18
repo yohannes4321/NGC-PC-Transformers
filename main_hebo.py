@@ -7,29 +7,10 @@ import nevergrad as ng
 import numpy as np
 from trainer_wrapper import train_evaluate_model
 
-# --- 1. MEMORY & ENVIRONMENT SETUP ---
+# --- 1. ENVIRONMENT SETUP ---
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-# --- 2. UTILITY FUNCTIONS ---
-def _get_params(args, kwargs):
-    """Fix for Nevergrad TypeError: extracts dict from Candidate object."""
-    if len(args) > 0:
-        if hasattr(args[0], "value"): return dict(args[0].value)
-        if isinstance(args[0], dict): return dict(args[0])
-    return dict(kwargs)
-
-def parallel_func_phase1(*args, **kwargs):
-    """Worker for Phase 1: Focused on Stability (EFE)."""
-    params = _get_params(args, kwargs)
-    params["n_embed"] = int(params.get("n_heads", 1)) * int(params.get("embed_mult", 1))
-    arr = train_evaluate_model(params, objective="efe")
-    return float(arr[0][0])
-
-def constraint_embed_divisible(x):
-    """Ensures n_embed is perfectly divisible by n_heads."""
-    return int(x.get("n_embed", 0)) % int(x.get("n_heads", 1)) == 0
-
-# --- 3. SEARCH SPACE DEFINITIONS (Must be above run_advanced) ---
+# --- 2. SEARCH SPACES ---
 
 def phase1_space():
     """Discrete Architecture Space for EFE Optimization."""
@@ -57,18 +38,33 @@ def phase2_space(best):
         dropout_rate=ng.p.Scalar(lower=0.0, upper=0.2),
     )
 
-# --- 4. THE BRAIN (The Orchestrator) ---
+def _get_params(args, kwargs):
+    if len(args) > 0:
+        if hasattr(args[0], "value"): return dict(args[0].value)
+        if isinstance(args[0], dict): return dict(args[0])
+    return dict(kwargs)
+
+def parallel_func_phase1(*args, **kwargs):
+    params = _get_params(args, kwargs)
+    params["n_embed"] = int(params.get("n_heads", 1)) * int(params.get("embed_mult", 1))
+    # Objective is hardcoded to 'efe' for Phase 1
+    arr = train_evaluate_model(params, objective="efe")
+    return float(arr[0][0])
+
+def constraint_embed_divisible(x):
+    return int(x.get("n_embed", 0)) % int(x.get("n_heads", 1)) == 0
+
+# --- 3. EXECUTION BRAIN ---
 
 def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
-    print("\n" + "="*75)
+    print("\n" + "="*80)
     print("      🌟 STARTING ADVANCED MODEL OPTIMIZATION PIPELINE 🌟")
-    print("="*75)
+    print("="*80)
 
-    # --- PHASE 1: DISCRETE ARCHITECTURE EXPLORATION (EFE FOCUS) ---
+    # PHASE 1
     print(f"\n[PHASE 1] >>> STARTING DISCRETE ARCHITECTURE OPTIMIZATION (EFE)")
-    print(f"Goal: Minimize Expected Free Energy to find a stable model skeleton.")
-    print(f"Status: Searching for optimal Heads, Embedding Size, and Batch settings.")
-    print("-" * 75)
+    print(f"Goal: Minimize Expected Free Energy (EFE) to find stable model structure.")
+    print("-" * 80)
 
     opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=p1_budget, num_workers=num_workers)
     opt1.parametrization.register_cheap_constraint(constraint_embed_divisible)
@@ -79,34 +75,33 @@ def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
     current_best = rec1.value
     current_best["n_embed"] = int(current_best["n_heads"]) * int(current_best["embed_mult"])
     
-    # Lock the best skeleton
     fixed_arch = {k: current_best[k] for k in [
         "n_heads", "embed_mult", "batch_size", "seq_len", 
         "tau_m", "n_iter", "optim_type", "act_fx", "n_embed"
     ]}
 
     print(f"\n🏁 PHASE 1 FINISHED: EFE OPTIMIZATION COMPLETE")
-    print(f"   Handoff Architecture: {fixed_arch['n_heads']} Heads | {fixed_arch['n_embed']} Embed Size")
-    print("=" * 75)
+    print(f">>> HANDING OFF BEST ARCHITECTURE TO PHASE 2:")
+    for k, v in fixed_arch.items(): print(f"    | {k:15}: {v}")
+    print("=" * 80)
 
-    # --- PHASE 2: CONTINUOUS HYPERPARAMETER REFINEMENT (CE FOCUS) ---
-    print(f"\n[PHASE 2] >>> STARTING CONTINUOUS CE OPTIMIZATION")
-    print(f"Goal: Minimize Cross-Entropy (CE) to maximize model accuracy.")
-    print(f"Status: Fine-tuning Learning Rate and Weights for the locked architecture.")
-    print("-" * 75)
+    # PHASE 2
+    print(f"\n[PHASE 2] >>> STARTING CONTINUOUS HYPERPARAMETER OPTIMIZATION (CE)")
+    print(f"Goal: Minimize Cross-Entropy (CE) for maximum accuracy on the chosen skeleton.")
+    print("-" * 80)
 
     opt2 = ng.optimizers.PortfolioDiscreteOnePlusOne(parametrization=phase2_space(current_best), budget=p2_budget)
-    
     best_ce = float("inf")
     patience = 4
+    min_delta = 0.5 
     no_improve = 0
 
     for i in range(p2_budget):
         cand = opt2.ask()
         merged = {**fixed_arch, **cand.value}
         
-        print(f"\n--- [Phase 2] Continuous Trial {i+1}/{p2_budget} ---")
-        print(f"🛠️  Active Parameters:")
+        print(f"\n--- [Phase 2] Trial {i+1}/{p2_budget} ---")
+        print(f"🛠️  FULL PARAMETER LIST:")
         for key, val in merged.items():
             print(f"   | {key:15}: {val}")
 
@@ -114,43 +109,22 @@ def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
         loss = float(arr[0][0])
         opt2.tell(cand, loss)
 
-        if loss < best_ce:
-            improvement = best_ce - loss if best_ce != float("inf") else 0
+        diff = best_ce - loss if best_ce != float("inf") else 100
+        if diff > min_delta:
             best_ce = loss
             no_improve = 0
-            print(f"✅ NEW BEST CE FOUND: {best_ce:.4f} (Improved by {improvement:.4f})")
+            print(f"✅ NEW BEST CE: {best_ce:.4f} (Improved by {diff:.4f})")
         else:
             no_improve += 1
-            print(f"⚠️ No significant improvement. Stagnation: {no_improve}/{patience}")
+            print(f"⚠️ Stagnation: Change ({diff:.4f}) is below threshold. Count: {no_improve}/{patience}")
 
         if no_improve >= patience:
-            print(f"🛑 EARLY STOPPING: Accuracy plateaued. Moving to Pareto Analysis.")
+            print(f"🛑 EARLY STOPPING PHASE 2: No significant change in CE.")
             break
-
-    # --- PHASE 4: PARETO ANALYSIS ---
-    print("\n" + "="*75)
-    print("[PHASE 4] >>> STARTING FINAL PARETO BALANCE ANALYSIS")
-    print("Goal: Evaluate the trade-off between Accuracy (CE) and Energy (EFE).")
-    print("="*75)
-
-    opt4 = ng.optimizers.DE(parametrization=phase2_space(current_best), budget=p2_budget)
-    
-    for i in range(p2_budget):
-        cand = opt4.ask()
-        merged = {**fixed_arch, **cand.value}
-        
-        print(f"\n[Pareto Trial {i+1}] Evaluating Balance: LR={merged['eta']:.2e}")
-        
-        ce_score = float(train_evaluate_model(merged, objective="ce")[0][0])
-        efe_score = float(train_evaluate_model(merged, objective="efe")[0][0])
-        
-        print(f"   ⚖️  Results: CE Accuracy = {ce_score:.4f} | EFE Stability = {efe_score:.2f}")
-        opt4.tell(cand, [abs(efe_score), ce_score])
 
     print("\n" + "🚀" * 30)
     print("   OPTIMIZATION PIPELINE COMPLETE")
     print("🚀" * 30)
 
-# --- 5. EXECUTION ENTRANCE ---
 if __name__ == "__main__":
     run_advanced(p1_budget=20, p2_budget=20, num_workers=2)

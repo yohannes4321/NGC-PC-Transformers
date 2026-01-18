@@ -1,67 +1,66 @@
-import time
-import os
-import os
-
-# 1. STOP JAX from grabbing 90% of the GPU at start
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-# 2. OR, set a strict limit for each worker (e.g., 40% each)
-# Since you have 2 workers, 0.4 + 0.4 = 80% (Safe)
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.40"
-
-# 3. Disable the specific feature the error message suggested
-os.environ["XLA_FLAGS"] = "--xla_gpu_enable_command_buffer="
-import math
-import gc
-import sys
-import uuid
-import jax
-import numpy as np
-from experiment_logger import save_to_csv, DualLogger, LOG_DIR
-
-def train_evaluate_model(params: dict, objective: str = "efe"): # Default changed to efe
-    short_id = uuid.uuid4().hex[:4]
-    unique_tag = f"{int(time.time())}_{short_id}"
-    log_path = os.path.join(LOG_DIR, f"trial_{unique_tag}.txt")
+def run_training(params_override=None, save_model=False, max_train_batches=None):
+    cfg = _build_cfg(params_override)
     
-    original_stdout = sys.stdout
-    logger = DualLogger(log_path, terminal_prefix=short_id)
-    sys.stdout = logger
+    # Force frequent logging for HPO visibility
+    log_interval = 10 
+    
+    # MENTOR-FRIENDLY CONFIGURATION DUMP
+    print("\n" + "-"*50)
+    print("⚡ MODEL INITIALIZATION (FULL PARAMETER TRACE):")
+    print(f"   - n_heads:      {cfg.n_heads}")
+    print(f"   - embed_mult:   {cfg.embed_mult} (Total n_embed: {cfg.n_embed})")
+    print(f"   - batch_size:   {cfg.batch_size}")
+    print(f"   - seq_len:      {cfg.seq_len}")
+    print(f"   - eta (LR):     {cfg.eta:.2e}")
+    print(f"   - tau_m:        {cfg.tau_m}")
+    print(f"   - n_iter:       {cfg.n_iter}")
+    print(f"   - wub / wlb:    {cfg.wub} / {cfg.wlb}")
+    print(f"   - optim / act:  {cfg.optim_type} / {cfg.act_fx}")
+    print("-"*50)
 
-    try:
-        from train import run_training
-        
-        for k in ["batch_size", "seq_len", "n_heads", "n_embed"]:
-            if k in params: params[k] = int(params[k])
+    dkey = random.PRNGKey(1234)
+    data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
+    train_loader, valid_loader, _ = data_loader.load_and_prepare_data()
 
-        print(f"--- STARTING TRIAL {unique_tag} ---")
-        metrics = run_training(params_override=params, save_model=False)
+    model = NGCTransformer(
+        dkey, batch_size=cfg.batch_size, seq_len=cfg.seq_len, n_embed=cfg.n_embed,
+        vocab_size=cfg.vocab_size, n_layers=cfg.n_layers, n_heads=cfg.n_heads,
+        T=cfg.n_iter, dt=1.0, tau_m=cfg.tau_m, act_fx=cfg.act_fx, eta=cfg.eta,
+        dropout_rate=cfg.dropout_rate, exp_dir="exp", pos_learnable=cfg.pos_learnable,
+        optim_type=cfg.optim_type, wub=cfg.wub, wlb=cfg.wlb, model_name="ngc_transformer"
+    )
 
-        # LOGIC: If EFE is -2000 and we want it to reach 0, 
-        # we minimize the absolute value.
-        efe_val = float(metrics.get("avg_train_efe", 1e6))
-        ce_val = float(metrics.get("val_ce", 1e6))
+    total_efe, total_ce, total_batches = 0.0, 0.0, 0
 
-        if objective == "efe":
-            loss = abs(efe_val)
-        elif objective == "combined":
-            # Focus 80% on EFE and 20% on CE
-            # We use log(ce) to keep it in a similar range to EFE
-            loss = abs(efe_val) + (ce_val * 10) 
-        else:
-            loss = ce_val
+    for i in range(cfg.num_iter):
+        for batch_idx, batch in enumerate(train_loader):
+            inputs, targets = batch[0][1], batch[1][1]
+            targets_onehot = jnp.eye(cfg.vocab_size)[targets]
+            targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
 
-        save_to_csv(unique_tag, params, metrics)
-        print(f"--- TRIAL FINISHED. EFE: {efe_val:.2f} | CE: {ce_val:.4f} ---")
-        
-        return np.array([[loss]], dtype=float)
+            yMu_inf, _, efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            
+            # Metric calculation
+            total_efe += float(efe)
+            total_batches += 1
+            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
+            y_true = jnp.eye(cfg.vocab_size)[targets.flatten()]
+            batch_ce = float(measure_CatNLL(y_pred, y_true).mean())
+            total_ce += batch_ce
+            
+            # --- LIVE HEARTBEAT ---
+            if batch_idx % log_interval == 0:
+                print(f"   [Iter {i} | Batch {batch_idx:03d}] Current EFE: {float(efe):.2f} | Current CE: {batch_ce:.4f}")
+                sys.stdout.flush() 
 
-    except Exception as e:
-        original_stdout.write(f"\n[CRASH {short_id}] Error: {str(e)}\n")
-        return np.array([[float("inf")]], dtype=float)
-    finally:
-        sys.stdout = original_stdout
-        logger.close()
-        gc.collect()
-        try: jax.clear_caches()
-        except: pass
+            if max_train_batches and total_batches >= max_train_batches:
+                break
+
+    avg_efe = total_efe / total_batches if total_batches > 0 else 0
+    dev_ce, dev_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+
+    return {
+        "val_ce": float(dev_ce),
+        "val_ppl": float(dev_ppl),
+        "avg_train_efe": avg_efe
+    }

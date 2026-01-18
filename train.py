@@ -1,5 +1,6 @@
 from jax import numpy as jnp, random
 from model import NGCTransformer
+import time as _time
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 from config import Config as config
@@ -30,6 +31,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     early_stop_window = max(1, int(getattr(cfg, "early_stop_window", 4)))
     early_stop_min_delta = float(getattr(cfg, "early_stop_min_delta", 0.05))
     early_stop_warmup_batches = int(getattr(cfg, "early_stop_warmup_batches", 20))
+    max_train_seconds = getattr(cfg, "max_train_seconds", None)
 
     dkey = random.PRNGKey(1234)
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
@@ -66,12 +68,19 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     ce_window = []
     early_stop_triggered = False
 
+    start_time = _time.time()
     for i in range(cfg.num_iter):
         print(f"\n iter {i}:")
         for batch_idx, batch in enumerate(train_loader):
             # Check if we should stop early based on HPO budget
             if max_train_batches is not None and train_batches_seen >= max_train_batches:
                 break
+            # Optional time-based early stop to avoid long, plateauing trials
+            if max_train_seconds is not None:
+                if (_time.time() - start_time) >= float(max_train_seconds):
+                    print(f"  Early stop (time): reached {max_train_seconds}s budget; moving to next trial.")
+                    early_stop_triggered = True
+                    break
             
             inputs = batch[0][1]
             targets = batch[1][1]

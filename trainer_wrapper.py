@@ -1,5 +1,16 @@
 import time
 import os
+import os
+
+# 1. STOP JAX from grabbing 90% of the GPU at start
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
+# 2. OR, set a strict limit for each worker (e.g., 40% each)
+# Since you have 2 workers, 0.4 + 0.4 = 80% (Safe)
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.40"
+
+# 3. Disable the specific feature the error message suggested
+os.environ["XLA_FLAGS"] = "--xla_gpu_enable_command_buffer="
 import math
 import gc
 import sys

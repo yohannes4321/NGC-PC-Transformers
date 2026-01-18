@@ -20,10 +20,11 @@ def constraint_embed_divisible(x):
 def phase1_space():
     """Architecture search space constrained to prevent JAX tracer/reshape errors."""
     return ng.p.Dict(
-        n_heads=ng.p.Choice([2, 4, 8]),
-        embed_mult=ng.p.Choice([8, 16, 32]),
-        batch_size=ng.p.Choice([16, 32, 64,128]),
-        seq_len=ng.p.Choice([16, 32, 64]),
+        n_heads    = ng.p.Choice([2, 4, 8]),
+        embed_mult = ng.p.Choice([8, 16, 24]),
+        batch_size = ng.p.Choice([16, 32, 64]),
+        seq_len    = ng.p.Choice([16, 32, 48]),
+
        
         # Stability-oriented bounds
         eta=ng.p.Log(lower=1e-7, upper=5e-5),

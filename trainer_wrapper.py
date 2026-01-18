@@ -3,68 +3,50 @@ import os
 import math
 import gc
 import sys
-import json
 import uuid
 import jax
 import numpy as np
-import pandas as pd
 from experiment_logger import save_to_csv, DualLogger, LOG_DIR
 
-def clean_memory():
-    gc.collect()
-    try: jax.clear_caches()
-    except: pass
-
 def train_evaluate_model(params: dict, objective: str = "ce"):
-    # Create a TRULY unique ID for this specific run
-    unique_tag = f"{int(time.time())}_{uuid.uuid4().hex[:4]}"
+    # Generate a tag for this specific worker
+    short_id = uuid.uuid4().hex[:4]
+    unique_tag = f"{int(time.time())}_{short_id}"
     log_path = os.path.join(LOG_DIR, f"trial_{unique_tag}.txt")
-
-    os.makedirs(LOG_DIR, exist_ok=True)
-    original_stdout = sys.stdout
-    logger = DualLogger(log_path)
     
-    # We only redirect if we aren't already inside a DualLogger
+    # Redirect output to our DualLogger
+    original_stdout = sys.stdout
+    logger = DualLogger(log_path, terminal_prefix=short_id)
     sys.stdout = logger
 
     try:
-        print("\n" + "="*40)
-        print(f"STARTING UNIQUE TRIAL: {unique_tag}")
-        print(f"OBJECTIVE: {objective}")
-        print(f"PARAMS: {params}")
-        print("="*40, flush=True)
-
         from train import run_training
         
-        # JAX Integer casting
+        # Cast JAX-critical params
         for k in ["batch_size", "seq_len", "n_heads", "n_embed"]:
             if k in params: params[k] = int(params[k])
 
+        print(f"--- STARTING TRIAL {unique_tag} ---")
         metrics = run_training(params_override=params, save_model=False)
 
+        # Determine loss based on the HPO phase
         if objective == "efe":
-            raw_val = float(metrics.get("avg_train_efe", 1e6))
-            loss = abs(raw_val)
+            loss = abs(float(metrics.get("avg_train_efe", 1e6)))
         else:
             loss = float(metrics.get("val_ce", 1e6))
 
-        ppl = math.exp(min(loss, 20)) 
-
-        # Log to CSV
-        save_to_csv(unique_tag, pd.Series(params), {
-            "cross_entropy": float(metrics.get("val_ce", 0)),
-            "ppl": ppl,
-            "efe": float(metrics.get("avg_train_efe", 0)),
-        })
-
-        print(f"\nTrial {unique_tag} Finished. Loss: {loss:.4f}", flush=True)
+        save_to_csv(unique_tag, params, metrics)
+        print(f"--- TRIAL FINISHED. LOSS ({objective}): {loss:.4f} ---")
+        
         return np.array([[loss]], dtype=float)
 
     except Exception as e:
-        print(f"!!! CRASH IN TRIAL {unique_tag} !!! Error: {e}", flush=True)
+        # Crucial: print error to original terminal so you see crashes
+        original_stdout.write(f"\n[CRASH {short_id}] Error: {str(e)}\n")
         return np.array([[float("inf")]], dtype=float)
-
     finally:
-        logger.close()
         sys.stdout = original_stdout
-        clean_memory()
+        logger.close()
+        gc.collect()
+        try: jax.clear_caches()
+        except: pass

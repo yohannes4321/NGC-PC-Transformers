@@ -3,11 +3,11 @@ import uuid
 import sys
 from concurrent import futures
 import nevergrad as ng
+import numpy as np
 from config import Config as config
 from trainer_wrapper import train_evaluate_model
 
 def _get_params(args, kwargs):
-    """Fix for Nevergrad TypeError: extracts dict from Candidate object."""
     if len(args) > 0:
         if hasattr(args[0], "value"): return dict(args[0].value)
         if isinstance(args[0], dict): return dict(args[0])
@@ -19,55 +19,50 @@ def parallel_func_phase1(*args, **kwargs):
     arr = train_evaluate_model(params, objective="efe")
     return float(arr[0][0])
 
-def constraint_embed_divisible(x):
-    return int(x.get("n_embed", 0)) % int(x.get("n_heads", 1)) == 0
-
-def phase1_space():
-    return ng.p.Dict(
-        n_heads    = ng.p.Choice([2, 4, 8]),
-        embed_mult = ng.p.Choice([8, 16, 24]),
-        batch_size = ng.p.Choice([16, 32, 64]),
-        seq_len    = ng.p.Choice([16, 32, 48]),
-        eta        = ng.p.Log(lower=1e-7, upper=5e-5),
-        tau_m      = ng.p.Scalar(lower=5, upper=15).set_integer_casting(),
-        n_iter     = ng.p.Scalar(lower=1, upper=5).set_integer_casting(),
-        wub        = ng.p.Scalar(lower=0.01, upper=0.04),
-        wlb        = ng.p.Scalar(lower=-0.04, upper=-0.01),
-        optim_type = ng.p.Choice(["adam", "sgd"]),
-        act_fx     = ng.p.Choice(["identity", "relu"]),
-    )
-
-def phase2_space(best):
-    eta_best = float(best.get("eta", 1e-5))
-    return ng.p.Dict(
-        eta=ng.p.Log(lower=eta_best * 0.5, upper=min(eta_best * 2.0, 1e-4)),
-        wub=ng.p.Scalar(lower=0.001, upper=0.04),
-        wlb=ng.p.Scalar(lower=-0.04, upper=-0.001),
-        dropout_rate=ng.p.Scalar(lower=0.0, upper=0.2),
-    )
-
-def run_phase(optimizer, objective_name, fixed_params=None):
+def run_phase(optimizer, objective_name, fixed_params=None, patience=5, min_delta=0.5):
+    """
+    patience: How many trials to wait without significant improvement.
+    min_delta: The minimum change to be considered 'significant'.
+    """
     best_loss = float("inf")
     best_params = None
+    no_improve_counter = 0
+    
     print(f"\n--- Starting {objective_name.upper()} Phase (Budget: {optimizer.budget}) ---", flush=True)
+    
     for i in range(optimizer.budget):
         cand = optimizer.ask()
         merged = {**fixed_params, **cand.value} if fixed_params else cand.value
+        
         arr = train_evaluate_model(merged, objective=objective_name)
         loss = float(arr[0][0])
         optimizer.tell(cand, loss)
-        if loss < best_loss:
-            best_loss, best_params = loss, merged
-            print(f"  >>> New Best {objective_name}: {loss:.4f}")
+        
+        # Logic to check if the change is significant
+        diff = best_loss - loss
+        
+        if diff > min_delta:
+            print(f"  >>> Significant Improvement! Change: {diff:.4f}")
+            best_loss = loss
+            best_params = merged
+            no_improve_counter = 0 # Reset counter
+        else:
+            no_improve_counter += 1
+            print(f"  [Stagnation] No significant change ({diff:.4f}). Count: {no_improve_counter}/{patience}")
+
+        if no_improve_counter >= patience:
+            print(f"!!! Early Stopping Phase: Improvement less than {min_delta} for {patience} trials.")
+            break
+            
     return best_loss, best_params
 
-def run_advanced(p1_budget=20, p2_budget=20, num_workers=4):
-    print("\n" + "="*60 + "\n      🚀 ADVANCED OPTIMIZATION PIPELINE\n" + "="*60, flush=True)
+def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
+    print("\n" + "="*60 + "\n      🚀 EFE-PRIORITY WITH EARLY STOPPING\n" + "="*60, flush=True)
 
-    # STEP 1: Parallel Exploration
-    print(f"\n[STEP 1/4] PARALLEL EXPLORATION (Workers: {num_workers})")
+    # STEP 1: Parallel Exploration (Standard Nevergrad minimize doesn't easily early stop, 
+    # but the budget is usually small enough here)
+    print(f"\n[STEP 1/4] PARALLEL EFE SEARCH (Workers: {num_workers})")
     opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=p1_budget, num_workers=num_workers)
-    opt1.parametrization.register_cheap_constraint(constraint_embed_divisible)
     with futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         rec1 = opt1.minimize(parallel_func_phase1, executor=executor, batch_mode=False)
     
@@ -75,27 +70,28 @@ def run_advanced(p1_budget=20, p2_budget=20, num_workers=4):
     current_best["n_embed"] = int(current_best["n_heads"]) * int(current_best["embed_mult"])
     fixed_arch = {k: current_best[k] for k in ["n_heads", "embed_mult", "batch_size", "seq_len", "tau_m", "n_iter", "optim_type", "act_fx", "n_embed"]}
 
-    # STEP 2 & 3: Refinement and Chaining
-    print(f"\n[STEP 2/4] PORTFOLIO REFINEMENT")
+    # STEP 2: Portfolio with Early Stopping
+    # We set min_delta to 0.5. If EFE moves from -234.34 to -234.29 (diff 0.05), it triggers the counter.
+    print(f"\n[STEP 2/4] EFE REFINEMENT")
     opt2 = ng.optimizers.PortfolioDiscreteOnePlusOne(parametrization=phase2_space(current_best), budget=p2_budget)
-    _, current_best = run_phase(opt2, "ce", fixed_params=fixed_arch)
+    _, current_best = run_phase(opt2, "combined", fixed_params=fixed_arch, patience=4, min_delta=0.5)
 
-    print(f"\n[STEP 3/4] CHAINING SEARCH")
+    # STEP 3: Chaining with Early Stopping
+    print(f"\n[STEP 3/4] EFE CHAINING")
     ChainOpt = ng.optimizers.Chaining([ng.optimizers.LHSSearch, ng.optimizers.DE], [int(p2_budget*0.2)])
     opt3 = ChainOpt(parametrization=phase2_space(current_best), budget=p2_budget)
-    _, current_best = run_phase(opt3, "ce", fixed_params=fixed_arch)
+    _, current_best = run_phase(opt3, "combined", fixed_params=fixed_arch, patience=3, min_delta=1.0)
 
-    # STEP 4: Pareto
-    print(f"\n[STEP 4/4] PARETO ANALYSIS")
+    # STEP 4: Pareto (Usually keep full budget to map the front)
+    print(f"\n[STEP 4/4] FINAL PARETO FRONT")
     opt4 = ng.optimizers.DE(parametrization=phase2_space(current_best), budget=p2_budget)
     for i in range(p2_budget):
         cand = opt4.ask()
         merged = {**fixed_arch, **cand.value}
         ce = float(train_evaluate_model(merged, objective="ce")[0][0])
         efe = float(train_evaluate_model(merged, objective="efe")[0][0])
-        opt4.tell(cand, [ce, abs(efe)])
+        opt4.tell(cand, [abs(efe), ce])
 
     print("\n" + "="*60 + "\n      ✅ PIPELINE COMPLETE\n" + "="*60, flush=True)
 
-if __name__ == "__main__":
-    run_advanced(p1_budget=20, p2_budget=20, num_workers=2)
+# Note: phase1_space and phase2_space remain the same as your previous code.

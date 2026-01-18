@@ -11,11 +11,29 @@ from trainer_wrapper import train_evaluate_model
 # 1. EVALUATION FUNCTIONS
 # ==============================================================================
 
-def parallel_func_phase1(**x):
+def _extract_params_from_call(args, kwargs):
+    """Nevergrad may call with positional or keyword args. Normalize to dict.
+    - If a single positional arg has `.value`, use that.
+    - If a single positional arg is a dict, use it.
+    - Else, use kwargs.
+    """
+    if len(args) == 1:
+        a0 = args[0]
+        if hasattr(a0, "value"):
+            try:
+                return dict(a0.value)
+            except Exception:
+                pass
+        if isinstance(a0, dict):
+            return dict(a0)
+    return dict(kwargs)
+
+
+def parallel_func_phase1(*args, **x):
     """Top-level function for Phase 1 evaluations (picklable).
     Ensures integer parameters and computes n_embed when needed.
     """
-    params = dict(x)
+    params = _extract_params_from_call(args, x)
     # Concrete ints for JAX
     for k in ["n_heads", "embed_mult", "batch_size", "seq_len", "n_layers", "tau_m", "n_iter"]:
         if k in params:
@@ -29,9 +47,9 @@ def parallel_func_phase1(**x):
     except Exception:
         return float("inf")
 
-def parallel_func_phase2(**x):
+def parallel_func_phase2(*args, **x):
     """Top-level function for Phase 2 evaluations (picklable)."""
-    params = dict(x)
+    params = _extract_params_from_call(args, x)
     for k in ["n_heads", "embed_mult", "batch_size", "seq_len", "n_layers", "tau_m", "n_iter"]:
         if k in params:
             params[k] = int(params[k])

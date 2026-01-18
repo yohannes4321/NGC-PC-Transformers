@@ -117,10 +117,11 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             ):
                 efe_span = max(efe_window) - min(efe_window)
                 ce_span = max(ce_window) - min(ce_window)
-                if efe_span < early_stop_min_delta and ce_span < early_stop_min_delta:
+                # Stop if either metric plateaus below threshold (OR condition)
+                if efe_span < early_stop_min_delta or ce_span < early_stop_min_delta:
                     print(
                         f"  Early stop: last {early_stop_window} batches ΔEFE={efe_span:.4f}, "
-                        f"ΔCE={ce_span:.4f} < {early_stop_min_delta:.4f}; moving to next trial."
+                        f"ΔCE={ce_span:.4f}; threshold={early_stop_min_delta:.4f}. Moving to next trial."
                     )
                     early_stop_triggered = True
                     break

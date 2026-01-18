@@ -58,7 +58,7 @@ def constraint_embed_divisible(x):
 
 def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
     print("\n" + "="*80)
-    print("      🌟 STARTING ADVANCED MODEL OPTIMIZATION PIPELINE 🌟")
+    print("       STARTING ADVANCED MODEL OPTIMIZATION PIPELINE 🌟")
     print("="*80)
 
     # PHASE 1
@@ -80,7 +80,7 @@ def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
         "tau_m", "n_iter", "optim_type", "act_fx", "n_embed"
     ]}
 
-    print(f"\n🏁 PHASE 1 FINISHED: EFE OPTIMIZATION COMPLETE")
+    print(f"\n PHASE 1 FINISHED: EFE OPTIMIZATION COMPLETE")
     print(f">>> HANDING OFF BEST ARCHITECTURE TO PHASE 2:")
     for k, v in fixed_arch.items(): print(f"    | {k:15}: {v}")
     print("=" * 80)
@@ -113,18 +113,18 @@ def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
         if diff > min_delta:
             best_ce = loss
             no_improve = 0
-            print(f"✅ NEW BEST CE: {best_ce:.4f} (Improved by {diff:.4f})")
+            print(f" NEW BEST CE: {best_ce:.4f} (Improved by {diff:.4f})")
         else:
             no_improve += 1
-            print(f"⚠️ Stagnation: Change ({diff:.4f}) is below threshold. Count: {no_improve}/{patience}")
+            print(f" Stagnation: Change ({diff:.4f}) is below threshold. Count: {no_improve}/{patience}")
 
         if no_improve >= patience:
-            print(f"🛑 EARLY STOPPING PHASE 2: No significant change in CE.")
+            print(f" EARLY STOPPING PHASE 2: No significant change in CE.")
             break
 
-    print("\n" + "🚀" * 30)
+    print("\n" + "" * 30)
     print("   OPTIMIZATION PIPELINE COMPLETE")
-    print("🚀" * 30)
+    print("" * 30)
 
 if __name__ == "__main__":
     run_advanced(p1_budget=20, p2_budget=20, num_workers=2)

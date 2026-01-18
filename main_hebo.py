@@ -98,4 +98,4 @@ def run_advanced(p1_budget=20, p2_budget=20, num_workers=4):
     print("\n" + "="*60 + "\n      ✅ PIPELINE COMPLETE\n" + "="*60, flush=True)
 
 if __name__ == "__main__":
-    run_advanced(p1_budget=20, p2_budget=20, num_workers=4)
+    run_advanced(p1_budget=20, p2_budget=20, num_workers=2)

@@ -22,16 +22,15 @@ def phase1_space():
     return ng.p.Dict(
         n_heads=ng.p.Choice([2, 4, 8]),
         embed_mult=ng.p.Choice([8, 16, 32]),
-        batch_size=ng.p.Choice([16, 32, 64]),
+        batch_size=ng.p.Choice([16, 32, 64,128,]),
         seq_len=ng.p.Choice([16, 32, 64]),
-        n_layers=ng.p.Choice([1, 2, 4]),
-        pos_learnable=ng.p.Choice([True, False]),
+       
         # Stability-oriented bounds
         eta=ng.p.Log(lower=1e-7, upper=5e-5),
         tau_m=ng.p.Scalar(lower=5, upper=15).set_integer_casting(),
         n_iter=ng.p.Scalar(lower=1, upper=10).set_integer_casting(),
-        wub=ng.p.Scalar(lower=0.01, upper=0.02),
-        wlb=ng.p.Scalar(lower=-0.02, upper=-0.01),
+        wub=ng.p.Scalar(lower=0.01, upper=0.04),
+        wlb=ng.p.Scalar(lower=-0.04, upper=-0.01),
         dropout_rate=ng.p.Constant(0.0),
         optim_type=ng.p.Choice(["adam", "sgd"]),
         act_fx=ng.p.Choice(["identity", "relu"]),
@@ -55,6 +54,15 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
     best_loss = float("inf")
     best_params = None
     losses = [] if history is None else history
+    window = []
+    if objective_name == "efe":
+        plateau_window = getattr(config, "phase1_plateau_window", 3)
+        plateau_min_delta = getattr(config, "phase1_plateau_min_delta", 1.0)
+        plateau_warmup = getattr(config, "phase1_plateau_warmup", 2)
+    else:
+        plateau_window = getattr(config, "phase2_plateau_window", 3)
+        plateau_min_delta = getattr(config, "phase2_plateau_min_delta", 0.01)
+        plateau_warmup = getattr(config, "phase2_plateau_warmup", 2)
 
     for iteration in range(optimizer.budget):
         candidate = optimizer.ask()
@@ -87,11 +95,22 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
 
         optimizer.tell(candidate, loss_value)
         losses.append(loss_value)
+        window.append(loss_value)
+        if len(window) > plateau_window:
+            window.pop(0)
 
         if loss_value < best_loss:
             best_loss = loss_value
             best_params = full_params
             print(f">>> NEW BEST {objective_name.upper()} = {best_loss:.4f}")
+
+        if iteration + 1 >= plateau_warmup and len(window) == plateau_window:
+            span = max(window) - min(window)
+            if span < plateau_min_delta:
+                print(
+                    f"Early stop {objective_name.upper()} phase: last {plateau_window} trials Δ={span:.4f} < {plateau_min_delta}; moving on."
+                )
+                break
 
     return best_loss, best_params, losses
 

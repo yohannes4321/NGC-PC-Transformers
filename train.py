@@ -27,6 +27,9 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     log_interval = max(1, int(getattr(cfg, "log_batch_interval", 10)))
     live_logging = bool(getattr(cfg, "live_logging", False))
     # ----------------------------------------------------------------
+    early_stop_window = max(1, int(getattr(cfg, "early_stop_window", 4)))
+    early_stop_min_delta = float(getattr(cfg, "early_stop_min_delta", 0.05))
+    early_stop_warmup_batches = int(getattr(cfg, "early_stop_warmup_batches", 20))
 
     dkey = random.PRNGKey(1234)
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
@@ -59,6 +62,9 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     total_ce = 0.0
     total_batches = 0
     train_batches_seen = 0
+    efe_window = []
+    ce_window = []
+    early_stop_triggered = False
 
     for i in range(cfg.num_iter):
         print(f"\n iter {i}:")
@@ -88,6 +94,30 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
                 print(f"  Batch {batch_idx}: EFE = {float(efe):.4f}, CE = {batch_ce:.4f}")
             
             train_batches_seen += 1
+
+            # Sliding-window early stop when progress plateaus
+            efe_window.append(float(efe))
+            ce_window.append(batch_ce)
+            if len(efe_window) > early_stop_window:
+                efe_window.pop(0)
+                ce_window.pop(0)
+
+            if (
+                train_batches_seen >= early_stop_warmup_batches
+                and len(efe_window) == early_stop_window
+            ):
+                efe_span = max(efe_window) - min(efe_window)
+                ce_span = max(ce_window) - min(ce_window)
+                if efe_span < early_stop_min_delta and ce_span < early_stop_min_delta:
+                    print(
+                        f"  Early stop: last {early_stop_window} batches ΔEFE={efe_span:.4f}, "
+                        f"ΔCE={ce_span:.4f} < {early_stop_min_delta:.4f}; moving to next trial."
+                    )
+                    early_stop_triggered = True
+                    break
+
+        if early_stop_triggered:
+            break
 
     avg_train_efe = (total_efe / total_batches) if total_batches > 0 else 0.0
     avg_train_ce = (total_ce / total_batches) if total_batches > 0 else 0.0

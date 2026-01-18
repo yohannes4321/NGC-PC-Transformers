@@ -22,7 +22,7 @@ def phase1_space():
     return ng.p.Dict(
         n_heads=ng.p.Choice([2, 4, 8]),
         embed_mult=ng.p.Choice([8, 16, 32]),
-        batch_size=ng.p.Choice([16, 32, 64,128,]),
+        batch_size=ng.p.Choice([16, 32, 64,128]),
         seq_len=ng.p.Choice([16, 32, 64]),
        
         # Stability-oriented bounds

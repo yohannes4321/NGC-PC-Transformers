@@ -1,9 +1,21 @@
 import os
 import sys
+import gc
 import numpy as np
 import uuid
+import jax
 
 from train import run_training 
+
+
+def _cleanup_run():
+    """Release JAX compilation caches and trigger garbage collection."""
+    try:
+        jax.clear_caches()
+    except Exception:
+        # If JAX backend is already torn down, just continue.
+        pass
+    gc.collect()
 
 def train_evaluate_model(params, objective="efe"):
     """
@@ -21,6 +33,9 @@ def train_evaluate_model(params, objective="efe"):
     print(f"\n" + "!"*80)
     print(f"ORCHESTRATOR: Launching Trial [{trial_id}] | Objective: {objective.upper()}")
     print("!"*80)
+
+    # Reset any residual state before starting a new trial
+    _cleanup_run()
 
     try:
         metrics = run_training(params_override=params)
@@ -50,6 +65,10 @@ def train_evaluate_model(params, objective="efe"):
     except Exception as e:
         print(f"\n[Trial {trial_id}] CRITICAL FAILURE: {str(e)}")
         return np.array([[1e20]])
+
+    finally:
+        # Make each trial memory-neutral for all workers
+        _cleanup_run()
 
 if __name__ == "__main__":
     test_params = {

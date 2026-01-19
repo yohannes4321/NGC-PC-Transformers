@@ -31,17 +31,19 @@ def train_evaluate_model(params, objective="efe"):
         plateau = metrics.get("plateau_triggered", False)
 
         if objective == "efe":
-            loss = abs(efe_val)
-            print(f"\n [Trial {trial_id}] Phase 1 (EFE) Result: {loss:.4f}")
+            loss = float(abs(efe_val))  # use best EFE found
+            print(f"\n [Trial {trial_id}] Phase 1 (EFE) Result: {loss:.4f} (best EFE)")
         else:
-            loss = ce_val
-            print(f"\n [Trial {trial_id}] Phase 2 (CE) Result: {loss:.4f}")
+            loss = float(ce_val)  # use best CE found
+            print(f"\n [Trial {trial_id}] Phase 2 (CE) Result: {loss:.4f} (best CE)")
 
         print(f"   Best EFE: {efe_val:.4f} | Best CE: {ce_val:.4f}" + (f" | Best PPL: {ppl_val:.4f}" if ppl_val is not None else ""))
         if batches_ran is not None:
             print(f"   Batches processed: {batches_ran}")
         if plateau:
             print("   Early stop reason: plateau stability")
+
+        print(f"   -> Returning loss {loss:.4f} to Nevergrad")
 
         return np.array([[float(loss)]])
 

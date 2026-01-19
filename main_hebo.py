@@ -58,7 +58,7 @@ def constraint_embed_divisible(x):
 
 def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
     print("\n" + "="*80)
-    print("       STARTING ADVANCED MODEL OPTIMIZATION PIPELINE 🌟")
+    print("       STARTING ADVANCED MODEL OPTIMIZATION PIPELINE ")
     print("="*80)
 
     # PHASE 1

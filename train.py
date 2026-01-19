@@ -30,7 +30,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     # 📋 FULL DESCRIPTIVE EXECUTION CARD (For Mentor Visibility)
     # ============================================================
     print("\n" + "-"*60)
-    print("🚀 INITIALIZING TRAINING TRIAL")
+    print(" INITIALIZING TRAINING TRIAL")
     print("-"*60)
     # Printing every parameter explicitly as requested
     print(f"   [ARCH] n_heads:      {cfg.n_heads}")

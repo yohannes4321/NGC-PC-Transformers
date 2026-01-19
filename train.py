@@ -1,5 +1,6 @@
 import sys
 from jax import numpy as jnp, random
+from math import inf
 from model import NGCTransformer
 import time as _time
 from ngclearn.utils.metric_utils import measure_CatNLL
@@ -22,6 +23,8 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     
     # Force frequent logging for HPO visibility
     log_interval = 10 
+    plateau_window = 3
+    plateau_tol = 2.0  # stop if EFE stays within ±2 for 3 consecutive batches
     
     # ============================================================
     # 📋 FULL DESCRIPTIVE EXECUTION CARD (For Mentor Visibility)
@@ -58,6 +61,9 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     )
 
     total_efe, total_ce, total_batches = 0.0, 0.0, 0
+    best_train_efe, best_train_ce = inf, inf
+    last_efe_window = []
+    plateau_triggered = False
 
     # Start training iterations
     for i in range(cfg.num_iter):
@@ -69,13 +75,28 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             # Process through the NGC Transformer
             yMu_inf, _, efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             
-            # Metric calculation
-            total_efe += float(efe)
+            efe_val = float(efe)
+            total_efe += efe_val
             total_batches += 1
             y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
             y_true = jnp.eye(cfg.vocab_size)[targets.flatten()]
             batch_ce = float(measure_CatNLL(y_pred, y_true).mean())
             total_ce += batch_ce
+
+            best_train_efe = min(best_train_efe, abs(efe_val))
+            best_train_ce = min(best_train_ce, batch_ce)
+            last_efe_window.append(efe_val)
+            if len(last_efe_window) > plateau_window:
+                last_efe_window.pop(0)
+            if len(last_efe_window) == plateau_window:
+                window_span = max(last_efe_window) - min(last_efe_window)
+                if window_span <= plateau_tol:
+                    plateau_triggered = True
+                    print(
+                        f"   Plateau detected over {plateau_window} steps (Δ<= {plateau_tol}); early stopping.",
+                        flush=True,
+                    )
+                    break
             
             # --- LIVE HEARTBEAT ---
             # Using flush=True to make sure it prints in real-time in the terminal
@@ -85,14 +106,30 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             if max_train_batches and total_batches >= max_train_batches:
                 break
 
+        if plateau_triggered:
+            break
+
     avg_efe = total_efe / total_batches if total_batches > 0 else 0
+    avg_ce = total_ce / total_batches if total_batches > 0 else 0
+    best_efe_out = best_train_efe if best_train_efe != inf else abs(avg_efe)
+    best_ce_out = best_train_ce if best_train_ce != inf else avg_ce
     dev_ce, dev_ppl = eval_model(model, valid_loader, cfg.vocab_size)
 
     # FINAL SUMMARY FOR THIS TRIAL
-    print(f"\n✅ TRIAL COMPLETE | Avg EFE: {avg_efe:.2f} | Final Val CE: {dev_ce:.4f}\n")
+    print(f"\n✅ TRIAL COMPLETE | Avg EFE: {avg_efe:.2f} | Final Val CE: {dev_ce:.4f}")
+    print(f"   Best Train EFE (abs): {best_efe_out:.4f} | Best Train CE: {best_ce_out:.4f} | Val PPL: {dev_ppl:.4f}")
+    if plateau_triggered:
+        print("   Early stop reason: plateau")
+    print("")
 
     return {
         "val_ce": float(dev_ce),
         "val_ppl": float(dev_ppl),
-        "avg_train_efe": avg_efe
+        "avg_train_efe": avg_efe,
+        "best_train_efe": float(best_efe_out),
+        "best_train_ce": float(best_ce_out),
+        "best_val_ce": float(dev_ce),
+        "best_val_ppl": float(dev_ppl),
+        "batches_ran": total_batches,
+        "plateau_triggered": plateau_triggered
     }

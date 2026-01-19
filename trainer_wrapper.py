@@ -39,22 +39,25 @@ def train_evaluate_model(params, objective="efe"):
 
     try:
         metrics = run_training(params_override=params)
-        efe_val = metrics.get("best_train_efe", metrics.get("avg_train_efe", 1e10))
+        efe_val_signed = metrics.get("best_train_efe", metrics.get("avg_train_efe", 1e10))
+        efe_val_abs = metrics.get("best_train_efe_abs", abs(efe_val_signed))
         ce_val = metrics.get("best_val_ce", metrics.get("val_ce", 1e10))
         ppl_val = metrics.get("best_val_ppl", metrics.get("val_ppl", None))
         batches_ran = metrics.get("batches_ran", None)
         plateau = metrics.get("plateau_triggered", False)
 
         if objective == "efe":
-            loss = float(abs(efe_val))  # use best EFE found
-            print(f"\n [Trial {trial_id}] Phase 1 (EFE) Result: {loss:.4f} (best EFE)")
+            loss = float(efe_val_abs)  # minimize magnitude of EFE (closer to 0 is better)
+            print(f"\n [Trial {trial_id}] Phase 1 (EFE) Result: {efe_val_signed:.4f} (abs {loss:.4f})")
         else:
             loss = float(ce_val)  # use best CE found
             print(f"\n [Trial {trial_id}] Phase 2 (CE) Result: {loss:.4f} (best CE)")
 
-        print(f"   Best EFE: {efe_val:.4f} | Best CE: {ce_val:.4f}" + (f" | Best PPL: {ppl_val:.4f}" if ppl_val is not None else ""))
-        if batches_ran is not None:
-            print(f"   Batches processed: {batches_ran}")
+        print(
+            f"   Best EFE: {efe_val_signed:.4f} (abs {efe_val_abs:.4f}) | "
+            f"Best CE: {ce_val:.4f}" + (f" | Best PPL: {ppl_val:.4f}" if ppl_val is not None else "")
+        )
+        # Intentionally skip printing batch count; focus on best metrics only
         if plateau:
             print("   Early stop reason: plateau stability")
 

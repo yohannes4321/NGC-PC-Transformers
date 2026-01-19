@@ -24,10 +24,10 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     # Force frequent logging for HPO visibility
     log_interval = 10 
     plateau_window = 3
-    plateau_tol = 2.0  # stop if EFE stays within ±2 for 3 consecutive batches
+    plateau_tol = 1.0  # stop if EFE stays within ±1 for 3 consecutive batches
     
     # ============================================================
-    # 📋 FULL DESCRIPTIVE EXECUTION CARD (For Mentor Visibility)
+    #  FULL DESCRIPTIVE EXECUTION CARD (For Mentor Visibility)
     # ============================================================
     print("\n" + "-"*60)
     print(" INITIALIZING TRAINING TRIAL")
@@ -61,7 +61,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     )
 
     total_efe, total_ce, total_batches = 0.0, 0.0, 0
-    best_train_efe, best_train_ce = inf, inf
+    best_train_efe_abs, best_train_efe_signed, best_train_ce = inf, None, inf
     last_efe_window = []
     plateau_triggered = False
 
@@ -83,7 +83,9 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             batch_ce = float(measure_CatNLL(y_pred, y_true).mean())
             total_ce += batch_ce
 
-            best_train_efe = min(best_train_efe, abs(efe_val))
+            if abs(efe_val) < best_train_efe_abs:
+                best_train_efe_abs = abs(efe_val)
+                best_train_efe_signed = efe_val
             best_train_ce = min(best_train_ce, batch_ce)
             last_efe_window.append(efe_val)
             if len(last_efe_window) > plateau_window:
@@ -111,13 +113,17 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
 
     avg_efe = total_efe / total_batches if total_batches > 0 else 0
     avg_ce = total_ce / total_batches if total_batches > 0 else 0
-    best_efe_out = best_train_efe if best_train_efe != inf else abs(avg_efe)
+    best_efe_abs_out = best_train_efe_abs if best_train_efe_abs != inf else abs(avg_efe)
+    best_efe_signed_out = best_train_efe_signed if best_train_efe_signed is not None else avg_efe
     best_ce_out = best_train_ce if best_train_ce != inf else avg_ce
     dev_ce, dev_ppl = eval_model(model, valid_loader, cfg.vocab_size)
 
     # FINAL SUMMARY FOR THIS TRIAL
     print(f"\n✅ TRIAL COMPLETE | Avg EFE: {avg_efe:.2f} | Final Val CE: {dev_ce:.4f}")
-    print(f"   Best Train EFE (abs): {best_efe_out:.4f} | Best Train CE: {best_ce_out:.4f} | Val PPL: {dev_ppl:.4f}")
+    print(
+        f"   Best Train EFE: {best_efe_signed_out:.4f} (abs {best_efe_abs_out:.4f}) | "
+        f"Best Train CE: {best_ce_out:.4f} | Val PPL: {dev_ppl:.4f}"
+    )
     if plateau_triggered:
         print("   Early stop reason: plateau")
     print("")
@@ -126,7 +132,8 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
         "val_ce": float(dev_ce),
         "val_ppl": float(dev_ppl),
         "avg_train_efe": avg_efe,
-        "best_train_efe": float(best_efe_out),
+        "best_train_efe": float(best_efe_signed_out),
+        "best_train_efe_abs": float(best_efe_abs_out),
         "best_train_ce": float(best_ce_out),
         "best_val_ce": float(dev_ce),
         "best_val_ppl": float(dev_ppl),

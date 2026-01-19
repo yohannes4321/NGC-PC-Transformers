@@ -56,7 +56,7 @@ def constraint_embed_divisible(x):
 
 # --- 3. EXECUTION BRAIN ---
 
-def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
+def run_advanced(p1_budget=3, p2_budget=3, num_workers=2):
     print("\n" + "="*80)
     print("       STARTING ADVANCED MODEL OPTIMIZATION PIPELINE ")
     print("="*80)
@@ -127,4 +127,4 @@ def run_advanced(p1_budget=20, p2_budget=20, num_workers=2):
     print("" * 30)
 
 if __name__ == "__main__":
-    run_advanced(p1_budget=20, p2_budget=20, num_workers=2)
+    run_advanced(p1_budget=3, p2_budget=3, num_workers=2)

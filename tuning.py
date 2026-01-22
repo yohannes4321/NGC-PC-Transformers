@@ -1,22 +1,26 @@
-"""Nevergrad HPO - FIXED MULTIPROCESSING VERSION"""
+"""Nevergrad HPO - FINAL BULLETPROOF VERSION"""
 import os
 import uuid
-import sys
 from concurrent import futures
 import nevergrad as ng
 import numpy as np
-import jax
 from trainer_wrapper import train_evaluate_model
 
 # ==============================================================================
-# 1. TOP-LEVEL WORKERS (Must be outside functions to avoid Pickle Error)
+# 1. FIXED TOP-LEVEL WORKER
 # ==============================================================================
 
-def global_efe_worker(**x):
-    """Worker for Phase 1: Focus on Absolute EFE Stability."""
+def global_efe_worker(*args, **kwargs):
+    """
+    Fixed Worker: Accepts any combination of positional/keyword args.
+    Focuses on Absolute EFE Stability.
+    """
+    # Nevergrad usually passes a single dict in kwargs or the first positional arg
+    params = kwargs if kwargs else (args[0] if args else {})
+    
     try:
         # We pass objective="efe" so the wrapper returns abs(EFE)
-        arr = train_evaluate_model(x, objective="efe")
+        arr = train_evaluate_model(params, objective="efe")
         return float(arr[0][0])
     except Exception as e:
         print(f"Worker Error: {e}", flush=True)
@@ -32,16 +36,18 @@ def run_unlimited_phase(optimizer, objective_name, fixed_params, budget):
     for i in range(budget):
         candidate = optimizer.ask()
         x_dict = candidate.value
+        # Merge fixed architecture with the new hyperparameter guesses
         full_params = {**fixed_params, **x_dict}
         
-        # Ensure correct types for the model
+        # Type Enforcement for the Model
         for k in ["n_heads", "batch_size", "seq_len", "tau_m", "n_iter"]:
             if k in full_params: full_params[k] = int(full_params[k])
         if "n_heads" in full_params and "embed_mult" in full_params:
             full_params["n_embed"] = int(full_params["n_heads"]) * int(full_params["embed_mult"])
 
-        print(f"   [Trial {i+1}/{budget}] Testing CE optimization...", flush=True)
+        print(f"   [Trial {i+1}/{budget}] Running full training...", flush=True)
         
+        # This will run the actual training and return the CE loss
         arr = train_evaluate_model(full_params, objective=objective_name)
         loss_val = float(arr[0][0])
         optimizer.tell(candidate, loss_val)
@@ -75,6 +81,7 @@ def get_p1_space():
 def get_p2_space(best_p1):
     eta_ref = float(best_p1.get("eta", 1e-5))
     return ng.p.Dict(
+        # Allow huge movement to find better CE
         eta          = ng.p.Log(lower=eta_ref * 0.1, upper=min(eta_ref * 10.0, 1e-2)),
         wub          = ng.p.Scalar(lower=0.0001, upper=0.2),
         wlb          = ng.p.Scalar(lower=-0.2, upper=-0.0001),
@@ -85,28 +92,25 @@ def get_p2_space(best_p1):
 # 3. MAIN PIPELINE
 # ==============================================================================
 
-def run_full_pipeline(p1_budget=40, p2_budget=60):
+def run_full_pipeline(p1_budget=40, p2_budget=100):
     print("="*80)
     print("CRITICAL MISSION: MINIMIZE CE & STABILIZE EFE (NO LIMITS)")
     print("="*80, flush=True)
 
-    # --- PHASE 1: STABILITY (EFE) ---
+    # --- PHASE 1: STABILITY ---
     print(f"\n[PHASE 1] RUNNING {p1_budget} PARALLEL TRIALS FOR EFE...")
     opt_p1 = ng.optimizers.CMA(parametrization=get_p1_space(), budget=p1_budget, num_workers=4)
     
     with futures.ProcessPoolExecutor(max_workers=4) as executor:
-        # CMA-ES minimizes the return of global_efe_worker (which is abs(EFE))
         recommendation = opt_p1.minimize(global_efe_worker, executor=executor, batch_mode=False)
     
     best_p1_params = recommendation.value
-    
-    # Extract the skeleton architecture
     skeleton = {k: best_p1_params[k] for k in ["n_heads", "embed_mult", "batch_size", "seq_len", "tau_m", "n_iter", "optim_type", "act_fx"]}
-    print(f"\n>>> PHASE 1 DONE. BEST EFE ARCHITECTURE FOUND.", flush=True)
+    
+    print(f"\n>>> PHASE 1 DONE. STARTING DEEP CE OPTIMIZATION.")
 
-    # --- PHASE 2: ACCURACY (CE) ---
-    # We use NGOpt here because it automatically tries DE, Bayesian, and Random search
-    print(f"\n[PHASE 2] RUNNING {p2_budget} SEQUENTIAL TRIALS FOR MINIMUM CE...")
+    # --- PHASE 2: ACCURACY ---
+    # NGOpt will use several algorithms to try and force CE below 14.
     opt_p2 = ng.optimizers.NGOpt(parametrization=get_p2_space(best_p1_params), budget=p2_budget)
     
     final_ce, final_params = run_unlimited_phase(
@@ -117,10 +121,10 @@ def run_full_pipeline(p1_budget=40, p2_budget=60):
     )
 
     print("\n" + "!"*80)
-    print(f"SEARCH COMPLETE.")
+    print(f"MISSION COMPLETE.")
     print(f"FINAL LOWEST CE: {final_ce:.6f}")
-    print(f"STABLE EFE ARCHITECTURE: {skeleton}")
+    print(f"BEST PARAMS: {final_params}")
     print("!"*80, flush=True)
 
 if __name__ == "__main__":
-    run_full_pipeline(p1_budget=40, p2_budget=60)
+    run_full_pipeline(p1_budget=40, p2_budget=100)

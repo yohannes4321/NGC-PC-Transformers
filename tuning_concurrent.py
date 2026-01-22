@@ -66,10 +66,26 @@ def phase2_space(best_p1):
 # -----------------------
 # Training & Evaluation
 # -----------------------
-def train_evaluate_model(params, objective="efe"):
+def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3):
+    """
+    Train model for given hyperparameters.
+
+    Args:
+        params (dict): Nevergrad hyperparameters.
+        objective (str): "efe" or "ce".
+        patience (int): Number of batches to wait before stopping if no improvement.
+        tol (float): Minimum change to consider as "improvement".
+    """
     trial_id = uuid.uuid4().hex[:4]
     _cleanup_run()
+
+    # Print all parameters at start
+    print(f"\n[Trial {trial_id}] Starting with params:")
+    for k, v in params.items():
+        print(f"    {k}: {v}")
+
     try:
+        # --- Extract parameters ---
         seq_len      = int(params["seq_len"])
         batch_size   = int(params["batch_size"])
         n_heads      = int(params["n_heads"])
@@ -101,38 +117,63 @@ def train_evaluate_model(params, objective="efe"):
 
         total_batches = 0
         train_EFE = 0.0
+        last_efe = []
+        last_ce = []
 
         for iter_idx in range(n_iter):
             for batch_idx, batch in enumerate(train_loader):
                 inputs = batch[0][1]
                 targets = batch[1][1]
+
                 targets_onehot = jax.nn.one_hot(targets, vocab_size)
                 targets_flat = targets_onehot.reshape(-1, vocab_size)
+
                 yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 train_EFE += _EFE
                 total_batches += 1
 
-                if batch_idx % 20 == 0:
-                    y_pred = yMu_inf.reshape(-1, vocab_size)
-                    y_true = jax.nn.one_hot(targets.flatten(), vocab_size)
-                    batch_ce = measure_CatNLL(y_pred, y_true).mean()
-                    batch_ppl = jnp.exp(batch_ce)
-                    print(f"[Iter {iter_idx} | Batch {batch_idx}] EFE={_EFE:.4f}, CE={batch_ce:.4f}, PPL={batch_ppl:.4f}")
+                y_pred = yMu_inf.reshape(-1, vocab_size)
+                y_true = jax.nn.one_hot(targets.flatten(), vocab_size)
+                batch_ce = measure_CatNLL(y_pred, y_true).mean()
+                batch_ppl = jnp.exp(batch_ce)
+
+                # save last few metrics to check for early stop
+                last_efe.append(_EFE)
+                last_ce.append(batch_ce)
+                if len(last_efe) > patience:
+                    last_efe.pop(0)
+                    last_ce.pop(0)
+
+                print(f"[Iter {iter_idx} | Batch {batch_idx}] "
+                      f"EFE={_EFE:.4f}, CE={batch_ce:.4f}, PPL={batch_ppl:.4f}")
+
+                # Early stop if metrics stopped changing
+                if len(last_efe) == patience:
+                    efe_change = max(last_efe) - min(last_efe)
+                    ce_change  = max(last_ce) - min(last_ce)
+                    if efe_change < tol and ce_change < tol:
+                        print(f"--> Early stopping at batch {batch_idx} (EFE/CE change < {tol})")
+                        break
+            else:
+                continue
+            break  # exit outer loop if early stop
 
         avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0.0
         dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
 
         loss = float(abs(avg_train_EFE)) if objective=="efe" else float(dev_ce)
         model.save_to_disk(params_only=False)
-        print(f"[Trial {trial_id}] Finished {objective.upper()}: EFE={avg_train_EFE:.4f}, CE={dev_ce:.4f}, PPL={dev_ppl:.4f}, Loss={loss:.4f}")
+
+        print(f"[Trial {trial_id}] Finished {objective.upper()}: "
+              f"Avg EFE={avg_train_EFE:.4f}, CE={dev_ce:.4f}, PPL={dev_ppl:.4f}, Loss={loss:.4f}")
+
         return np.array([[loss]])
 
     except Exception as e:
         print(f"[Trial {trial_id}] ERROR: {str(e)}")
         import traceback
         traceback.print_exc()
-        return np.array([[1e20]]
-        )
+        return np.array([[1e20]])
     finally:
         _cleanup_run()
 

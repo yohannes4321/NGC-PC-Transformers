@@ -3,6 +3,9 @@ import os
 
 # Disable pre-allocation so JAX only takes what it needs
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+import jax.nn as jnn
+# This is much more memory efficient as it doesn't create the full Eye matrix
+
 from jax import numpy as jnp, random
 from math import inf
 from model import NGCTransformer
@@ -74,11 +77,15 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
         for batch_idx, batch in enumerate(train_loader):
             inputs, targets = batch[0][1], batch[1][1]
             targets_onehot = jnp.eye(cfg.vocab_size)[targets]
+            targets_onehot = jnn.one_hot(targets.flatten(), cfg.vocab_size)
             targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
 
             # Process through the NGC Transformer
             yMu_inf, _, efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            
+            if jnp.isnan(efe) or jnp.isinf(efe):
+                print("!!! NAN/INF DETECTED in EFE: Terminating trial and applying penalty.", flush=True)
+                # Return formatted as a list of lists to match your expected return type
+                return [[1e10]], [[1e10]], 1e10
             efe_val = float(efe)
             total_efe += efe_val
             total_batches += 1

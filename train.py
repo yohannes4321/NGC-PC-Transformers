@@ -1,11 +1,9 @@
 import sys
 import os
-
 # Disable pre-allocation so JAX only takes what it needs
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-import jax.nn as jnn
-# This is much more memory efficient as it doesn't create the full Eye matrix
 
+import jax.nn as jnn
 from jax import numpy as jnp, random
 from math import inf
 from model import NGCTransformer
@@ -28,30 +26,19 @@ def _build_cfg(params_override=None):
 def run_training(params_override=None, save_model=False, max_train_batches=None):
     cfg = _build_cfg(params_override)
     
-    # Force frequent logging for HPO visibility
     log_interval = 10 
     plateau_window = 3
-    plateau_tol = 1.0  # stop if EFE stays within ±1 for 3 consecutive batches
+    plateau_tol = 1.0 
     
-    # ============================================================
-    #  FULL DESCRIPTIVE EXECUTION CARD (For Mentor Visibility)
-    # ============================================================
     print("\n" + "-"*60)
     print(" INITIALIZING TRAINING TRIAL")
     print("-"*60)
-    # Printing every parameter explicitly as requested
     print(f"   [ARCH] n_heads:      {cfg.n_heads}")
     print(f"   [ARCH] embed_mult:   {cfg.embed_mult} (Total n_embed: {cfg.n_embed})")
     print(f"   [DATA] batch_size:   {cfg.batch_size}")
-    print(f"   [DATA] seq_len:      {cfg.seq_len}")
     print(f"   [OPTS] eta (LR):     {cfg.eta:.2e}")
-    print(f"   [OPTS] optim_type:   {cfg.optim_type}")
     print(f"   [OPTS] act_fx:       {cfg.act_fx}")
-    print(f"   [PHYS] tau_m:        {cfg.tau_m}")
     print(f"   [PHYS] n_iter (T):   {cfg.n_iter}")
-    print(f"   [REGS] wub / wlb:    {cfg.wub} / {cfg.wlb}")
-    if hasattr(cfg, 'dropout_rate'):
-        print(f"   [REGS] dropout:      {cfg.dropout_rate}")
     print("-"*60)
 
     dkey = random.PRNGKey(1234)
@@ -68,86 +55,73 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     )
 
     total_efe, total_ce, total_batches = 0.0, 0.0, 0
-    best_train_efe_abs, best_train_efe_signed, best_train_ce = inf, None, inf
+    best_train_efe_abs, best_train_ce = inf, inf
     last_efe_window = []
     plateau_triggered = False
 
-    # Start training iterations
     for i in range(cfg.num_iter):
         for batch_idx, batch in enumerate(train_loader):
             inputs, targets = batch[0][1], batch[1][1]
-            targets_onehot = jnp.eye(cfg.vocab_size)[targets]
+            
+            # MEMORY FIX: Use one_hot directly instead of jnp.eye
             targets_onehot = jnn.one_hot(targets.flatten(), cfg.vocab_size)
             targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
 
             # Process through the NGC Transformer
             yMu_inf, _, efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            
+            # --- CRITICAL NAN/INF PENALTY ---
+            # If this triggers, we return a dictionary immediately so Nevergrad knows this trial failed.
             if jnp.isnan(efe) or jnp.isinf(efe):
-                print("!!! NAN/INF DETECTED in EFE: Terminating trial and applying penalty.", flush=True)
-                # Return formatted as a list of lists to match your expected return type
-                return [[1e10]], [[1e10]], 1e10
+                print(f"!!! NAN/INF DETECTED at Step {batch_idx} >> Applying Penalty and Terminating Trial.")
+                return {
+                    "best_train_efe": 1e10, 
+                    "best_train_efe_abs": 1e10, 
+                    "best_val_ce": 1e10, 
+                    "best_val_ppl": 1e10,
+                    "plateau_triggered": False
+                }
+
             efe_val = float(efe)
             total_efe += efe_val
             total_batches += 1
+            
             y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
-            y_true = jnp.eye(cfg.vocab_size)[targets.flatten()]
-            batch_ce = float(measure_CatNLL(y_pred, y_true).mean())
+            # Use targets_onehot we already created instead of allocating jnp.eye again
+            batch_ce = float(measure_CatNLL(y_pred, targets_onehot).mean())
             total_ce += batch_ce
 
             if abs(efe_val) < best_train_efe_abs:
                 best_train_efe_abs = abs(efe_val)
-                best_train_efe_signed = efe_val
+            
             best_train_ce = min(best_train_ce, batch_ce)
+
+            # Plateau logic
             last_efe_window.append(efe_val)
             if len(last_efe_window) > plateau_window:
                 last_efe_window.pop(0)
             if len(last_efe_window) == plateau_window:
-                window_span = max(last_efe_window) - min(last_efe_window)
-                if window_span <= plateau_tol:
+                if (max(last_efe_window) - min(last_efe_window)) <= plateau_tol:
                     plateau_triggered = True
-                    print(
-                        f"   Plateau detected over {plateau_window} steps (Δ<= {plateau_tol}); early stopping.",
-                        flush=True,
-                    )
+                    print(f"   Plateau detected (Δ<= {plateau_tol}); early stopping.")
                     break
             
-            # --- LIVE HEARTBEAT ---
-            # Using flush=True to make sure it prints in real-time in the terminal
             if batch_idx % log_interval == 0:
-                print(f"   Step {batch_idx:03d} >> EFE: {float(efe):.4f} | CE: {batch_ce:.4f}", flush=True)
+                print(f"   Step {batch_idx:03d} >> EFE: {efe_val:.4f} | CE: {batch_ce:.4f}", flush=True)
 
             if max_train_batches and total_batches >= max_train_batches:
                 break
+        if plateau_triggered: break
 
-        if plateau_triggered:
-            break
-
-    avg_efe = total_efe / total_batches if total_batches > 0 else 0
-    avg_ce = total_ce / total_batches if total_batches > 0 else 0
-    best_efe_abs_out = best_train_efe_abs if best_train_efe_abs != inf else abs(avg_efe)
-    best_efe_signed_out = best_train_efe_signed if best_train_efe_signed is not None else avg_efe
-    best_ce_out = best_train_ce if best_train_ce != inf else avg_ce
+    avg_efe = total_efe / total_batches if total_batches > 0 else 1e10
     dev_ce, dev_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-
-    # FINAL SUMMARY FOR THIS TRIAL
-    print(f"\n✅ TRIAL COMPLETE | Avg EFE: {avg_efe:.2f} | Final Val CE: {dev_ce:.4f}")
-    print(
-        f"   Best Train EFE: {best_efe_signed_out:.4f} (abs {best_efe_abs_out:.4f}) | "
-        f"Best Train CE: {best_ce_out:.4f} | Val PPL: {dev_ppl:.4f}"
-    )
-    if plateau_triggered:
-        print("   Early stop reason: plateau")
-    print("")
 
     return {
         "val_ce": float(dev_ce),
         "val_ppl": float(dev_ppl),
-        "avg_train_efe": avg_efe,
-        "best_train_efe": float(best_efe_signed_out),
-        "best_train_efe_abs": float(best_efe_abs_out),
-        "best_train_ce": float(best_ce_out),
+        "best_train_efe": avg_efe,
+        "best_train_efe_abs": float(best_train_efe_abs),
         "best_val_ce": float(dev_ce),
         "best_val_ppl": float(dev_ppl),
-        "batches_ran": total_batches,
         "plateau_triggered": plateau_triggered
     }

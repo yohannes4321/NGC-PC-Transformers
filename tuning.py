@@ -45,24 +45,32 @@ def phase1_space():
 # Phase 2 Search Space
 # -----------------------
 def phase2_space(best_p1):
-    """Refined continuous space around best Phase 1 parameters for CE optimization."""
-    eta_ref = float(best_p1["eta"])
+    """Refined Phase 2 CE optimization around Phase 1 best parameters"""
+    # center continuous parameters around best Phase1 values
+    eta_best = float(best_p1["eta"])
+    wub_best = float(best_p1["wub"])
+    wlb_best = float(best_p1["wlb"])
+
     return ng.p.Dict(
-        n_heads      = ng.p.Choice([best_p1["n_heads"]]),  # keep best
+        # Keep discrete architecture fixed from Phase 1
+        n_heads      = ng.p.Choice([best_p1["n_heads"]]),
         embed_mult   = ng.p.Choice([best_p1["embed_mult"]]),
         batch_size   = ng.p.Choice([best_p1["batch_size"]]),
         seq_len      = ng.p.Choice([best_p1["seq_len"]]),
-        eta          = ng.p.Log(lower=eta_ref * 0.1, upper=min(eta_ref*10, 1e-2)),
-        tau_m        = ng.p.Scalar(lower=max(1, best_p1["tau_m"]-3),
-                                   upper=best_p1["tau_m"]+3).set_integer_casting(),
-        n_iter       = ng.p.Scalar(lower=max(1, best_p1["n_iter"]-1),
-                                   upper=best_p1["n_iter"]+1).set_integer_casting(),
-        wub          = ng.p.Scalar(lower=0.0001, upper=0.05),
-        wlb          = ng.p.Scalar(lower=-0.05, upper=-0.0001),
-        dropout_rate = ng.p.Scalar(lower=0.0, upper=0.5),
-        optim_type   = ng.p.Choice([best_p1["optim_type"]]),
         act_fx       = ng.p.Choice([best_p1["act_fx"]]),
+        optim_type   = ng.p.Choice([best_p1["optim_type"]]),
+        
+        # Continuous hyperparameters: small perturbation around Phase 1 best
+        eta          = ng.p.Log(lower=max(1e-8, eta_best*0.5), upper=min(eta_best*2, 1e-2)),
+        wub          = ng.p.Scalar(lower=max(0.0, wub_best*0.5), upper=min(0.5, wub_best*2)),
+        wlb          = ng.p.Scalar(lower=max(-0.5, wlb_best*2), upper=min(0.0, wlb_best*0.5)),
+        dropout_rate = ng.p.Scalar(lower=0.0, upper=0.5),
+        
+        # small flexibility for n_iter and tau_m
+        n_iter       = ng.p.Scalar(best_p1["n_iter"]).set_integer_casting(),
+        tau_m        = ng.p.Scalar(best_p1["tau_m"]).set_integer_casting()
     )
+
 
 # -----------------------
 # Training & Evaluation

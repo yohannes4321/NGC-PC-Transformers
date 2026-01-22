@@ -66,20 +66,13 @@ def phase2_space(best_p1):
 # -----------------------
 # Training & Evaluation
 # -----------------------
-def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3):
+def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_every=20):
     """
-    Train model for given hyperparameters.
-
-    Args:
-        params (dict): Nevergrad hyperparameters.
-        objective (str): "efe" or "ce".
-        patience (int): Number of batches to wait before stopping if no improvement.
-        tol (float): Minimum change to consider as "improvement".
+    Train model for given hyperparameters, checking EFE/CE every `check_every` batches.
     """
     trial_id = uuid.uuid4().hex[:4]
     _cleanup_run()
 
-    # Print all parameters at start
     print(f"\n[Trial {trial_id}] Starting with params:")
     for k, v in params.items():
         print(f"    {k}: {v}")
@@ -117,8 +110,7 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3):
 
         total_batches = 0
         train_EFE = 0.0
-        last_efe = []
-        last_ce = []
+        last_checks = []
 
         for iter_idx in range(n_iter):
             for batch_idx, batch in enumerate(train_loader):
@@ -135,28 +127,24 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3):
                 y_pred = yMu_inf.reshape(-1, vocab_size)
                 y_true = jax.nn.one_hot(targets.flatten(), vocab_size)
                 batch_ce = measure_CatNLL(y_pred, y_true).mean()
-                batch_ppl = jnp.exp(batch_ce)
 
-                # save last few metrics to check for early stop
-                last_efe.append(_EFE)
-                last_ce.append(batch_ce)
-                if len(last_efe) > patience:
-                    last_efe.pop(0)
-                    last_ce.pop(0)
+                # Only check every `check_every` batches
+                if total_batches % check_every == 0:
+                    last_checks.append((float(_EFE), float(batch_ce)))
+                    if len(last_checks) > patience:
+                        last_checks.pop(0)
 
-                print(f"[Iter {iter_idx} | Batch {batch_idx}] "
-                      f"EFE={_EFE:.4f}, CE={batch_ce:.4f}, PPL={batch_ppl:.4f}")
+                    # Check for early stopping
+                    if len(last_checks) == patience:
+                        efe_change = max(x[0] for x in last_checks) - min(x[0] for x in last_checks)
+                        ce_change  = max(x[1] for x in last_checks) - min(x[1] for x in last_checks)
+                        if efe_change < tol and ce_change < tol:
+                            print(f"--> Early stopping at batch {batch_idx} (EFE/CE change < {tol})")
+                            break
 
-                # Early stop if metrics stopped changing
-                if len(last_efe) == patience:
-                    efe_change = max(last_efe) - min(last_efe)
-                    ce_change  = max(last_ce) - min(last_ce)
-                    if efe_change < tol and ce_change < tol:
-                        print(f"--> Early stopping at batch {batch_idx} (EFE/CE change < {tol})")
-                        break
             else:
                 continue
-            break  # exit outer loop if early stop
+            break  # break outer loop if early stop
 
         avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0.0
         dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
@@ -176,6 +164,7 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3):
         return np.array([[1e20]])
     finally:
         _cleanup_run()
+
 
 # -----------------------
 # Parallel Nevergrad Minimization
@@ -219,7 +208,7 @@ def two_phase_tuning(num_workers=2):
 # Run
 # -----------------------
 if __name__ == "__main__":
-    best_phase1, best_phase2 = two_phase_tuning(num_workers=4)
+    best_phase1, best_phase2 = two_phase_tuning(num_workers=2)
     print("\n=== Final Results ===")
     print("Best Phase 1 (EFE):", best_phase1)
     print("Best Phase 2 (CE):", best_phase2)

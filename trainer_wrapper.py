@@ -8,10 +8,6 @@ import numpy as np
 import uuid
 import jax
 
-# IMPORTANT: Ensure the directory containing your train.py is in the path
-# sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# Import your real training function
 from train import run_training 
 
 def _cleanup_run():
@@ -36,12 +32,10 @@ def train_evaluate_model(params, objective="efe"):
     _cleanup_run()
 
     try:
-        # --- EXECUTE REAL TRAINING ---
-        # This calls your function that initializes NGCTransformer
+
         metrics = run_training(params_override=params)
         
-        # EXTRACT METRICS FROM YOUR REAL DICTIONARY
-        # We use .get() with high defaults to penalize failures
+       
         efe_val_signed = metrics.get("best_train_efe", 1e10)
         efe_val_abs = metrics.get("best_train_efe_abs", 1e10)
         ce_val = metrics.get("best_val_ce", 1e10)
@@ -51,7 +45,7 @@ def train_evaluate_model(params, objective="efe"):
         # SELECT LOSS FOR OPTIMIZER
         if objective == "efe":
             # Minimizing the absolute distance of EFE to zero
-            loss = float(efe_val_abs) 
+            loss = float(abs(efe_val_abs) )
             obj_tag = "EFE (Abs)"
         else:
             # Minimizing Cross-Entropy
@@ -77,14 +71,4 @@ def train_evaluate_model(params, objective="efe"):
     finally:
         _cleanup_run()
 
-if __name__ == "__main__":
-    # Test with a small configuration
-    test_params = {
-        "n_heads": 2, 
-        "embed_mult": 4, 
-        "batch_size": 8, 
-        "num_iter": 1, 
-        "n_iter": 5 # This is 'T' in your model
-    }
-    print("Testing Wrapper with Real Model...", flush=True)
-    res = train_evaluate_model(test_params, objective="ce")
+ 

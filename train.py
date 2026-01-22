@@ -1,4 +1,8 @@
 import sys
+import os
+
+# Disable pre-allocation so JAX only takes what it needs
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 from jax import numpy as jnp, random
 from math import inf
 from model import NGCTransformer

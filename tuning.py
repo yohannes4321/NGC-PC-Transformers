@@ -101,7 +101,7 @@ def run_full_pipeline(p1_budget=40, p2_budget=100):
     print(f"\n[PHASE 1] RUNNING {p1_budget} PARALLEL TRIALS FOR EFE...")
     opt_p1 = ng.optimizers.CMA(parametrization=get_p1_space(), budget=p1_budget, num_workers=4)
     
-    with futures.ProcessPoolExecutor(max_workers=4) as executor:
+    with futures.ProcessPoolExecutor(max_workers=2) as executor:
         recommendation = opt_p1.minimize(global_efe_worker, executor=executor, batch_mode=False)
     
     best_p1_params = recommendation.value
@@ -127,4 +127,4 @@ def run_full_pipeline(p1_budget=40, p2_budget=100):
     print("!"*80, flush=True)
 
 if __name__ == "__main__":
-    run_full_pipeline(p1_budget=40, p2_budget=100)
+    run_full_pipeline(p1_budget=3, p2_budget=3)

@@ -1,4 +1,8 @@
 import os
+import os
+
+# Disable pre-allocation so JAX only takes what it needs
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 import sys
 import gc
 import numpy as np

@@ -30,7 +30,7 @@ def phase1_space():
     return ng.p.Dict(
         n_heads    = ng.p.Choice([2, 4, 8]),
         embed_mult = ng.p.Choice([8, 16, 24]),
-        batch_size = ng.p.Choice([16, 32]),
+        batch_size = ng.p.Choice([ 32,64,128]),
         seq_len    = ng.p.Choice([8, 16]),
         eta        = ng.p.Log(lower=1e-7, upper=5e-5),
         tau_m      = ng.p.Scalar(lower=5, upper=15).set_integer_casting(),
@@ -75,7 +75,7 @@ def phase2_space(best_p1):
 # -----------------------
 # Training & Evaluation
 # -----------------------
-def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_every=20):
+def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_every=10):
     """
     Train model for given hyperparameters, checking EFE/CE every `check_every` batches.
     """

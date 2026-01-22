@@ -139,16 +139,23 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
 
                 # Only check every `check_every` batches
                 if total_batches % check_every == 0:
+                    print(
+                        f"[Trial {trial_id}] "
+                        f"Iter {iter_idx+1} | "
+                        f"Batch {total_batches} | "
+                        f"EFE={float(_EFE):.4f} | "
+                        f"CE={float(batch_ce):.4f}"
+                    )
+
                     last_checks.append((float(_EFE), float(batch_ce)))
                     if len(last_checks) > patience:
                         last_checks.pop(0)
 
-                    # Check for early stopping
                     if len(last_checks) == patience:
                         efe_change = max(x[0] for x in last_checks) - min(x[0] for x in last_checks)
                         ce_change  = max(x[1] for x in last_checks) - min(x[1] for x in last_checks)
                         if efe_change < tol and ce_change < tol:
-                            print(f"--> Early stopping at batch {batch_idx} (EFE/CE change < {tol})")
+                            print(f"--> Early stopping at batch {total_batches}")
                             break
 
             else:

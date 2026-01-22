@@ -71,6 +71,10 @@ def phase2_space(best_p1):
         tau_m        = ng.p.Scalar(best_p1["tau_m"]).set_integer_casting()
     )
 
+
+# -----------------------
+# Training & Evaluation
+# -----------------------
 def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_every=20):
     """
     Train model for given hyperparameters, checking EFE/CE every `check_every` batches.
@@ -169,10 +173,6 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
         return np.array([[1e20]])
     finally:
         _cleanup_run()
-
-# -----------------------
-# Training & Evaluation
-# -----------------------
 
 
 

@@ -83,8 +83,8 @@ def get_p1_space():
         eta        = ng.p.Log(lower=1e-8, upper=1e-3),
         tau_m      = ng.p.Scalar(lower=5, upper=30).set_integer_casting(),
         n_iter     = ng.p.Scalar(lower=1, upper=15).set_integer_casting(),
-        wub        = ng.p.Scalar(lower=0.001, upper=0.1),
-        wlb        = ng.p.Scalar(lower=-0.1, upper=-0.001),
+        wub        = ng.p.Scalar(lower=0.1, upper=0.5),
+        wlb        = ng.p.Scalar(lower=-0.5, upper=-0.1),
         optim_type = ng.p.Choice(["adam", "sgd"]),
         # FIX: Changed "swish" to "silu" because ngclearn doesn't recognize "swish"
         act_fx     = ng.p.Choice(["identity", "relu", "gelu", "tanh"]),

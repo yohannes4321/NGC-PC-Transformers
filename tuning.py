@@ -5,6 +5,7 @@ import numpy as np
 from jax import random, numpy as jnp
 import jax
 
+# --- Import your local modules ---
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
@@ -23,24 +24,30 @@ def _cleanup_run():
     gc.collect()
 
 # -----------------------
-# Phase 1 Search Space
+# Phase 1 Search Space (FIXED: Tighter bounds)
 # -----------------------
 def phase1_space():
     """Discrete Architecture Space for EFE Optimization."""
     return ng.p.Dict(
         n_heads    = ng.p.Choice([2, 4, 8]),
         embed_mult = ng.p.Choice([8, 16, 24]),
-        batch_size = ng.p.Choice([ 32,64,128]),
+        batch_size = ng.p.Choice([32, 64, 128]),
         seq_len    = ng.p.Choice([8, 16]),
-        # Updated for n_iter=5
-        eta = ng.p.Log(lower=1e-4, upper=1e-2),
-        tau_m      = ng.p.Scalar(lower=10, upper=50).set_integer_casting(),
-        n_iter     = ng.p.Scalar(lower=5, upper=13).set_integer_casting(),
-        # Smaller, centered initialization to prevent "Explosion"
-        wub = ng.p.Scalar(lower=0.01, upper=0.05),
-        wlb = ng.p.Scalar(lower=-0.05, upper=-0.01),
+        
+        # FIXED: Lower learning rate cap (was 1e-2, now 5e-3)
+        eta = ng.p.Log(lower=1e-4, upper=5e-3),
+        
+        # FIXED: Lower tau_m to prevent memory explosion (was 50, now 20)
+        tau_m      = ng.p.Scalar(lower=5, upper=20).set_integer_casting(),
+        n_iter     = ng.p.Scalar(lower=5, upper=10).set_integer_casting(),
+        
+        # FIXED: Tighter initialization (was 0.05, now 0.02)
+        wub = ng.p.Scalar(lower=0.005, upper=0.02),
+        wlb = ng.p.Scalar(lower=-0.02, upper=-0.005),
+        
         optim_type = ng.p.Choice(["adam", "sgd"]),
-        act_fx     = ng.p.Choice(["gelu","silu","tanh" ,"relu"]),
+        # Removed "silu" because it can be unstable in deep NGC models without careful tuning
+        act_fx     = ng.p.Choice(["gelu", "relu", "tanh"]),
     )
 
 # -----------------------
@@ -48,13 +55,11 @@ def phase1_space():
 # -----------------------
 def phase2_space(best_p1):
     """Refined Phase 2 CE optimization around Phase 1 best parameters"""
-    # center continuous parameters around best Phase1 values
     eta_best = float(best_p1["eta"])
     wub_best = float(best_p1["wub"])
     wlb_best = float(best_p1["wlb"])
 
     return ng.p.Dict(
-        # Keep discrete architecture fixed from Phase 1
         n_heads      = ng.p.Choice([best_p1["n_heads"]]),
         embed_mult   = ng.p.Choice([best_p1["embed_mult"]]),
         batch_size   = ng.p.Choice([best_p1["batch_size"]]),
@@ -62,13 +67,11 @@ def phase2_space(best_p1):
         act_fx       = ng.p.Choice([best_p1["act_fx"]]),
         optim_type   = ng.p.Choice([best_p1["optim_type"]]),
         
-        # Continuous hyperparameters: small perturbation around Phase 1 best
         eta          = ng.p.Log(lower=max(1e-8, eta_best*0.5), upper=min(eta_best*2, 1e-2)),
-        wub          = ng.p.Scalar(lower=max(0.0, wub_best*0.5), upper=min(0.5, wub_best*2)),
-        wlb          = ng.p.Scalar(lower=max(-0.5, wlb_best*2), upper=min(0.0, wlb_best*0.5)),
+        wub          = ng.p.Scalar(lower=max(0.0, wub_best*0.5), upper=min(0.05, wub_best*2)), # Cap at 0.05
+        wlb          = ng.p.Scalar(lower=max(-0.05, wlb_best*2), upper=min(0.0, wlb_best*0.5)), # Cap at -0.05
         dropout_rate = ng.p.Scalar(lower=0.0, upper=0.5),
         
-        # small flexibility for n_iter and tau_m
         n_iter       = ng.p.Scalar(best_p1["n_iter"]).set_integer_casting(),
         tau_m        = ng.p.Scalar(best_p1["tau_m"]).set_integer_casting()
     )
@@ -78,9 +81,6 @@ def phase2_space(best_p1):
 # Training & Evaluation
 # -----------------------
 def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_every=10):
-    """
-    Train model for given hyperparameters, checking EFE/CE every `check_every` batches.
-    """
     trial_id = uuid.uuid4().hex[:4]
     _cleanup_run()
 
@@ -106,7 +106,6 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
         pos_learnable= config.pos_learnable
 
         dkey = random.PRNGKey(1234)
-
         data_loader = DataLoader(seq_len=seq_len, batch_size=batch_size)
         train_loader, valid_loader, _ = data_loader.load_and_prepare_data()
 
@@ -132,68 +131,73 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
                 targets_flat = targets_onehot.reshape(-1, vocab_size)
 
                 yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-                train_EFE += _EFE
+                
+                # --- FIXED: EFE CLIPPING ---
+                # This prevents one bad batch from exploding the trial to -14000
+                clipped_EFE = float(jnp.clip(_EFE, a_min=-1000.0, a_max=1000.0))
+                
+                # --- FIXED: PANIC BUTTON ---
+                # If EFE is already insane, abort immediately to save time
+                if clipped_EFE <= -999.0 or np.isnan(clipped_EFE):
+                     print(f"!!! [Trial {trial_id}] Early Abort: EFE Exploded ({clipped_EFE})")
+                     return 1000.0 # Return high penalty
+
+                train_EFE += clipped_EFE
                 total_batches += 1
 
-                y_pred = yMu_inf.reshape(-1, vocab_size)
-                y_true = jax.nn.one_hot(targets.flatten(), vocab_size)
-                batch_ce = measure_CatNLL(y_pred, y_true).mean()
-
-                # Only check every `check_every` batches
                 if total_batches % check_every == 0:
-                    print(
-                        f"[Trial {trial_id}] "
-                        f"Iter {iter_idx+1} | "
-                        f"Batch {total_batches} | "
-                        f"EFE={float(_EFE):.4f} | "
-                        f"CE={float(batch_ce):.4f}"
-                    )
+                    # Calculate CE only periodically to save compute
+                    y_pred = yMu_inf.reshape(-1, vocab_size)
+                    y_true = jax.nn.one_hot(targets.flatten(), vocab_size)
+                    batch_ce = float(measure_CatNLL(y_pred, y_true).mean())
+                    
+                    print(f"[Trial {trial_id}] Iter {iter_idx+1} | Batch {total_batches} | EFE={clipped_EFE:.4f} | CE={batch_ce:.4f}")
 
-                    last_checks.append((float(_EFE), float(batch_ce)))
+                    # Early Stopping Logic
+                    last_checks.append((clipped_EFE, batch_ce))
                     if len(last_checks) > patience:
                         last_checks.pop(0)
-
                     if len(last_checks) == patience:
                         efe_change = max(x[0] for x in last_checks) - min(x[0] for x in last_checks)
                         ce_change  = max(x[1] for x in last_checks) - min(x[1] for x in last_checks)
                         if efe_change < tol and ce_change < tol:
                             print(f"--> Early stopping at batch {total_batches}")
                             break
-
             else:
                 continue
-            break  # break outer loop if early stop
-        # Instead of just total_batches, normalize by the total number of tokens processed
-        # total_tokens = total_batches * batch_size * seq_len
-        # avg_train_EFE = train_EFE / total_tokens
-        # avg_train_EFE = train_EFE / total_batches if total_batches > 0 else print("total batch is 0")
-        dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
-
-        # loss = float(abs(avg_train_EFE) ) if objective=="efe" else float(dev_ce)
-        # model.save_to_disk(params_only=False)
-
-        # print(f"[Trial {trial_id}] Finished {objective.upper()}: "
-        #       f"Avg EFE={avg_train_EFE:.4f}, CE={dev_ce:.4f}, PPL={dev_ppl:.4f}, Loss={loss:.4f}")
-
-        # return np.array([[loss]])
-
-
-       
-        total_train_tokens = total_batches * params['batch_size'] * params['seq_len']
-
-        avg_train_EFE = train_EFE / total_train_tokens if total_train_tokens > 0 else 1e5 
-        avg_dev_ce = dev_ce 
-
-    
-        loss_val = float(abs(avg_train_EFE)) if objective == "efe" else float(avg_dev_ce)
-
+            break 
         
+        # --- FIXED: NORMALIZATION ---
+        total_train_tokens = total_batches * batch_size * seq_len
+        
+        # Avoid divide by zero
+        if total_train_tokens == 0:
+            total_train_tokens = 1.0
+
+        avg_train_EFE = train_EFE / total_train_tokens
+        
+        # Evaluate validation set
+        dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
+        avg_dev_ce = dev_ce # Assuming eval_model returns mean CE already
+
+        # --- FIXED: RETURN LOGIC ---
+        # We want to minimize LOSS. 
+        # Since EFE is negative (lower is "better" but also "unstable" if too low),
+        # we try to minimize the magnitude of EFE (closer to 0 is often more stable) 
+        # OR minimize -EFE (maximize information gain).
+        # Here we use log1p(abs) to stabilize the optimization landscape.
+        if objective == "efe":
+            loss_val = float(np.log1p(abs(avg_train_EFE)))
+        else:
+            loss_val = float(avg_dev_ce)
+
+        # Final Safety Check
         if np.isnan(loss_val) or np.isinf(loss_val) or loss_val > 1e6:
             print(f">>> [CRITICAL] Trial {trial_id} exploded (NaN/Inf). Penalizing.")
-            return 10000.0  
+            return 1000.0  
 
         print(f"[Trial {trial_id}] Finished {objective.upper()}: "
-              f"Avg EFE={avg_train_EFE:.4f}, CE={avg_dev_ce:.4f}, Loss={loss_val:.4f}")
+              f"Avg EFE/Tok={avg_train_EFE:.6f}, CE={avg_dev_ce:.4f}, Loss={loss_val:.4f}")
 
         return loss_val
 
@@ -201,25 +205,21 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
         print(f"[Trial {trial_id}] ERROR: {str(e)}")
         import traceback
         traceback.print_exc()
-        return np.array([[1e20]])
+        return 1e9 # Huge penalty for crash
     finally:
         _cleanup_run()
-
-
 
 # -----------------------
 # Nevergrad Two-Phase Tuning
 # -----------------------
 def two_phase_tuning():
-    # --- Phase 1: EFE Optimization ---
     print("=== Phase 1: EFE Optimization ===")
     p1 = phase1_space()
-    optimizer1 = ng.optimizers.NGOpt(parametrization=p1, budget=20)  # budget = number of trials
+    optimizer1 = ng.optimizers.NGOpt(parametrization=p1, budget=20) 
     recommendation1 = optimizer1.minimize(lambda x: train_evaluate_model(x, objective="efe"))
     best_p1 = recommendation1.value
     print("Best Phase 1 Params:", best_p1)
 
-    # --- Phase 2: CE Optimization around best Phase 1 params ---
     print("=== Phase 2: CE Optimization ===")
     p2 = phase2_space(best_p1)
     optimizer2 = ng.optimizers.NGOpt(parametrization=p2, budget=20)

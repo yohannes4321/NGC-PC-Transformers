@@ -188,10 +188,10 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
             loss = -(efe_raw)
         
 
-      
-
-        if objective == "ce":
+        elif objective == "ce":
             loss=ce
+        else:
+            raise ValueError(f"Unsupported objective '{objective}'")
 
         # Return 2D array to keep main_hebo.py untouched
         return np.array([[loss]], dtype=float)
@@ -203,7 +203,7 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
             print("Detected GPU OOM; returning inf and proceeding.")
         else:
             print(f"Error: {msg}")
-        # return np.array([[float("inf")]], dtype=float)
+        return np.array([[float("inf")]], dtype=float)
 
     finally:
         logger.close()

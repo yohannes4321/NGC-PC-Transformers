@@ -73,18 +73,21 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
             if k in full_params:
                 full_params[k] = int(full_params[k])
 
+        loss_value = float("inf")
         try:
             print(
                 f"\nTrial {iteration} | Heads: {full_params['n_heads']} | D_Model: {full_params['n_embed']} | Seq: {full_params['seq_len']}"
             )
             loss_array = train_evaluate_model(full_params, objective=objective_name)
+            if loss_array is None:
+                raise ValueError("train_evaluate_model returned None")
             loss_value = float(loss_array[0][0])
             print ("**********",loss_value)
             if np.isnan(loss_value):
                 loss_value = float("inf")
         except Exception as e:
             print(f"!!! CRASH IN TRIAL {iteration} !!! Error: {e}")
-            # loss_value = float("inf")
+            loss_value = float("inf")
 
         optimizer.tell(candidate, loss_value)
         losses.append(loss_value)

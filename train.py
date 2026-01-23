@@ -53,6 +53,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     )
 
     total_efe, total_ce, total_batches = 0.0, 0.0, 0
+    train_EFE = 0.0
     # best_train_efe_abs, best_train_ce = inf, inf
     # last_efe_window = []
     # plateau_triggered = False

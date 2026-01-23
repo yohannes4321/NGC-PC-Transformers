@@ -113,7 +113,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
                 break
         if plateau_triggered: break
 
-    avg_efe = total_efe / total_batches if total_batches > 0 else 1e10
+    avg_efe = total_efe / total_batches if total_batches > 0 else print ("total batches is 0")
     dev_ce, dev_ppl = eval_model(model, valid_loader, cfg.vocab_size)
 
     return {

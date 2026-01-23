@@ -32,13 +32,14 @@ def phase1_space():
         embed_mult = ng.p.Choice([8, 16, 24]),
         batch_size = ng.p.Choice([ 32,64,128]),
         seq_len    = ng.p.Choice([8, 16]),
-        eta        = ng.p.Log(lower=1e-7, upper=5e-5),
-        tau_m      = ng.p.Scalar(lower=5, upper=15).set_integer_casting(),
-        n_iter     = ng.p.Scalar(lower=1, upper=5).set_integer_casting(),
-        wub        = ng.p.Scalar(lower=0.01, upper=0.04),
-        wlb        = ng.p.Scalar(lower=-0.04, upper=-0.01),
+        # Updated for n_iter=5
+        eta = ng.p.Log(lower=1e-4, upper=1e-2),
+        tau_m      = ng.p.Scalar(lower=10, upper=50).set_integer_casting(),
+        n_iter     = ng.p.Scalar(lower=5, upper=13).set_integer_casting(),
+        wub        = ng.p.Scalar(lower=0.1, upper=0.4),
+        wlb        = ng.p.Scalar(lower=-0.3, upper=-0.3),
         optim_type = ng.p.Choice(["adam", "sgd"]),
-        act_fx     = ng.p.Choice(["identity", "relu"]),
+        act_fx     = ng.p.Choice(["gelu","silu","tanh" ,"relu"]),
     )
 
 # -----------------------
@@ -161,17 +162,39 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
             else:
                 continue
             break  # break outer loop if early stop
-
-        avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0.0
+        # Instead of just total_batches, normalize by the total number of tokens processed
+        # total_tokens = total_batches * batch_size * seq_len
+        # avg_train_EFE = train_EFE / total_tokens
+        # avg_train_EFE = train_EFE / total_batches if total_batches > 0 else print("total batch is 0")
         dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
 
-        loss = float(abs(avg_train_EFE)) if objective=="efe" else float(dev_ce)
-        model.save_to_disk(params_only=False)
+        # loss = float(abs(avg_train_EFE) ) if objective=="efe" else float(dev_ce)
+        # model.save_to_disk(params_only=False)
+
+        # print(f"[Trial {trial_id}] Finished {objective.upper()}: "
+        #       f"Avg EFE={avg_train_EFE:.4f}, CE={dev_ce:.4f}, PPL={dev_ppl:.4f}, Loss={loss:.4f}")
+
+        # return np.array([[loss]])
+
+
+       
+        total_train_tokens = total_batches * params['batch_size'] * params['seq_len']
+
+        avg_train_EFE = train_EFE / total_train_tokens if total_train_tokens > 0 else 1e5 
+        avg_dev_ce = dev_ce 
+
+    
+        loss_val = float(abs(avg_train_EFE)) if objective == "efe" else float(avg_dev_ce)
+
+        
+        if np.isnan(loss_val) or np.isinf(loss_val) or loss_val > 1e6:
+            print(f">>> [CRITICAL] Trial {trial_id} exploded (NaN/Inf). Penalizing.")
+            return 10000.0  
 
         print(f"[Trial {trial_id}] Finished {objective.upper()}: "
-              f"Avg EFE={avg_train_EFE:.4f}, CE={dev_ce:.4f}, PPL={dev_ppl:.4f}, Loss={loss:.4f}")
+              f"Avg EFE={avg_train_EFE:.4f}, CE={avg_dev_ce:.4f}, Loss={loss_val:.4f}")
 
-        return np.array([[loss]])
+        return loss_val
 
     except Exception as e:
         print(f"[Trial {trial_id}] ERROR: {str(e)}")

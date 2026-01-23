@@ -168,7 +168,7 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
             break 
         
         # --- FIXED: NORMALIZATION ---
-        total_train_tokens = total_batches * batch_size * seq_len
+        total_train_tokens = total_batches 
         
         # Avoid divide by zero
         if total_train_tokens == 0:
@@ -187,14 +187,14 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
         # OR minimize -EFE (maximize information gain).
         # Here we use log1p(abs) to stabilize the optimization landscape.
         if objective == "efe":
-            loss_val = float(np.log1p(abs(avg_train_EFE)))
+            loss_val = float(abs(avg_train_EFE))
         else:
             loss_val = float(avg_dev_ce)
 
         # Final Safety Check
         if np.isnan(loss_val) or np.isinf(loss_val) or loss_val > 1e6:
             print(f">>> [CRITICAL] Trial {trial_id} exploded (NaN/Inf). Penalizing.")
-            return 1000.0  
+            return 100000000000.0  
 
         print(f"[Trial {trial_id}] Finished {objective.upper()}: "
               f"Avg EFE/Tok={avg_train_EFE:.6f}, CE={avg_dev_ce:.4f}, Loss={loss_val:.4f}")

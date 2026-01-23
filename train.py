@@ -26,7 +26,7 @@ def _build_cfg(params_override=None):
 def run_training(params_override=None, save_model=False, max_train_batches=None):
     cfg = _build_cfg(params_override)
     # Cap runtime: default to first 50 batches unless overridden
-    max_train_batches = 50 if max_train_batches is None else max_train_batches
+    max_train_batches = 50 if max_train_batches is None else int(max_train_batches)
     
     print("\n" + "-"*60)
     print(" INITIALIZING TRAINING TRIAL")
@@ -61,6 +61,8 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     total_start_time = time.time()
     for i in range(cfg.num_iter):
         for batch_idx, batch in enumerate(train_loader):
+            if total_batches >= max_train_batches:
+                break
             inputs = batch[0][1]
             targets = batch[1][1]
             
@@ -72,9 +74,6 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE
             total_batches += 1
-
-            if total_batches >= max_train_batches:
-                break
 
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, config.vocab_size)

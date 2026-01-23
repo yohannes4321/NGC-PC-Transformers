@@ -72,7 +72,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
 
             
             yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            train_EFE += _EFE
+            train_EFE += (_EFE / (cfg.seq_len * cfg.batch_size * cfg.n_iter))
             total_batches += 1
 
             if batch_idx % 10 == 0:
@@ -85,7 +85,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
                 
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
         
-        avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
+        avg_train_EFE = train_EFE / total_batches  if total_batches > 0 else 0
         
         dev_ce, dev_ppl = eval_model(model, valid_loader, config.vocab_size)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")

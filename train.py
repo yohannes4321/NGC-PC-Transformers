@@ -72,7 +72,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
 
             
             yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            _EFE=_EFE / (cfg.seq_len * cfg.batch_size * cfg.n_iter)
+            # _EFE=_EFE / (cfg.seq_len * cfg.batch_size * cfg.n_iter)
             train_EFE += _EFE
             total_batches += 1
 

@@ -172,7 +172,7 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
             params["seq_len"] = int(params["seq_len"])
 
         # Run full training (no batch cap); adjust in params if you need a limit
-        metrics = run_training(
+        efe,ce,ppl = run_training(
             params_override=params,
             save_model=False,
             max_train_batches=None,
@@ -181,15 +181,15 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
         if objective == "efe":
             # The goal is to move from a large negative number toward 0.
             # We want to MAXIMIZE the raw EFE. 
-           
-            efe_raw = float(metrics.get("avg_train_efe", 0.0))
+
+            efe_raw = float(efe)
             
           #
             loss = -(efe_raw)
         else:  # default CE objective
-            loss = float(metrics["val_ce"])
+            loss = float(ce)
 
-        ppl = float(math.exp(metrics["val_ce"]))
+        # ppl = float(math.exp(metrics["val_ce"]))
 
         # Save per-trial CSV row
         p_series = pd.Series(params)
@@ -197,22 +197,22 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
             trial_id,
             p_series,
             {
-                "cross_entropy": float(metrics.get("val_ce", float("inf"))),
+                "cross_entropy": ce,
                 "ppl": ppl,
-                "efe": float(metrics.get("avg_train_efe", 0.0)),
+                "efe": efe,
             },
         )
 
         if objective == "ce":
-            improved = _maybe_update_best(trial_id, params, metrics.get("val_ce", float("inf")), ppl)
+            improved = _maybe_update_best(trial_id, params, ce, ppl)
             if improved:
                 print(
-                    f"New BEST -> trial {trial_id}, CE: {metrics['val_ce']:.4f}, PPL: {ppl:.4f} (saved best_params.json)"
+                    f"New BEST -> trial {trial_id}, CE: {ce:.4f}, PPL: {ppl:.4f} (saved best_params.json)"
                 )
             else:
-                print(f"Trial {trial_id} complete -> CE: {metrics['val_ce']:.4f}, PPL: {ppl:.4f}")
+                print(f"Trial {trial_id} complete -> CE: {ce:.4f}, PPL: {ppl:.4f}")
         else:
-            print(f"Trial {trial_id} complete -> EFE proxy: {loss:.4f}, CE: {metrics['val_ce']:.4f}")
+            print(f"Trial {trial_id} complete -> EFE proxy: {loss:.4f}, CE: {ce:.4f}")
 
         # Return 2D array to keep main_hebo.py untouched
         return np.array([[loss]], dtype=float)

@@ -53,8 +53,8 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     )
 
     total_efe, total_ce, total_batches = 0.0, 0.0, 0
-    best_train_efe_abs, best_train_ce = inf, inf
-    last_efe_window = []
+    # best_train_efe_abs, best_train_ce = inf, inf
+    # last_efe_window = []
     # plateau_triggered = False
 
     for i in range(cfg.num_iter):
@@ -72,27 +72,21 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             # If this triggers, we return a dictionary immediately so Nevergrad knows this trial failed.
             if jnp.isnan(efe) or jnp.isinf(efe):
                 print(f"!!! NAN/INF DETECTED at Step {batch_idx} >> Applying Penalty and Terminating Trial.")
-                return {
-                    "best_train_efe": 1e10, 
-                    "best_train_efe_abs": 1e10, 
-                    "best_val_ce": 1e10, 
-                    "best_val_ppl": 1e10,
-                    # "plateau_triggered": False
-                }
+                return 1e10,1e10,1e10
 
             efe_val = float(efe)
             total_efe += efe_val
-            total_batches += 1
+            total_batches =batch_idx
             
             y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
             # Use targets_onehot we already created instead of allocating jnp.eye again
             batch_ce = float(measure_CatNLL(y_pred, targets_onehot).mean())
             total_ce += batch_ce
 
-            if abs(efe_val) < best_train_efe_abs:
-                best_train_efe_abs = abs(efe_val)
+            # if abs(efe_val) < best_train_efe_abs:
+            #     best_train_efe_abs = abs(efe_val)
             
-            best_train_ce = min(best_train_ce, batch_ce)
+            # best_train_ce = min(best_train_ce, batch_ce)
 
             # Plateau logic
             
@@ -100,16 +94,10 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     if total_batches == 0:
         raise RuntimeError("No batches were processed! Cannot compute average EFE.")
     avg_efe = total_efe / total_batches
-    print(f"Trial complete -> Real avg EFE: {avg_efe:.4f}, CE: {dev_ce:.4f}")
+    
 
     dev_ce, dev_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-
-    return {
-        "val_ce": float(dev_ce),
-        "val_ppl": float(dev_ppl),
-        "best_train_efe": avg_efe,
-        "best_train_efe_abs": float(best_train_efe_abs),
-        "best_val_ce": float(dev_ce),
-        "best_val_ppl": float(dev_ppl),
-        # "plateau_triggered": plateau_triggered
-    }
+    if batch_idx %10 ==0:
+        print(f"Trial complete -> Real avg EFE: {avg_efe:.4f}, CE: {dev_ce:.4f} ,PPL: {dev_ppl:.4f}")
+    return avg_efe,dev_ce,dev_ppl
+    

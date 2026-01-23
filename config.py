@@ -2,7 +2,7 @@ class Config:
     SEED = 42
 
     # Default selector for Nevergrad HPO main
-    case_nevergrad = 2
+    case_nevergrad = 1
 
     # Two-phase Nevergrad budgets
     p1_budget = 6

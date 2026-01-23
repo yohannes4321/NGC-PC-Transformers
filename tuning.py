@@ -36,8 +36,9 @@ def phase1_space():
         eta = ng.p.Log(lower=1e-4, upper=1e-2),
         tau_m      = ng.p.Scalar(lower=10, upper=50).set_integer_casting(),
         n_iter     = ng.p.Scalar(lower=5, upper=13).set_integer_casting(),
-        wub        = ng.p.Scalar(lower=0.1, upper=0.4),
-        wlb        = ng.p.Scalar(lower=-0.3, upper=-0.3),
+        # Smaller, centered initialization to prevent "Explosion"
+        wub = ng.p.Scalar(lower=0.01, upper=0.05),
+        wlb = ng.p.Scalar(lower=-0.05, upper=-0.01),
         optim_type = ng.p.Choice(["adam", "sgd"]),
         act_fx     = ng.p.Choice(["gelu","silu","tanh" ,"relu"]),
     )

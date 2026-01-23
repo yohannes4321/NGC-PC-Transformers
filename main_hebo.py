@@ -39,14 +39,14 @@ def phase1_space():
 
 
 def phase2_space(best):
-    eta_best = float(best.get("eta", 1e-5))
-    wub_best = float(best.get("wub", 0.01))
-    wlb_best = float(best.get("wlb", -0.01))
+    eta_best = float(best.get("eta"))
+    wub_best = float(best.get("wub"))
+    wlb_best = float(best.get("wlb"))
 
     return ng.p.Dict(
-        eta=ng.p.Log(lower=eta_best * 0.5, upper=min(eta_best * 2.0, 1e-4)),
-        wub=ng.p.Scalar(lower=max(0.001, wub_best - 0.005), upper=min(0.04, wub_best + 0.005)),
-        wlb=ng.p.Scalar(lower=max(-0.04, wlb_best - 0.005), upper=min(-0.001, wlb_best + 0.005)),
+        eta=ng.p.Log(lower=eta_best * 0.5, upper=eta_best * 2.0),
+        wub=ng.p.Scalar(lower=wub_best - 0.005, upper= wub_best + 0.005),
+        wlb=ng.p.Scalar(lower=wlb_best - 0.005, upper= wlb_best + 0.005),
         dropout_rate=ng.p.Scalar(lower=0.0, upper=0.2),
     )
 
@@ -110,9 +110,11 @@ def run_two_phase_optimization(p1_budget=config.p1_budget, p2_budget=config.p2_b
     try:
         warm = opt2.parametrization.spawn_child(
             new_value={
-                "eta": float(best_arch.get("eta", 1e-5)),
-                "wub": float(best_arch.get("wub", 0.05)),
-                "wlb": float(best_arch.get("wlb", -0.05)),
+                "eta": float(best_arch.get("eta")),
+                "wub": float(best_arch.get("wub")),
+                "wlb": float(best_arch.get("wlb")),
+                "dropout_rate":float(best_arch.get("dropout_rate"))
+
             }
         )
         opt2.suggest(warm)

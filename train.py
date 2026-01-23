@@ -2,7 +2,7 @@ import sys
 import os
 # Disable pre-allocation so JAX only takes what it needs
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
+import time
 import jax.nn as jnn
 from jax import numpy as jnp, random
 from math import inf
@@ -56,48 +56,41 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     # best_train_efe_abs, best_train_ce = inf, inf
     # last_efe_window = []
     # plateau_triggered = False
-
+    
+    total_start_time = time.time()
     for i in range(cfg.num_iter):
         for batch_idx, batch in enumerate(train_loader):
-            inputs, targets = batch[0][1], batch[1][1]
+            inputs = batch[0][1]
+            targets = batch[1][1]
             
-            # MEMORY FIX: Use one_hot directly instead of jnp.eye
-            targets_onehot = jnn.one_hot(targets.flatten(), cfg.vocab_size)
-            targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
+            #Convert targets to one-hot and flatten
+            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
+            targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
 
-            # Process through the NGC Transformer
-            yMu_inf, _, efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             
-            # --- CRITICAL NAN/INF PENALTY ---
-            # If this triggers, we return a dictionary immediately so Nevergrad knows this trial failed.
-            if jnp.isnan(efe) or jnp.isinf(efe):
-                print(f"!!! NAN/INF DETECTED at Step {batch_idx} >> Applying Penalty and Terminating Trial.")
-                return 1e10,1e10,1e10
+            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            train_EFE += _EFE
+            total_batches += 1
 
-            efe_val = float(efe)
-            total_efe += efe_val
-            total_batches =batch_idx
-            
-            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
-            # Use targets_onehot we already created instead of allocating jnp.eye again
-            batch_ce = float(measure_CatNLL(y_pred, targets_onehot).mean())
-            total_ce += batch_ce
-
-            # if abs(efe_val) < best_train_efe_abs:
-            #     best_train_efe_abs = abs(efe_val)
-            
-            # best_train_ce = min(best_train_ce, batch_ce)
-
-            # Plateau logic
-            
-
-    if total_batches == 0:
-        raise RuntimeError("No batches were processed! Cannot compute average EFE.")
-    avg_efe = total_efe / total_batches
-    
-
-    dev_ce, dev_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-    if batch_idx %10 ==0:
-        print(f"Trial complete -> Real avg EFE: {avg_efe:.4f}, CE: {dev_ce:.4f} ,PPL: {dev_ppl:.4f}")
-    return avg_efe,dev_ce,dev_ppl
+            if batch_idx % 10 == 0:
+                y_pred = yMu_inf.reshape(-1, config.vocab_size)
+                y_true = jnp.eye(config.vocab_size)[targets.flatten()]
+                
+                batch_nll = measure_CatNLL(y_pred, y_true)
+                batch_ce_loss = batch_nll.mean()  
+                batch_ppl = jnp.exp(batch_ce_loss)
+                
+                print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+        
+        avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
+        
+        dev_ce, dev_ppl = eval_model(model, valid_loader, config.vocab_size)
+        print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
+        # if  i == (num_iter-1):
+        #   model.save_to_disk(params_only=False) # save final state of model to disk
+    total_time = time.time() - total_start_time
+    print(f"\nTraining finished.")
+    print(f"Total training time: {total_time:.0f} seconds")
+    print(f"\nTraining finished.")
+    return avg_train_EFE,dev_ce,dev_ppl
     

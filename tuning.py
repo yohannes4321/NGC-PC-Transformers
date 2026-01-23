@@ -30,7 +30,7 @@ def phase1_space():
     """Discrete Architecture Space for EFE Optimization."""
     return ng.p.Dict(
         n_heads    = ng.p.Choice([2, 4, 8]),
-        embed_mult = ng.p.Choice([8, 16, 24]),
+        embed_mult = ng.p.Choice([32,64,128,256]),
         batch_size = ng.p.Choice([32, 64, 128]),
         seq_len    = ng.p.Choice([8, 16]),
         
@@ -48,7 +48,7 @@ def phase1_space():
                 
         optim_type = ng.p.Choice(["adam", "sgd"]),
         # Removed "silu" because it can be unstable in deep NGC models without careful tuning
-        act_fx     = ng.p.Choice(["gelu", "relu", "tanh"]),
+        act_fx     = ng.p.Choice(["identity", "relu", "tanh"]),
     )
 
 # -----------------------

@@ -5,8 +5,8 @@ class Config:
     case_nevergrad = 1
 
     # Two-phase Nevergrad budgets
-    p1_budget = 3
-    p2_budget = 3
+    p1_budget = 5
+    p2_budget = 5
     # Plateau early-stop for Nevergrad phases
     # Phase 1: stop if EFE does not change by > 1 over the window
     # phase1_plateau_window = 3

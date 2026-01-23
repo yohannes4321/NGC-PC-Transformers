@@ -152,7 +152,7 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
                     y_true = jax.nn.one_hot(targets.flatten(), vocab_size)
                     batch_ce = float(measure_CatNLL(y_pred, y_true).mean())
                     
-                    print(f"[Trial {trial_id}] Iter {iter_idx+1} | Batch {total_batches} | EFE={clipped_EFE:.4f} | CE={batch_ce:.4f}")
+                    print(f"[Trial {trial_id}] Iter {iter_idx+1} | Batch {total_batches} | EFE={_EFE:.4f} | CE={batch_ce:.4f}")
 
                     # Early Stopping Logic
                     last_checks.append((_EFE, batch_ce))

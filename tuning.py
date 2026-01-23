@@ -42,9 +42,10 @@ def phase1_space():
         n_iter     = ng.p.Scalar(lower=5, upper=10).set_integer_casting(),
         
         # FIXED: Tighter initialization (was 0.05, now 0.02)
-        wub = ng.p.Scalar(lower=0.005, upper=0.02),
-        wlb = ng.p.Scalar(lower=-0.02, upper=-0.005),
-        
+        # Corrected: Small, centered weights to prevent explosion
+        wub = ng.p.Scalar(lower=0.1, upper=0.5),
+        wlb = ng.p.Scalar(lower=-0.5, upper=-0.1),
+                
         optim_type = ng.p.Choice(["adam", "sgd"]),
         # Removed "silu" because it can be unstable in deep NGC models without careful tuning
         act_fx     = ng.p.Choice(["gelu", "relu", "tanh"]),

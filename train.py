@@ -26,7 +26,7 @@ def _build_cfg(params_override=None):
 def run_training(params_override=None, save_model=False, max_train_batches=None):
     cfg = _build_cfg(params_override)
     # Cap runtime: default to first 50 batches unless overridden
-    max_train_batches = 30 if max_train_batches is None else int(max_train_batches)
+    max_train_batches = 40 if max_train_batches is None else int(max_train_batches)
     
     print("\n" + "-"*60)
     print(" INITIALIZING TRAINING TRIAL")

@@ -186,33 +186,12 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
             
           #
             loss = -(efe_raw)
-        else:  # default CE objective
-            loss = float(ce)
+        
 
-        # ppl = float(math.exp(metrics["val_ce"]))
-
-        # Save per-trial CSV row
-        p_series = pd.Series(params)
-        save_to_csv(
-            trial_id,
-            p_series,
-            {
-                "cross_entropy": ce,
-                "ppl": ppl,
-                "efe": efe,
-            },
-        )
+      
 
         if objective == "ce":
-            improved = _maybe_update_best(trial_id, params, ce, ppl)
-            if improved:
-                print(
-                    f"New BEST -> trial {trial_id}, CE: {ce:.4f}, PPL: {ppl:.4f} (saved best_params.json)"
-                )
-            else:
-                print(f"Trial {trial_id} complete -> CE: {ce:.4f}, PPL: {ppl:.4f}")
-        else:
-            print(f"Trial {trial_id} complete -> EFE proxy: {loss:.4f}, CE: {ce:.4f}")
+            loss=ce
 
         # Return 2D array to keep main_hebo.py untouched
         return np.array([[loss]], dtype=float)

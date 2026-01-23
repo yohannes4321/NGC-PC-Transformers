@@ -79,6 +79,7 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
             )
             loss_array = train_evaluate_model(full_params, objective=objective_name)
             loss_value = float(loss_array[0][0])
+            print ("**********",loss_value)
             if np.isnan(loss_value):
                 loss_value = float("inf")
         except Exception as e:

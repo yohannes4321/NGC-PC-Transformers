@@ -181,12 +181,11 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
         if objective == "efe":
             # The goal is to move from a large negative number toward 0.
             # We want to MAXIMIZE the raw EFE. 
-            # Since Nevergrad MINIMIZES the returned value, we return -efe_raw.
+           
             efe_raw = float(metrics.get("avg_train_efe", 0.0))
             
-            # If EFE is -7,000,000, loss becomes 7,000,000 (Very High/Bad)
-            # If EFE is -10, loss becomes 10 (Very Low/Good)
-            loss = abs(efe_raw)
+          
+            loss = -(efe_raw)
         else:  # default CE objective
             loss = float(metrics["val_ce"])
 

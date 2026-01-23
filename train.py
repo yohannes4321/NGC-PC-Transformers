@@ -65,7 +65,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             
             #Convert targets to one-hot and flatten
             targets_onehot = jnp.eye(config.vocab_size)[targets]  # (B, S, V)
-            targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
+            targets_flat = targets_onehot.reshape(-1, config.vocab_size)  # (B*S, V)
 
             
             yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)

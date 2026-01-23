@@ -84,7 +84,7 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
                 loss_value = float("inf")
         except Exception as e:
             print(f"!!! CRASH IN TRIAL {iteration} !!! Error: {e}")
-            loss_value = float("inf")
+            # loss_value = float("inf")
 
         optimizer.tell(candidate, loss_value)
         losses.append(loss_value)

@@ -203,7 +203,7 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
             print("Detected GPU OOM; returning inf and proceeding.")
         else:
             print(f"Error: {msg}")
-        return np.array([[float("inf")]], dtype=float)
+        # return np.array([[float("inf")]], dtype=float)
 
     finally:
         logger.close()

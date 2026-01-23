@@ -94,7 +94,7 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
             best_params = full_params
             print(f">>> NEW BEST {objective_name.upper()} = {best_loss:.4f}")
 
-    return best_loss, best_params, losses
+    return best_loss, best_params, losses #
 
 
 def run_two_phase_optimization(p1_budget=config.p1_budget, p2_budget=config.p2_budget):

@@ -25,8 +25,8 @@ def _build_cfg(params_override=None):
 
 def run_training(params_override=None, save_model=False, max_train_batches=None):
     cfg = _build_cfg(params_override)
-    
-   
+    # Cap runtime: default to first 50 batches unless overridden
+    max_train_batches = 50 if max_train_batches is None else max_train_batches
     
     print("\n" + "-"*60)
     print(" INITIALIZING TRAINING TRIAL")
@@ -73,6 +73,9 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             train_EFE += _EFE
             total_batches += 1
 
+            if total_batches >= max_train_batches:
+                break
+
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, config.vocab_size)
                 y_true = jnp.eye(config.vocab_size)[targets.flatten()]
@@ -87,6 +90,9 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
         
         dev_ce, dev_ppl = eval_model(model, valid_loader, config.vocab_size)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
+        if total_batches >= max_train_batches:
+            print(f"Reached max_train_batches={max_train_batches}; stopping early.")
+            break
         # if  i == (num_iter-1):
         #   model.save_to_disk(params_only=False) # save final state of model to disk
     total_time = time.time() - total_start_time

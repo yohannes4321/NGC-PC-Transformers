@@ -179,15 +179,8 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
         )
 
         if objective == "efe":
-            # The goal is to move from a large negative number toward 0.
-            # We want to MAXIMIZE the raw EFE. 
-
             efe_raw = float(efe)
-            
-          #
             loss = -(efe_raw)
-        
-
         elif objective == "ce":
             loss=ce
         else:

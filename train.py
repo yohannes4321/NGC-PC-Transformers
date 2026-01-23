@@ -26,9 +26,7 @@ def _build_cfg(params_override=None):
 def run_training(params_override=None, save_model=False, max_train_batches=None):
     cfg = _build_cfg(params_override)
     
-    log_interval = 10 
-    plateau_window = 3
-    plateau_tol = 1.0 
+   
     
     print("\n" + "-"*60)
     print(" INITIALIZING TRAINING TRIAL")
@@ -57,7 +55,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     total_efe, total_ce, total_batches = 0.0, 0.0, 0
     best_train_efe_abs, best_train_ce = inf, inf
     last_efe_window = []
-    plateau_triggered = False
+    # plateau_triggered = False
 
     for i in range(cfg.num_iter):
         for batch_idx, batch in enumerate(train_loader):
@@ -79,7 +77,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
                     "best_train_efe_abs": 1e10, 
                     "best_val_ce": 1e10, 
                     "best_val_ppl": 1e10,
-                    "plateau_triggered": False
+                    # "plateau_triggered": False
                 }
 
             efe_val = float(efe)
@@ -97,23 +95,13 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
             best_train_ce = min(best_train_ce, batch_ce)
 
             # Plateau logic
-            last_efe_window.append(efe_val)
-            if len(last_efe_window) > plateau_window:
-                last_efe_window.pop(0)
-            if len(last_efe_window) == plateau_window:
-                if (max(last_efe_window) - min(last_efe_window)) <= plateau_tol:
-                    plateau_triggered = True
-                    print(f"   Plateau detected (Δ<= {plateau_tol}); early stopping.")
-                    break
             
-            if batch_idx % log_interval == 0:
-                print(f"   Step {batch_idx:03d} >> EFE: {efe_val:.4f} | CE: {batch_ce:.4f}", flush=True)
 
-            if max_train_batches and total_batches >= max_train_batches:
-                break
-        if plateau_triggered: break
+    if total_batches == 0:
+        raise RuntimeError("No batches were processed! Cannot compute average EFE.")
+    avg_efe = total_efe / total_batches
+    print(f"Trial complete -> Real avg EFE: {avg_efe:.4f}, CE: {dev_ce:.4f}")
 
-    avg_efe = total_efe / total_batches if total_batches > 0 else print ("total batches is 0")
     dev_ce, dev_ppl = eval_model(model, valid_loader, cfg.vocab_size)
 
     return {
@@ -123,5 +111,5 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
         "best_train_efe_abs": float(best_train_efe_abs),
         "best_val_ce": float(dev_ce),
         "best_val_ppl": float(dev_ppl),
-        "plateau_triggered": plateau_triggered
+        # "plateau_triggered": plateau_triggered
     }

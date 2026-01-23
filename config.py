@@ -9,11 +9,11 @@ class Config:
     p2_budget = 6
     # Plateau early-stop for Nevergrad phases
     # Phase 1: stop if EFE does not change by > 1 over the window
-    phase1_plateau_window = 3
+    # phase1_plateau_window = 3
     phase1_plateau_min_delta = 1.0
     phase1_plateau_warmup = 2
     # Phase 2: stop if CE does not change by > 0.5 over the window
-    phase2_plateau_window = 3
+    # phase2_plateau_window = 3
     phase2_plateau_min_delta = 0.5
     phase2_plateau_warmup = 2
 

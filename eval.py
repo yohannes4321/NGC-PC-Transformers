@@ -6,12 +6,14 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 from config import Config as config
 import jax.random as random
+import time
 
 def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     """
     Runs inference-only forward pass on a data loader and returns
     cross-entropy and perplexity.
     """
+    start_time = time.time()
     total_nll = 0.0
     total_tokens = 0
 
@@ -93,7 +95,9 @@ if __name__ == "__main__":
     )
     data_loader = DataLoader(seq_len=config.seq_len, batch_size=config.batch_size)
     _, _, test_loader = data_loader.load_and_prepare_data()
-
+    start_time = time.time()
     test_ce, test_ppl = eval_model(model, test_loader, config.vocab_size)
+    elapsed_time = time.time() - start_time
     print("\nFinal Test Evaluation:")
     print(f"\nCE: {test_ce:.4f} | PPL: {test_ppl:.4f}")
+    print(f"Total Evaluation time: {elapsed_time:.2f} seconds ")

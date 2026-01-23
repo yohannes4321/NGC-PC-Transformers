@@ -134,15 +134,15 @@ def train_evaluate_model(params, objective="efe", patience=3, tol=1e-3, check_ev
                 
                 # --- FIXED: EFE CLIPPING ---
                 # This prevents one bad batch from exploding the trial to -14000
-                clipped_EFE = float(jnp.clip(_EFE, a_min=-1000.0, a_max=1000.0))
+                # clipped_EFE = float(jnp.clip(_EFE, a_min=-1000.0, a_max=1000.0))
                 
                 # --- FIXED: PANIC BUTTON ---
-                # If EFE is already insane, abort immediately to save time
-                if clipped_EFE <= -999.0 or np.isnan(clipped_EFE):
-                     print(f"!!! [Trial {trial_id}] Early Abort: EFE Exploded ({clipped_EFE})")
-                     return 1000.0 # Return high penalty
+                # # If EFE is already insane, abort immediately to save time
+                # if clipped_EFE <= -999.0 or np.isnan(clipped_EFE):
+                #      print(f"!!! [Trial {trial_id}] Early Abort: EFE Exploded ({clipped_EFE})")
+                #      return 1000.0 # Return high penalty
 
-                train_EFE += clipped_EFE
+                train_EFE += _EFE
                 total_batches += 1
 
                 if total_batches % check_every == 0:

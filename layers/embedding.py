@@ -1,5 +1,7 @@
 
-from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell
+# from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell
+from GaussianErrorcell import GaussianErrorCell as ErrorCell
+from ratecell_scaled import RateCell
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
 from utils.embed_utils import EmbeddingSynapse
@@ -14,7 +16,7 @@ class EMBEDDING:
         dkey, *subkeys = random.split(dkey, 4)
     
         # RateCell expects a 3D shape tuple for image components (seq_len, embed_dim, channels)so here we use the third dim as a placeholder
-        self.z_embed = RateCell("z_embed", n_units=seq_len, tau_m=0., 
+        self.z_embed = RateCell("z_embed", n_units=seq_len, tau_m=0., output_scale="auto",
                                   act_fx="identity", batch_size=batch_size)            
             # EmbeddingSynapse (handles both word + position internally)
         self.W_embed = EmbeddingSynapse(

@@ -1,5 +1,7 @@
 from config import Config as config
-from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, HebbianSynapse, StaticSynapse
+from ngclearn.components import HebbianSynapse, StaticSynapse
+from GaussianErrorcell import GaussianErrorCell as ErrorCell
+from ratecell_scaled import RateCell
 from utils.attention_utils import _compute_attention, AttentionBlock
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from layers.mlp import MLP
@@ -15,11 +17,11 @@ class ProjBlock:
         dkey, *subkeys = random.split(dkey, 20)
         prefix = f"block_proj{block_id}_"
      
-        self.q_qkv_Ratecell = RateCell(f"{prefix}q_qkv_Ratecell", n_units=n_embed, tau_m=0., act_fx=act_fx,
+        self.q_qkv_Ratecell = RateCell(f"{prefix}q_qkv_Ratecell", n_units=n_embed, tau_m=0., act_fx=act_fx,output_scale="auto",
                           batch_size=batch_size * seq_len)
-        self.q_mlp_Ratecell = RateCell(f"{prefix}q_mlp_Ratecell", n_units= n_embed, tau_m=0., act_fx=act_fx,
+        self.q_mlp_Ratecell = RateCell(f"{prefix}q_mlp_Ratecell", n_units= n_embed, tau_m=0., act_fx=act_fx,output_scale="auto",
                            batch_size= batch_size * seq_len)
-        self.q_mlp2_Ratecell = RateCell(f"{prefix}q_mlp2_Ratecell", n_units=4 * n_embed, tau_m=0., act_fx="gelu",
+        self.q_mlp2_Ratecell = RateCell(f"{prefix}q_mlp2_Ratecell", n_units=4 * n_embed, tau_m=0., act_fx="gelu",output_scale="auto",
                            batch_size= batch_size * seq_len)
         self.Q_q = StaticSynapse(f"{prefix}Q_q", shape=(n_embed, n_embed),
                          bias_init=dist.constant(value=0.), key=subkeys[6])

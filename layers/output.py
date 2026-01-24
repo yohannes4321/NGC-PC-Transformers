@@ -1,5 +1,7 @@
 from jax import numpy as jnp, random
-from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, HebbianSynapse, StaticSynapse
+from ngclearn.components import HebbianSynapse, StaticSynapse
+from GaussianErrorcell import GaussianErrorCell as ErrorCell
+from ratecell_scaled import RateCell
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
 
@@ -25,7 +27,7 @@ class Output:
      
         dkey, *subkeys = random.split(dkey, 10)
       
-        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),
+        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),output_scale="auto",
                     integration_type="euler")
         
         self.W_out = HebbianSynapse(

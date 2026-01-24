@@ -1,4 +1,6 @@
-from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, HebbianSynapse, StaticSynapse
+from ngclearn.components import  HebbianSynapse, StaticSynapse
+from GaussianErrorcell import GaussianErrorCell as ErrorCell
+from ratecell_scaled import RateCell
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from jax import numpy as jnp, random, jit
 import jax
@@ -33,7 +35,7 @@ class Attention:
         dkey, *subkeys = random.split(dkey, 10)
 
         self.z_qkv = RateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=tau_m, 
-                            act_fx=act_fx, batch_size=batch_size * seq_len ,prior=("gaussian", 0.),
+                            act_fx=act_fx, batch_size=batch_size * seq_len ,prior=("gaussian", 0.),output_scale="auto",output_scale="auto",
                     integration_type="euler")
       
         self.W_q = HebbianSynapse(f"{prefix}W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,

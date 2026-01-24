@@ -3,14 +3,16 @@ import jax
 from ngclearn import Context, MethodProcess
 from ngclearn.utils.io_utils import makedir
 from jax import numpy as jnp, random, jit
-from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, HebbianSynapse, StaticSynapse
+from ngclearn.components import  HebbianSynapse, StaticSynapse
+from GaussianErrorcell import GaussianErrorCell as ErrorCell
+from ratecell_scaled import 
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
 from layers.embedding import EMBEDDING
 from layers.attention import Attention
 from layers.blocks import Block
 from utils.attention_utils import AttentionBlock
-from utils.embed_utils import EmbeddingSynapse
+from utils.embed_utils import EmbeddingRateCellSynapse
 from layers.mlp import MLP
 from layers.output import Output
 from utils.model_util import ReshapeComponent
@@ -73,8 +75,8 @@ class NGCTransformer:
                     
             self.output = Output(dkey=subkeys[3], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size, vocab_size=vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m,act_fx=act_fx)
                 
-            self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="softmax", batch_size=batch_size * seq_len) 
-            self.z_actfx= RateCell("z_actfx", n_units= vocab_size, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),
+            self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="softmax", batch_size=batch_size * seq_len,output_scale="auto") 
+            self.z_actfx= RateCell("z_actfx", n_units= vocab_size, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),output_scale="auto",
                     integration_type="euler")
             self.projection = Projection(dkey=subkeys[29], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size,
                                              vocab_size=vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate,act_fx=act_fx)
@@ -480,7 +482,10 @@ class NGCTransformer:
     def process(self, obs, lab, adapt_synapses=True):
         
    
-     
+        B=self.batch_size
+        T=self.seq_len
+        norm_factor = 1.0 / (B * T) 
+        scale_arr = jnp.array([norm_factor])
         self.reset.run()
         self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
         if self.embedding.W_embed.pos_learnable:
@@ -541,6 +546,15 @@ class NGCTransformer:
     
         EFE = 0. 
         y_mu = 0.
+        # scaling 
+        self.embedding.e_embed.scale.set(scale_arr)
+        self.output.e_out.scale.set(scale_arr)
+        for i in range(self.n_layers):
+            block = self.blocks[i]
+            block.attention.e_attn.scale.set(scale_arr)
+            block.mlp.e_mlp.scale.set(scale_arr)
+            block.mlp.e_mlp1.scale.set(scale_arr)
+
         if adapt_synapses:
             for ts in range(0, self.T):
         
@@ -550,6 +564,8 @@ class NGCTransformer:
                 self.advance.run(t=ts,dt=1.)
            
         y_mu = self.output.W_out.outputs.get() 
+
+        
 
         L1 = self.embedding.e_embed.L.get()
         L4 = self.output.e_out.L.get()

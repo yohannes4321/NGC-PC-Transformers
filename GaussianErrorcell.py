@@ -83,7 +83,7 @@ class GaussianErrorCell(JaxComponent): ## Rate-coded/real-valued error unit/cell
         modulator = self.modulator.get()
         mask = self.mask.get()
         scale = self.scale.get()
-        dmu = (_dmu / Sigma) * scale
+        
         # Moves Gaussian cell dynamics one step forward. Specifically, this routine emulates the error unit
         # behavior of the local cost functional:
         # FIXME: Currently, below does: L(targ, mu) = -(1/(2*sigma)) * ||targ - mu||^2_2
@@ -91,6 +91,7 @@ class GaussianErrorCell(JaxComponent): ## Rate-coded/real-valued error unit/cell
         # TODO: could introduce a variant of GaussianErrorCell that moves according to an ODE
         #       (using integration time constant dt)
         _dmu = (target - mu)  # e (error unit)
+        dmu = (_dmu / Sigma) * scale
         dmu = _dmu / Sigma
         dtarget = -dmu  # reverse of e
         dSigma = Sigma * 0 + 1. # no derivative is calculated at this time for sigma

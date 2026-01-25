@@ -178,16 +178,20 @@ def train_evaluate_model(params: dict, objective: str = "ce"):
             max_train_batches=None,
         )
 
+        # Normalize raw metrics to plain floats for logging / HPO handoff
+        efe_raw = float(efe)
+        ce_raw = float(ce)
+        ppl_raw = float(ppl)
+
         if objective == "efe":
-            efe_raw = float(efe)
             loss = -(efe_raw)
         elif objective == "ce":
-            loss=ce
+            loss = ce_raw
         else:
             raise ValueError(f"Unsupported objective '{objective}'")
 
-        # Return 2D array to keep main_hebo.py untouched
-        return np.array([[loss]], dtype=float)
+        # Return 2D array: [loss, efe, ce, ppl] so callers can report best metrics
+        return np.array([[loss, efe_raw, ce_raw, ppl_raw]], dtype=float)
 
     except Exception as e:
         print(f"!!! CRASH IN TRIAL {trial_id} !!!")

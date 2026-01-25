@@ -12,7 +12,6 @@ from layers.embedding import EMBEDDING
 from layers.attention import Attention
 from layers.blocks import Block
 from utils.attention_utils import AttentionBlock
-from utils.embed_utils import EmbeddingRateCellSynapse
 from layers.mlp import MLP
 from layers.output import Output
 from utils.model_util import ReshapeComponent

@@ -35,7 +35,7 @@ class Attention:
         dkey, *subkeys = random.split(dkey, 10)
 
         self.z_qkv = RateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=tau_m, 
-                            act_fx=act_fx, batch_size=batch_size * seq_len ,prior=("gaussian", 0.),output_scale="auto",output_scale="auto",
+                            act_fx=act_fx, batch_size=batch_size * seq_len ,prior=("gaussian", 0.),output_scale="auto",
                     integration_type="euler")
       
         self.W_q = HebbianSynapse(f"{prefix}W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,

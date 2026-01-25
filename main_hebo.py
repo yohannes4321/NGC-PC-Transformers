@@ -21,7 +21,7 @@ def phase1_space():
     """Architecture search space constrained to prevent JAX tracer/reshape errors."""
     return ng.p.Dict(
         n_heads=ng.p.Choice([2, 4, 8]),
-        embed_mult=ng.p.Choice([8, 16, 32]),
+        n_embed=ng.p.Choice([16, 32, 64,128,256]),
         batch_size=ng.p.Choice([16, 32, 64]),
         seq_len=ng.p.Choice([16, 32, 64]),
         n_layers=ng.p.Choice([1, 2, 4]),
@@ -63,9 +63,9 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
         full_params = {**fixed_params, **x_dict} if fixed_params else x_dict.copy()
 
         # Divisibility fix
-        h = int(full_params["n_heads"])
-        m = int(full_params["embed_mult"])
-        full_params["n_embed"] = h * m
+        # h = int(full_params["n_heads"])
+        # m = int(full_params["embed_mult"])
+        # full_params["n_embed"] = h * m
 
         # Concrete ints for JAX
         int_keys = ["n_heads", "n_embed", "batch_size", "seq_len", "n_layers", "tau_m", "n_iter"]

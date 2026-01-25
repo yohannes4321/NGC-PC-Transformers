@@ -80,32 +80,30 @@ class GaussianErrorCell(JaxComponent): ## Rate-coded/real-valued error unit/cell
         mu = self.mu.get()
         target = self.target.get()
         Sigma = self.Sigma.get()
-        modulator = self.modulator.get()
         mask = self.mask.get()
-        scale = self.scale.get()
-        n_elements = jnp.prod(jnp.array(mu.shape))
-        # Moves Gaussian cell dynamics one step forward. Specifically, this routine emulates the error unit
-        # behavior of the local cost functional:
-        # FIXME: Currently, below does: L(targ, mu) = -(1/(2*sigma)) * ||targ - mu||^2_2
-        #        but should support full log likelihood of the multivariate Gaussian with covariance of different types
-        # TODO: could introduce a variant of GaussianErrorCell that moves according to an ODE
-        #       (using integration time constant dt)
-        _dmu = (target - mu)  # e (error unit)
-        dmu = (_dmu / Sigma) * scale
-        dmu = _dmu / Sigma
-        dtarget = -dmu  # reverse of e
-        dSigma = Sigma * 0 + 1. # no derivative is calculated at this time for sigma
-        L = -jnp.sum(jnp.square(_dmu)) * (0.5 / Sigma)*(scale/n_elements)
-        #L = GaussianErrorCell.eval_log_density(target, mu, Sigma)
-
-        dmu = dmu * modulator * mask ## not sure how mask will apply to a full covariance...
-        dtarget = dtarget * modulator * mask
-        mask = mask * 0. + 1. ## "eat" the mask as it should only apply at time t
+        
+        # 1. Calculate raw residual
+        _dmu = (target - mu) 
+        
+        # 2. DIMENSIONALITY NORMALIZATION (For the EFE metric)
+        # Total scalars in this specific layer
+        n_elements = jnp.prod(jnp.array(mu.shape)) 
+        
+        # Calculate EFE as Mean Squared Error (MSE)
+        # This makes EFE independent of B, T, and n_embed
+        L = jnp.sum(jnp.square(_dmu)) * (0.5 / Sigma) * (1.0 / n_elements)
+        
+        # 3. GRADIENT SCALING (For the actual learning)
+        # Instead of dividing by n_elements (which is too small), 
+        # we normalize by the "standard deviation" of the error.
+        # This is similar to LayerNorm logic.
+        eps = 1e-6
+        error_std = jnp.sqrt(jnp.mean(jnp.square(_dmu)) + eps)
+        dmu_normalized = _dmu / (error_std * Sigma)
 
         # Update compartments
-        self.dmu.set(dmu)
-        self.dtarget.set(dtarget)
-        self.dSigma.set(dSigma)
+        self.dmu.set(dmu_normalized * mask)
+        self.dtarget.set(-dmu_normalized * mask)
         self.L.set(jnp.squeeze(L))
         self.mask.set(mask)
 

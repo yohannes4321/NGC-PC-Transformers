@@ -105,6 +105,11 @@ def run_two_phase_optimization(p1_budget=config.p1_budget, p2_budget=config.p2_b
     opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=p1_budget)
     best_efe, best_arch, history1 = run_phase(opt1, "efe")
 
+    if best_arch is not None:
+        print(f"\nBest Phase 1 (lowest EFE loss = {best_efe:.4f}):")
+        for k, v in sorted(best_arch.items()):
+            print(f"  {k}: {v}")
+
     if best_arch is None:
         print("Search failed.")
         return
@@ -126,6 +131,11 @@ def run_two_phase_optimization(p1_budget=config.p1_budget, p2_budget=config.p2_b
         print("Warm-start suggest failed (Phase 2):", e)
 
     best_ce, best_final, history2 = run_phase(opt2, "ce", fixed_params=best_arch, history=history1)
+
+    if best_final is not None:
+        print(f"\nBest Phase 2 (lowest CE loss = {best_ce:.4f}) full params:")
+        for k, v in sorted(best_final.items()):
+            print(f"  {k}: {v}")
 
     print("\nOptimization Finished Successfully!")
     print(f"Final Architecture: Heads={best_final['n_heads']}, D_Model={best_final['n_embed']}")

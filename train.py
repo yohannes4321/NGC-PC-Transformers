@@ -46,11 +46,11 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
 
     model = NGCTransformer(
         dkey, batch_size=cfg.batch_size, seq_len=cfg.seq_len, n_embed=cfg.n_embed,
-        vocab_size=cfg.vocab_size, n_layers=cfg.n_layers, n_heads=cfg.n_heads,
+        vocab_size=config.vocab_size, n_layers=cfg.n_layers, n_heads=cfg.n_heads,
         T=cfg.n_iter, dt=1.0, tau_m=cfg.tau_m, act_fx=cfg.act_fx, eta=cfg.eta,
         dropout_rate=cfg.dropout_rate if hasattr(cfg, 'dropout_rate') else 0.0, 
         exp_dir="exp", pos_learnable=cfg.pos_learnable,
-        optim_type=cfg.optim_type, wub=cfg.wub, wlb=cfg.wlb, model_name="ngc_transformer"
+        optim_type=config.optim_type, wub=cfg.wub, wlb=cfg.wlb, model_name="ngc_transformer"
     )
 
     total_efe, total_ce, total_batches = 0.0, 0.0, 0

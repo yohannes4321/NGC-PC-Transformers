@@ -5,7 +5,7 @@ from ngclearn.utils.io_utils import makedir
 from jax import numpy as jnp, random, jit
 from ngclearn.components import  HebbianSynapse, StaticSynapse
 from GaussianErrorcell import GaussianErrorCell as ErrorCell
-from ratecell_scaled import 
+from ratecell_scaled import RateCell
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
 from layers.embedding import EMBEDDING

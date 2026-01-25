@@ -33,8 +33,8 @@ def phase1_space():
         wub=ng.p.Scalar(lower=0.01, upper=0.02),
         wlb=ng.p.Scalar(lower=-0.02, upper=-0.01),
         dropout_rate=ng.p.Constant(0.0),
-        optim_type=ng.p.Choice(["adam", "sgd"]),
-        act_fx=ng.p.Choice(["relu","gelu","tanh","identity"]),
+        # optim_type=ng.p.Choice(["adam"]),
+        act_fx=ng.p.Choice(["relu","tanh","identity"]),
     )
 
 

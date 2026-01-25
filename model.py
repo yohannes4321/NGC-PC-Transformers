@@ -3,9 +3,9 @@ import jax
 from ngclearn import Context, MethodProcess
 from ngclearn.utils.io_utils import makedir
 from jax import numpy as jnp, random, jit
-from ngclearn.components import  HebbianSynapse, StaticSynapse
+from ngclearn.components import  RateCell,HebbianSynapse, StaticSynapse
 from GaussianErrorcell import GaussianErrorCell as ErrorCell
-from ratecell_scaled import RateCell
+# from ratecell_scaled import RateCell
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
 from layers.embedding import EMBEDDING
@@ -74,8 +74,8 @@ class NGCTransformer:
                     
             self.output = Output(dkey=subkeys[3], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size, vocab_size=vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m,act_fx=act_fx)
                 
-            self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="softmax", batch_size=batch_size * seq_len,output_scale="auto") 
-            self.z_actfx= RateCell("z_actfx", n_units= vocab_size, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),output_scale="auto",
+            self.z_target=RateCell("z_target", n_units= vocab_size, tau_m=0., act_fx="softmax", batch_size=batch_size * seq_len) 
+            self.z_actfx= RateCell("z_actfx", n_units= vocab_size, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),
                     integration_type="euler")
             self.projection = Projection(dkey=subkeys[29], n_embed=n_embed, seq_len=seq_len, batch_size=batch_size,
                                              vocab_size=vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate,act_fx=act_fx)

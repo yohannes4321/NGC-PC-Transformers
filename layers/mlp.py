@@ -1,8 +1,8 @@
 import jax
 from jax import numpy as jnp, random, jit
-from ngclearn.components import  HebbianSynapse, StaticSynapse
+from ngclearn.components import  RateCell,HebbianSynapse, StaticSynapse
 from GaussianErrorcell import GaussianErrorCell as ErrorCell
-from ratecell_scaled import RateCell
+# from ratecell_scaled import RateCell
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
 
@@ -19,9 +19,9 @@ class MLP:
         dkey, *subkeys = random.split(dkey, 10)
        
 
-        self.z_mlp = RateCell(f"{prefix}z_mlp", n_units=n_embed, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),output_scale="auto",
+        self.z_mlp = RateCell(f"{prefix}z_mlp", n_units=n_embed, tau_m=tau_m, act_fx=act_fx, batch_size=batch_size * seq_len,prior=("gaussian", 0.),
                     integration_type="euler")
-        self.z_mlp2 = RateCell(f"{prefix}z_mlp2", n_units= 4* n_embed, tau_m= tau_m, act_fx="gelu", batch_size=batch_size * seq_len,prior=("gaussian", 0.),output_scale="auto",
+        self.z_mlp2 = RateCell(f"{prefix}z_mlp2", n_units= 4* n_embed, tau_m= tau_m, act_fx="gelu", batch_size=batch_size * seq_len,prior=("gaussian", 0.),
                     integration_type="euler")
         
         self.W_mlp1 = HebbianSynapse(f"{prefix}W_mlp1", shape=(n_embed, 4*n_embed), batch_size = batch_size * seq_len, eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),

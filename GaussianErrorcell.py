@@ -83,7 +83,7 @@ class GaussianErrorCell(JaxComponent): ## Rate-coded/real-valued error unit/cell
         modulator = self.modulator.get()
         mask = self.mask.get()
         scale = self.scale.get()
-        
+        n_elements = jnp.prod(jnp.array(mu.shape))
         # Moves Gaussian cell dynamics one step forward. Specifically, this routine emulates the error unit
         # behavior of the local cost functional:
         # FIXME: Currently, below does: L(targ, mu) = -(1/(2*sigma)) * ||targ - mu||^2_2
@@ -95,7 +95,7 @@ class GaussianErrorCell(JaxComponent): ## Rate-coded/real-valued error unit/cell
         dmu = _dmu / Sigma
         dtarget = -dmu  # reverse of e
         dSigma = Sigma * 0 + 1. # no derivative is calculated at this time for sigma
-        L = -jnp.sum(jnp.square(_dmu)) * (0.5 / Sigma)*scale
+        L = -jnp.sum(jnp.square(_dmu)) * (0.5 / Sigma)*(scale/n_elements)
         #L = GaussianErrorCell.eval_log_density(target, mu, Sigma)
 
         dmu = dmu * modulator * mask ## not sure how mask will apply to a full covariance...

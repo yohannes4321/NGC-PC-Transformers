@@ -12,3 +12,5 @@ dist/
 outputs/
 logs/
 *.log   
+/tuning
+/python3.11

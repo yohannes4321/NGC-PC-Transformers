@@ -4,17 +4,15 @@ from jax import numpy as jnp, random, jit
 from ngclearn import compilable
 import jax
 from functools import partial
-from config import Config as config
-import jax.random as random
-@partial(jit, static_argnums=[4, 5, 6])
-def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, key):
+@partial(jit, static_argnums=[4, 5, 6, 7, 8])
+def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, batch_size, key):
     """
     Compute multi-head attention 
     """
     if Q.ndim == 2:
         # 2D input: (batch_size * seq_len, n_embed) -> reshape to 3D
         M, D = Q.shape
-        S = config.seq_len        
+        S = seq_len        
         B = M // S  # batch_size
         Q_3d = Q.reshape(B, S, D)
         K_3d = K.reshape(B, S, D)
@@ -24,10 +22,9 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, key):
         B, S, D = Q.shape
         Q_3d, K_3d, V_3d = Q, K, V
     # Reshape for multi-head attention
-    q = Q.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
-    k = K.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3]) 
-    v = V.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
-    
+    q = Q_3d.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
+    k = K_3d.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3]) 
+    v = V_3d.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
     # Scaled dot-product attention
     score = jnp.einsum("BHTE,BHSE->BHTS", q, k) / jnp.sqrt(d_head)
     
@@ -40,8 +37,8 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, key):
     score = score.astype(q.dtype)
     
     if dropout_rate > 0.0:
-        # dkey = random.fold_in(key, 0)
-        dkey = random.PRNGKey(0)
+        dkey = random.fold_in(key, 0)
+        # dkey = random.PRNGKey(0)
         score = jax.random.bernoulli(dkey, 1 - dropout_rate, score.shape) * score / (1 - dropout_rate)
         
     attention = jnp.einsum("BHTS,BHSE->BHTE", score, v)
@@ -73,7 +70,7 @@ class AttentionBlock(JaxComponent):
         batch_size: Batch size
     """
     
-    def __init__(self, name, n_heads, n_embed, seq_len, dropout_rate=0.0, batch_size=1, **kwargs):
+    def __init__(self, name, n_heads, n_embed, seq_len, dropout_rate, batch_size, **kwargs):
         super().__init__(name, **kwargs)
 
         self.n_heads = n_heads
@@ -81,6 +78,9 @@ class AttentionBlock(JaxComponent):
         self.dropout_rate = dropout_rate
         self.batch_size = batch_size
         self.seq_len = seq_len
+        
+        if n_embed % n_heads != 0:
+            raise ValueError(f"n_embed={n_embed} must be divisible by n_heads={n_heads}")
         self.d_head = n_embed // n_heads
 
         # Input compartments
@@ -101,12 +101,18 @@ class AttentionBlock(JaxComponent):
         inputs_k=self.inputs_k.get()
         inputs_v=self.inputs_v.get()
         mask=self.mask.get()
-        n_heads=self.n_heads.get()
-        d_head=self.d_head.get()
-        dropout_rate=self.dropout_rate.get()
+        n_heads=self.n_heads
+        d_head=self.d_head
+        dropout_rate=self.dropout_rate
         key=self.key.get()
         attention = _compute_attention(
-            inputs_q, inputs_k, inputs_v, mask, n_heads, d_head, dropout_rate, key
+            inputs_q, inputs_k, inputs_v, mask,        
+            self.n_heads,        
+            self.d_head,        
+            self.dropout_rate, 
+            self.seq_len,
+            self.batch_size,  
+            key                  
         )
         
         self.outputs.set(attention)
@@ -115,9 +121,9 @@ class AttentionBlock(JaxComponent):
         """
         Reset compartments to zeros
         """
-        batch_size=self.batch_size.get()
-        seq_len=self.seq_len.get()
-        n_embed=self.n_embed.get()
+        batch_size=self.batch_size
+        seq_len=self.seq_len
+        n_embed=self.n_embed
         zeros_3d = jnp.zeros((batch_size, seq_len, n_embed))
         mask = jnp.zeros((batch_size, seq_len, seq_len), dtype=bool)
         # return zeros_3d, zeros_3d, zeros_3d, mask, zeros_3d
@@ -154,18 +160,3 @@ class AttentionBlock(JaxComponent):
                 "dynamics": "outputs = MultiHeadAttention(Q, K, V, mask)",
                 "hyperparameters": hyperparams}
         return info
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-    

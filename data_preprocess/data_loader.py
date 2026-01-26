@@ -5,10 +5,9 @@ import sys
 
 DIR = Path(__file__).parent
 sys.path.append(str(DIR.parent))
-from config import Config as config
 
 class DataLoader:
-    def __init__(self, data_dir= DIR / "outputs" / "tokenized_data", seq_len=config.seq_len, batch_size=config.batch_size):
+    def __init__(self, seq_len, batch_size, data_dir= DIR / "outputs" / "tokenized_data"):
         self.data_dir = Path(data_dir)
         self.seq_len = seq_len
         self.batch_size = batch_size

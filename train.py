@@ -29,16 +29,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
     # Cap runtime: default to first 50 batches unless overridden
     max_train_batches = 40 if max_train_batches is None else int(max_train_batches)
     
-    print("\n" + "-"*60)
-    print(" INITIALIZING TRAINING TRIAL")
-    print("-"*60)
-    print(f"   [ARCH] n_heads:      {cfg.n_heads}")
-    print(f"   [ARCH] embed_mult:   {cfg.embed_mult} (Total n_embed: {cfg.n_embed})")
-    print(f"   [DATA] batch_size:   {cfg.batch_size}")
-    print(f"   [OPTS] eta (LR):     {cfg.eta:.2e}")
-    print(f"   [OPTS] act_fx:       {cfg.act_fx}")
-    print(f"   [PHYS] n_iter (T):   {cfg.n_iter}")
-    print("-"*60)
+   
 
     dkey = random.PRNGKey(1234)
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
@@ -46,11 +37,11 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
 
     model = NGCTransformer(
         dkey, batch_size=cfg.batch_size, seq_len=cfg.seq_len, n_embed=cfg.n_embed,
-        vocab_size=cfg.vocab_size, n_layers=cfg.n_layers, n_heads=cfg.n_heads,
+        vocab_size=config.vocab_size, n_layers=cfg.n_layers, n_heads=cfg.n_heads,
         T=cfg.n_iter, dt=1.0, tau_m=cfg.tau_m, act_fx=cfg.act_fx, eta=cfg.eta,
         dropout_rate=cfg.dropout_rate if hasattr(cfg, 'dropout_rate') else 0.0, 
         exp_dir="exp", pos_learnable=cfg.pos_learnable,
-        optim_type=cfg.optim_type, wub=cfg.wub, wlb=cfg.wlb, model_name="ngc_transformer"
+        optim_type=config.optim_type, wub=cfg.wub, wlb=cfg.wlb, model_name="ngc_transformer"
     )
 
     total_efe, total_ce, total_batches = 0.0, 0.0, 0
@@ -97,8 +88,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
         # if  i == (num_iter-1):
         #   model.save_to_disk(params_only=False) # save final state of model to disk
     total_time = time.time() - total_start_time
-    print(f"\nTraining finished.")
+    print(f"\nTuning finished.")
     print(f"Total training time: {total_time:.0f} seconds")
-    print(f"\nTraining finished.")
+    print(f"\nTuning finished.")
     return avg_train_EFE,dev_ce,dev_ppl
-    

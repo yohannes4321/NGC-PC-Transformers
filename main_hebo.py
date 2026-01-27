@@ -159,10 +159,16 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
             ce_val = float("nan")
             ppl_val = float("nan")
 
-        if loss_value > EARLY_PRUNE_THRESHOLD:
+        metric_spike = max(
+            abs(loss_value) if not math.isnan(loss_value) else 0.0,
+            ce_val if not np.isnan(ce_val) else 0.0,
+            ppl_val if not np.isnan(ppl_val) else 0.0,
+        )
+
+        if metric_spike > EARLY_PRUNE_THRESHOLD:
             pruned = True
             print(
-                f"Early prune: loss {loss_value:.2f} exceeds {EARLY_PRUNE_THRESHOLD:.0f}. Bad combination; skipping detailed logging."
+                f"Early prune: metric spike {metric_spike:.2f} exceeds {EARLY_PRUNE_THRESHOLD:.0f}. Bad combination; skipping detailed logging."
             )
             loss_value = EARLY_PRUNE_PENALTY
             efe_val = float("nan")

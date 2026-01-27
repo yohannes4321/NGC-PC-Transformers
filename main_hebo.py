@@ -20,22 +20,29 @@ def constraint_embed_divisible(x):
 def phase1_space():
     """Architecture search space constrained to prevent JAX tracer/reshape errors."""
     return ng.p.Dict(
-        n_heads=ng.p.Choice([2, 4, 8]),
-        n_embed=ng.p.Choice([32, 64, 128, 256]),
-        batch_size=ng.p.Choice([16, 32, 64]),
-        seq_len=ng.p.Choice([16, 32, 64]),
-        n_layers=ng.p.Choice([1, 2, 4,6]),
-        pos_learnable=ng.p.Choice([True, False]),
-        # Stability-oriented bounds
-        eta=ng.p.Log(lower=1e-7, upper=5e-5),
-        tau_m=ng.p.Scalar(lower=5, upper=15).set_integer_casting(),
-        n_iter=ng.p.Scalar(lower=1, upper=10).set_integer_casting(),
-        wub=ng.p.Scalar(lower=0.01, upper=0.02),
-        wlb=ng.p.Scalar(lower=-0.02, upper=-0.01),
-        dropout_rate=ng.p.Scalar(lower=0.1, upper=0.5),
-        optim_type=ng.p.Choice(["adam", "sgd"]),
-        act_fx=ng.p.Choice(["relu","tanh","identity"]),
-    )
+    n_layers=ng.p.Scalar(lower=1, upper=8).set_integer_casting(),
+    pos_learnable=ng.p.Choice([True, False]),
+
+    eta=ng.p.Log(lower=1e-6, upper=1e-4),
+
+    tau_m=ng.p.Scalar(lower=10, upper=20).set_integer_casting(),
+    n_iter=ng.p.Scalar(lower=1, upper=30).set_integer_casting(),
+
+    dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),
+
+    wub=ng.p.Scalar(lower=0.01, upper=0.1),
+    wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
+
+    optim_type=ng.p.Choice(["adam", "sgd"]),
+    act_fx=ng.p.Choice(["identity", "relu"]),
+
+    n_heads=ng.p.Choice(n_heads),
+    n_embed=ng.p.Choice(n_embed),
+    batch_size=ng.p.Choice(batch_size),
+    seq_len=ng.p.Choice(seq_len),
+    embed_mult=ng.p.Choice(embed_mult),
+)
+
 
 
 def phase2_space(best):
@@ -44,11 +51,14 @@ def phase2_space(best):
     wlb_best = float(best.get("wlb"))
 
     return ng.p.Dict(
-        eta=ng.p.Log(lower=eta_best * 0.5, upper=eta_best * 2.0),
-        wub=ng.p.Scalar(lower=wub_best - 0.005, upper= wub_best + 0.005),
-        wlb=ng.p.Scalar(lower=wlb_best - 0.005, upper= wlb_best + 0.005),
-        dropout_rate=ng.p.Scalar(lower=0.0, upper=0.2),
-    )
+    eta=ng.p.Log(lower=1e-6, upper=1e-4),
+
+    dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),
+
+    wub=ng.p.Scalar(lower=0.01, upper=0.1),
+    wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
+)
+
 
 
 def run_phase(optimizer, objective_name, fixed_params=None, history=None):

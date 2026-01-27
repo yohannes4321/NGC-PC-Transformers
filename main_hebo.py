@@ -17,31 +17,50 @@ def constraint_embed_divisible(x):
         return False
 
 
+
+
+
 def phase1_space():
-    """Architecture search space constrained to prevent JAX tracer/reshape errors."""
+    # Independent parameters
+    n_heads = ng.p.Scalar(lower=2, upper=8).set_integer_casting()
+    embed_mult = ng.p.Choice([8, 12, 16])   # same as step=4 logic
+    batch_size = ng.p.Scalar(lower=2, upper=12).set_integer_casting()
+    seq_len = ng.p.Scalar(lower=8, upper=32).set_integer_casting()
+
+    # Dependent parameter: n_embed = n_heads * embed_mult
+    n_embed = ng.p.Instrumentation(
+        n_heads=n_heads,
+        embed_mult=embed_mult
+    )
+
     return ng.p.Dict(
-    n_layers=ng.p.Scalar(lower=1, upper=8).set_integer_casting(),
-    pos_learnable=ng.p.Choice([True, False]),
+        # Architecture
+        n_layers=ng.p.Scalar(lower=1, upper=8).set_integer_casting(),
+        pos_learnable=ng.p.Choice([True, False]),
 
-    eta=ng.p.Log(lower=1e-6, upper=1e-4),
+        # Training dynamics
+        eta=ng.p.Log(lower=1e-6, upper=1e-4),
+        tau_m=ng.p.Scalar(lower=10, upper=20).set_integer_casting(),
+        n_iter=ng.p.Scalar(lower=1, upper=30).set_integer_casting(),
 
-    tau_m=ng.p.Scalar(lower=10, upper=20).set_integer_casting(),
-    n_iter=ng.p.Scalar(lower=1, upper=30).set_integer_casting(),
+        # Fixed dropout (as in Optuna)
+        dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),
 
-    dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),
+        # Weight bounds
+        wub=ng.p.Scalar(lower=0.01, upper=0.1),
+        wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
 
-    wub=ng.p.Scalar(lower=0.01, upper=0.1),
-    wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
+        # Discrete choices
+        optim_type=ng.p.Choice(["adam", "sgd"]),
+        act_fx=ng.p.Choice(["identity", "relu"]),
 
-    optim_type=ng.p.Choice(["adam", "sgd"]),
-    act_fx=ng.p.Choice(["identity", "relu"]),
-
-    n_heads=ng.p.Choice(n_heads),
-    n_embed=ng.p.Choice(n_embed),
-    batch_size=ng.p.Choice(batch_size),
-    seq_len=ng.p.Choice(seq_len),
-    embed_mult=ng.p.Choice(embed_mult),
-)
+        # Core dimensions
+        n_heads=n_heads,
+        embed_mult=embed_mult,
+        n_embed=n_embed,   # computed later as product
+        batch_size=batch_size,
+        seq_len=seq_len,
+    )
 
 
 
@@ -74,18 +93,16 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
 
         full_params = {**fixed_params, **x_dict} if fixed_params else x_dict.copy()
 
-        # Divisibility fix
-        h = int(full_params["n_heads"])
-        e = int(full_params["n_embed"])
         
+
+       
+
+        n_heads = full_params["n_heads"]
+        embed_mult = full_params["embed_mult"]
+        n_embed = n_heads * embed_mult   # ✅ correct
+        full_params["n_embed"] = n_embed
         # If not divisible, adjust n_embed to the nearest multiple of n_heads
-        if e % h != 0:
-            raise ValueError(
-                f"\n[CONFIGURATION ERROR] Incompatible Architecture detected!"
-                f"\nYour 'n_embed' ({e}) must be divisible by 'n_heads' ({h})."
-                f"\nPlease update your 'phase1_space' Choice lists so that every "
-                f"possible n_embed is a multiple of every possible n_heads."
-            )
+        
 
         # Concrete ints for JAX
         int_keys = ["n_heads", "n_embed", "batch_size", "seq_len", "n_layers", "tau_m", "n_iter"]

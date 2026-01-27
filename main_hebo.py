@@ -80,9 +80,10 @@ def phase2_space(best):
 
         # Dropout stays fixed (as in Phase 1)
         dropout_rate=ng.p.Scalar(
-            lower=dropout_best,
-            upper=dropout_best
+            lower=  max(0.0, dropout_best - 0.05),
+            upper=min(0.3, dropout_best + 0.05)
         ),
+
 
         # Tight refinement around best
         wub=ng.p.Scalar(

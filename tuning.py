@@ -74,6 +74,8 @@ def define_search_space_phase2(trial, best_params):
         "dropout_rate": trial.suggest_float("dropout_rate",
                                            max(0.0, dropout_rate_best - 0.05),
                                            min(0.3, dropout_rate_best + 0.05)),
+
+                                           
         "wub": trial.suggest_float("wub",
                                   max(0.01, wub_best - 0.02),
                                   min(0.1, wub_best + 0.02)),

@@ -1,4 +1,3 @@
-#change
 import sys
 import os
 # Disable pre-allocation so JAX only takes what it needs
@@ -8,7 +7,6 @@ import jax.nn as jnn
 from jax import numpy as jnp, random
 from math import inf
 from model import NGCTransformer
-import time as _time
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 from config import Config as config
@@ -26,10 +24,7 @@ def _build_cfg(params_override=None):
 
 def run_training(params_override=None, save_model=False, max_train_batches=None):
     cfg = _build_cfg(params_override)
-    # Cap runtime: default to first 50 batches unless overridden
     max_train_batches = 40 if max_train_batches is None else int(max_train_batches)
-    
-   
 
     dkey = random.PRNGKey(1234)
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
@@ -44,49 +39,54 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
         optim_type=config.optim_type, wub=cfg.wub, wlb=cfg.wlb, model_name="ngc_transformer"
     )
 
-    total_efe, total_ce, total_batches = 0.0, 0.0, 0
+    total_batches = 0
     train_EFE = 0.0
-   
-    
+    pruned_trial = False  # Flag to indicate pruning
+
     total_start_time = time.time()
     for i in range(cfg.num_iter):
         for batch_idx, batch in enumerate(train_loader):
             if total_batches >= max_train_batches:
                 break
+
             inputs = batch[0][1]
             targets = batch[1][1]
-            
-            #Convert targets to one-hot and flatten
-            targets_onehot = jnp.eye(config.vocab_size)[targets]  # (B, S, V)
-            targets_flat = targets_onehot.reshape(-1, config.vocab_size)  # (B*S, V)
 
-            
+            # Convert targets to one-hot and flatten
+            targets_onehot = jnp.eye(config.vocab_size)[targets]
+            targets_flat = targets_onehot.reshape(-1, config.vocab_size)
+
             yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            # _EFE=_EFE / (cfg.seq_len * cfg.batch_size * cfg.n_iter)
             train_EFE += _EFE
             total_batches += 1
 
+            # Periodic logging
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, config.vocab_size)
                 y_true = jnp.eye(config.vocab_size)[targets.flatten()]
-                
+
                 batch_nll = measure_CatNLL(y_pred, y_true)
-                batch_ce_loss = batch_nll.mean()  
+                batch_ce_loss = batch_nll.mean()
                 batch_ppl = jnp.exp(batch_ce_loss)
-                
+
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+
+                # Prune trial if EFE > 1000
                 if abs(_EFE) > 1000:
-                    print("Pruned this makes greater than 1000 ,STOP it return infinity for efe ,ce,ppl ")
-                    return 1e9,1e9,1e9
-        avg_train_EFE = train_EFE / total_batches  if total_batches > 0 else 0
-        
+                    print("  Pruned trial: EFE > 1000 → returning high loss for HPO")
+                    pruned_trial = True
+                    return 1e9, 1e9, 1e9  # Nevergrad will see this as a bad trial
+
+        # Compute average EFE so far
+        avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0.0
+
+        # Evaluate on validation set
         dev_ce, dev_ppl = eval_model(model, valid_loader, config.vocab_size)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
-       
-        # if  i == (num_iter-1):
-        #   model.save_to_disk(params_only=False) # save final state of model to disk
+
+        if pruned_trial:
+            break  # stop current trial but phase continues with other candidates
+
     total_time = time.time() - total_start_time
-    print(f"\nTuning finished.")
-    print(f"Total training time: {total_time:.0f} seconds")
-    print(f"\nTuning finished.")
-    return avg_train_EFE,dev_ce,dev_ppl
+    print(f"\nTuning finished. Total training time: {total_time:.0f} seconds")
+    return avg_train_EFE, dev_ce, dev_ppl

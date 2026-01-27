@@ -17,9 +17,6 @@ def constraint_embed_divisible(x):
         return False
 
 
-
-
-
 def phase1_space():
     # Independent parameters
     n_heads = ng.p.Scalar(lower=2, upper=8).set_integer_casting()
@@ -44,9 +41,7 @@ def phase1_space():
         n_iter=ng.p.Scalar(lower=1, upper=30).set_integer_casting(),
 
         # Fixed dropout (as in Optuna)
-        # dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),
         dropout_rate=ng.p.Constant(0.0),
-
 
         # Weight bounds
         wub=ng.p.Scalar(lower=0.01, upper=0.1),
@@ -80,15 +75,14 @@ def phase2_space(best):
 
         # Dropout stays fixed (as in Phase 1)
         dropout_rate=ng.p.Scalar(
-            lower=  max(0.0, dropout_best - 0.05),
+            lower=max(0.0, dropout_best - 0.05),
             upper=min(0.3, dropout_best + 0.05)
         ),
-
 
         # Tight refinement around best
         wub=ng.p.Scalar(
             lower=max(0.01, wub_best - 0.02),
-            upper=min(0.1,  wub_best + 0.02)
+            upper=min(0.1, wub_best + 0.02)
         ),
 
         wlb=ng.p.Scalar(
@@ -96,9 +90,6 @@ def phase2_space(best):
             upper=min(-0.01, wlb_best + 0.02)
         ),
     )
-
-
-
 
 
 def run_phase(optimizer, objective_name, fixed_params=None, history=None):
@@ -114,16 +105,10 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
 
         full_params = {**fixed_params, **x_dict} if fixed_params else x_dict.copy()
 
-        
-
-       
-
         n_heads = full_params["n_heads"]
         embed_mult = full_params["embed_mult"]
-        n_embed = n_heads * embed_mult   # ✅ correct
+        n_embed = n_heads * embed_mult
         full_params["n_embed"] = n_embed
-        # If not divisible, adjust n_embed to the nearest multiple of n_heads
-        
 
         # Concrete ints for JAX
         int_keys = ["n_heads", "n_embed", "batch_size", "seq_len", "n_layers", "tau_m", "n_iter"]
@@ -132,6 +117,7 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
                 full_params[k] = int(full_params[k])
 
         loss_value = float("inf")
+        efe_val = ce_val = ppl_val = float("nan")
         try:
             print(
                 f"\nTrial {iteration} | Heads: {full_params['n_heads']} | D_Model: {full_params['n_embed']} | Seq: {full_params['seq_len']}"
@@ -141,33 +127,22 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
                 raise ValueError("train_evaluate_model returned None")
 
             loss_value = float(loss_array[0][0])
-            
-            efe_val = float(loss_array[0][1]) 
-            ce_val = float(loss_array[0][2]) 
-            ppl_val = float(loss_array[0][3]) 
-            if loss_value >1000:
-                print (loss_value)
-                print(" Early pruning: EFE > 1000 → skip this trial")
-                optimizer.tell(candidate, 1e9)
-                losses.append(1e9)
-                trial_summaries.append({
-                    "iteration": iteration,
-                    "loss": 1e9,
-                    "efe": 1e9,
-                    "ce": 1e9,
-                    "ppl": 1e9,
-                    "params": full_params,
-                })
-                continue
-            if np.isnan(loss_value):
-                loss_value = float("inf")
+            efe_val = float(loss_array[0][1])
+            ce_val = float(loss_array[0][2])
+            ppl_val = float(loss_array[0][3])
+
+            # Early pruning if EFE too large
+            if efe_val > 1000:
+                print(f"  Pruned trial: EFE={efe_val:.4f} > 1000 → assign large loss")
+                loss_value = 1e9
+                efe_val = ce_val = ppl_val = 1e9
+
         except Exception as e:
             print(f"!!! CRASH IN TRIAL {iteration} !!! Error: {e}")
-            loss_value = float("inf")
-            efe_val = float("nan")
-            ce_val = float("nan")
-            ppl_val = float("nan")
+            loss_value = 1e9
+            efe_val = ce_val = ppl_val = 1e9
 
+        # Report to optimizer
         optimizer.tell(candidate, loss_value)
         losses.append(loss_value)
         trial_summaries.append({
@@ -179,13 +154,14 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
             "params": full_params,
         })
 
+        # Track best
         if loss_value < best_loss:
             best_loss = loss_value
             best_params = full_params
             best_metrics = {"efe": efe_val, "ce": ce_val, "ppl": ppl_val}
             print(f">>> NEW BEST {objective_name.upper()} = {best_loss:.4f}")
 
-            return best_loss, best_params, losses, best_metrics, trial_summaries #
+    return best_loss, best_params, losses, best_metrics, trial_summaries
 
 
 def run_two_phase_optimization(p1_budget=config.p1_budget, p2_budget=config.p2_budget):
@@ -231,8 +207,7 @@ def run_two_phase_optimization(p1_budget=config.p1_budget, p2_budget=config.p2_b
                 "eta": float(best_arch.get("eta")),
                 "wub": float(best_arch.get("wub")),
                 "wlb": float(best_arch.get("wlb")),
-                "dropout_rate":float(best_arch.get("dropout_rate"))
-
+                "dropout_rate": float(best_arch.get("dropout_rate"))
             }
         )
         opt2.suggest(warm)
@@ -257,9 +232,3 @@ if __name__ == "__main__":
     case = int(os.environ.get("HPO_CASE", str(default_case)))
     if case == 1:
         run_two_phase_optimization()
-    # elif case == 2:
-    #     run_advanced()
-    # else:
-    #     print(f"Unknown case {case}; defaulting to case 1 (basic run)")
-    #     run_two_phase_optimization()
-    #     # finished

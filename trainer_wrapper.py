@@ -1,37 +1,22 @@
-
-
-"""trainer_wrapper: thin HPO wrapper around train.run_training
-
-This module receives hyperparameters from Nevergrad (main_hebo.py), calls
-train.run_training() with those overrides, logs the trial, and persists the
-best-so-far params across runs. It also aggressively clears JAX memory caches
-between trials to avoid OOMs.
+"""trainer_wrapper: HPO wrapper around train.run_training
+Adapts Nevergrad parameters to JAX types and handles logging.
 """
-
-# filename: trainer_wrapper.py
-import time
 import os
-import math
 import gc
 import sys
 import json
+import time
 
 # Ensure JAX memory settings before importing JAX
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.6"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.6" # Adjust based on workers
 
 import jax
 import numpy as np
-import pandas as pd
-
-from experiment_logger import save_to_csv, DualLogger, LOG_DIR
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
-
+from experiment_logger import DualLogger, LOG_DIR
 from train import run_training
 
+# --- UTILITIES ---
 
 def clean_memory():
     gc.collect()
@@ -40,98 +25,86 @@ def clean_memory():
     except Exception:
         pass
 
+def _prepare_params(kwargs):
+    """Converts Nevergrad floats to ints and calculates derived params."""
+    params = kwargs.copy()
+    
+    # 1. Cast Integers
+    int_keys = ["n_layers", "n_heads", "embed_mult", "batch_size", 
+                "seq_len", "tau_m", "n_iter"]
+    for k in int_keys:
+        if k in params:
+            params[k] = int(params[k])
+            
+    # 2. Derive n_embed (Constraint Logic handled here)
+    # n_embed is always divisible by n_heads because we multiply integers
+    params["n_embed"] = params["n_heads"] * params["embed_mult"]
+    
+    return params
 
-def _load_best_payload():
-    best_path = os.path.join(LOG_DIR, "best_params.json")
-    if os.path.exists(best_path):
-        try:
-            with open(best_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return None
-    return None
-
-
-def _maybe_update_best(trial_id: int, params: dict, loss: float, ppl: float):
-    best_payload = _load_best_payload()
-    if best_payload is None or loss < float(best_payload.get("cross_entropy", float("inf"))):
-        serializable_params = {
-            k: (v.item() if hasattr(v, "item") else v) for k, v in params.items()
-        }
-        payload = {
-            "trial_id": trial_id,
-            "cross_entropy": float(loss),
-            "ppl": float(ppl),
-            "params": serializable_params,
-        }
-        os.makedirs(LOG_DIR, exist_ok=True)
-        best_path = os.path.join(LOG_DIR, "best_params.json")
-        with open(best_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-        return True
-    return False
-
-
-def train_evaluate_model(params: dict, objective: str = "ce"):
-    # standardize to pandas Series for CSV logging
-    if not isinstance(params, dict):
-        raise ValueError("train_evaluate_model expects a dict of hyperparameters")
-
-    existing_trials = len(os.listdir(LOG_DIR)) if os.path.exists(LOG_DIR) else 0
-    trial_id = existing_trials
-    log_path = os.path.join(LOG_DIR, f"trial_{trial_id}.txt")
-
+def _run_trial_internal(kwargs):
+    """Common logic for running a trial and handling logging."""
+    params = _prepare_params(kwargs)
+    
+    # Setup Logging per trial
+    # We use a timestamp ID to avoid collision in parallel workers
+    trial_id = int(time.time() * 1000) % 1000000
+    log_path = os.path.join(LOG_DIR, f"worker_{os.getpid()}_trial_{trial_id}.txt")
     os.makedirs(LOG_DIR, exist_ok=True)
+    
     original_stdout = sys.stdout
     logger = DualLogger(log_path)
     sys.stdout = logger
-
+    
+    loss_metrics = (1e9, 1e9, 1e9) # Default failure
+    
     try:
-        print("==========================================")
-        print(f"STARTING TRIAL {trial_id}")
-        print("Params:", params)
-        print("==========================================")
-
+        print(f"--- START TRIAL {trial_id} (PID {os.getpid()}) ---")
+        print(f"Params: {params}")
+        
         clean_memory()
-
-        # Ensure Nevergrad-provided batch/seq flow consistently into model and DataLoader
-        if "batch_size" in params:
-            params["batch_size"] = int(params["batch_size"])
-        if "seq_len" in params:
-            params["seq_len"] = int(params["seq_len"])
-
-        # Run full training (no batch cap); adjust in params if you need a limit
-        efe,ce,ppl = run_training(
+        
+        # Run Training
+        efe, ce, ppl = run_training(
             params_override=params,
             save_model=False,
-            max_train_batches=None,
+            max_train_batches=None 
         )
-
-        # Normalize raw metrics to plain floats for logging / HPO handoff
-        efe_raw = float(efe)
-        ce_raw = float(ce)
-        ppl_raw = float(ppl)
-
-        if objective == "efe":
-            loss = -(efe_raw)
-        elif objective == "ce":
-            loss = ce_raw
-        else:
-            raise ValueError(f"Unsupported objective '{objective}'")
-
-        # Return 2D array: [loss, efe, ce, ppl] so callers can report best metrics
-        return np.array([[loss, efe_raw, ce_raw, ppl_raw]], dtype=float)
+        
+        loss_metrics = (float(efe), float(ce), float(ppl))
+        print(f"--- END TRIAL {trial_id} --- Result: {loss_metrics}")
 
     except Exception as e:
-        print(f"!!! CRASH IN TRIAL {trial_id} !!!")
-        msg = str(e)
-        if "RESOURCE_EXHAUSTED" in msg or "Out of memory" in msg:
-            print("Detected GPU OOM; returning inf and proceeding.")
-        else:
-            print(f"Error: {msg}")
-        return np.array([[float("inf")]], dtype=float)
-
+        print(f"!!! CRASH TRIAL {trial_id} !!! Error: {e}")
+        # Return infinite loss on crash
+        loss_metrics = (1e9, 1e9, 1e9)
+        
     finally:
         logger.close()
         sys.stdout = original_stdout
         clean_memory()
+        
+    return loss_metrics
+
+# --- TOP LEVEL FUNCTIONS FOR NEVERGRAD MINIMIZE ---
+
+def evaluate_objective_efe(**kwargs):
+    """Objective function for Phase 1. Returns -EFE (to minimize)."""
+    efe, ce, ppl = _run_trial_internal(kwargs)
+    
+    # If efe is infinite (pruned/crashed), return huge number
+    if efe >= 1e8:
+        return 1e9
+        
+    # We want to MAXIMIZE EFE (usually negative free energy), 
+    # so we MINIMIZE negative EFE.
+    # Note: Check your specific EFE definition. 
+    # If your EFE is a "loss" (lower is better), return efe.
+    # If EFE is "energy" (lower is better), return efe.
+    # Assuming standard NGC usage where we minimize Free Energy:
+    return efe
+
+def evaluate_objective_ce(**kwargs):
+    """Objective function for Phase 2. Returns CE (to minimize)."""
+    efe, ce, ppl = _run_trial_internal(kwargs)
+    return ce

@@ -1,234 +1,143 @@
-"""Nevergrad HPO entrypoint."""
-
+"""Nevergrad entrypoint.
+Orchestrates a two-phase optimization (EFE -> CE) using parallel workers.
+"""
 import os
-import math
-from concurrent import futures
-import numpy as np
 import nevergrad as ng
+from concurrent import futures
 from config import Config as config
-from trainer_wrapper import train_evaluate_model
-
-
-def constraint_embed_divisible(x):
-    """Cheap constraint: ensure n_embed is divisible by n_heads."""
-    try:
-        return int(x.get("n_embed", 0)) % int(x.get("n_heads", 1)) == 0
-    except Exception:
-        return False
-
+# Import specific objective functions for pickling compatibility
+from trainer_wrapper import evaluate_objective_efe, evaluate_objective_ce
 
 def phase1_space():
-    # Independent parameters
-    n_heads = ng.p.Scalar(lower=2, upper=8).set_integer_casting()
-    embed_mult = ng.p.Choice([8, 12, 16])   # same as step=4 logic
-    batch_size = ng.p.Scalar(lower=2, upper=12).set_integer_casting()
-    seq_len = ng.p.Scalar(lower=8, upper=32).set_integer_casting()
-
-    # Dependent parameter: n_embed = n_heads * embed_mult
-    n_embed = ng.p.Instrumentation(
-        n_heads=n_heads,
-        embed_mult=embed_mult
-    )
-
+    """
+    Phase 1: Search Architecture & Dynamics.
+    We optimize n_heads and embed_mult. n_embed is calculated inside the worker.
+    """
     return ng.p.Dict(
         # Architecture
         n_layers=ng.p.Scalar(lower=1, upper=8).set_integer_casting(),
+        n_heads=ng.p.Scalar(lower=2, upper=8).set_integer_casting(),
+        embed_mult=ng.p.Choice([8, 12, 16]), # n_embed = n_heads * embed_mult
+        
+        # Dimensions
+        batch_size=ng.p.Scalar(lower=2, upper=12).set_integer_casting(),
+        seq_len=ng.p.Scalar(lower=8, upper=32).set_integer_casting(),
         pos_learnable=ng.p.Choice([True, False]),
 
         # Training dynamics
         eta=ng.p.Log(lower=1e-6, upper=1e-4),
         tau_m=ng.p.Scalar(lower=10, upper=20).set_integer_casting(),
         n_iter=ng.p.Scalar(lower=1, upper=30).set_integer_casting(),
-
-        # Fixed dropout (as in Optuna)
-        dropout_rate=ng.p.Constant(0.0),
-
-        # Weight bounds
+        
+        # Hyperparams
         wub=ng.p.Scalar(lower=0.01, upper=0.1),
         wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
-
-        # Discrete choices
+        dropout_rate=ng.p.Constant(0.0), # Fixed in P1
+        
+        # Categorical
         optim_type=ng.p.Choice(["adam", "sgd"]),
         act_fx=ng.p.Choice(["identity", "relu"]),
-
-        # Core dimensions
-        n_heads=n_heads,
-        embed_mult=embed_mult,
-        n_embed=n_embed,   # computed later as product
-        batch_size=batch_size,
-        seq_len=seq_len,
     )
 
-
-def phase2_space(best):
-    eta_best = float(best["eta"])
-    wub_best = float(best["wub"])
-    wlb_best = float(best["wlb"])
-    dropout_best = float(best.get("dropout_rate", 0.0))
+def phase2_space(best_p1):
+    """
+    Phase 2: Refine Hyperparameters (Learning Rate, Weights, Dropout).
+    Locks the architecture found in Phase 1.
+    """
+    # Extract scalar values from the best recommendation
+    eta_best = float(best_p1["eta"])
+    wub_best = float(best_p1["wub"])
+    wlb_best = float(best_p1["wlb"])
+    dropout_best = float(best_p1.get("dropout_rate", 0.0))
 
     return ng.p.Dict(
-        # Log-scale refinement (same spirit as Optuna)
-        eta=ng.p.Log(
-            lower=eta_best * 0.2,
-            upper=eta_best * 5.0
-        ),
-
-        # Dropout stays fixed (as in Phase 1)
-        dropout_rate=ng.p.Scalar(
-            lower=max(0.0, dropout_best - 0.05),
-            upper=min(0.3, dropout_best + 0.05)
-        ),
-
-        # Tight refinement around best
-        wub=ng.p.Scalar(
-            lower=max(0.01, wub_best - 0.02),
-            upper=min(0.1, wub_best + 0.02)
-        ),
-
-        wlb=ng.p.Scalar(
-            lower=max(-0.1, wlb_best - 0.02),
-            upper=min(-0.01, wlb_best + 0.02)
-        ),
+        # Log-scale refinement around best eta
+        eta=ng.p.Log(lower=eta_best * 0.2, upper=eta_best * 5.0),
+        
+        # Refine weights
+        wub=ng.p.Scalar(lower=max(0.01, wub_best - 0.02), upper=min(0.1, wub_best + 0.02)),
+        wlb=ng.p.Scalar(lower=max(-0.1, wlb_best - 0.02), upper=min(-0.01, wlb_best + 0.02)),
+        
+        # Allow dropout to vary now
+        dropout_rate=ng.p.Scalar(lower=0.0, upper=0.3),
+        
+        # KEEP ARCHITECTURE FIXED
+        n_layers=ng.p.Constant(best_p1["n_layers"]),
+        n_heads=ng.p.Constant(best_p1["n_heads"]),
+        embed_mult=ng.p.Constant(best_p1["embed_mult"]),
+        batch_size=ng.p.Constant(best_p1["batch_size"]),
+        seq_len=ng.p.Constant(best_p1["seq_len"]),
+        pos_learnable=ng.p.Constant(best_p1["pos_learnable"]),
+        tau_m=ng.p.Constant(best_p1["tau_m"]),
+        n_iter=ng.p.Constant(best_p1["n_iter"]),
+        optim_type=ng.p.Constant(best_p1["optim_type"]),
+        act_fx=ng.p.Constant(best_p1["act_fx"]),
     )
 
+def run_two_phase_optimization():
+    # Number of workers (adjust based on your CPU cores / GPU VRAM)
+    N_WORKERS = int(os.environ.get("NG_WORKERS", 4))
+    
+    # --- PHASE 1: OPTIMIZE EFE ---
+    print(f"\n=== Phase 1: EFE Optimization (Budget: {config.p1_budget}) ===")
+    
+    # NGOpt is the recommended meta-optimizer
+    opt1 = ng.optimizers.NGOpt(
+        parametrization=phase1_space(), 
+        budget=config.p1_budget, 
+        num_workers=N_WORKERS
+    )
 
-def run_phase(optimizer, objective_name, fixed_params=None, history=None):
-    best_loss = float("inf")
-    best_params = None
-    best_metrics = None  # stores {'efe': val, 'ce': val, 'ppl': val}
-    losses = [] if history is None else history
-    trial_summaries = []  # collect per-trial metrics for later comparison
-
-    for iteration in range(optimizer.budget):
-        candidate = optimizer.ask()
-        x_dict = candidate.value
-
-        full_params = {**fixed_params, **x_dict} if fixed_params else x_dict.copy()
-
-        n_heads = full_params["n_heads"]
-        embed_mult = full_params["embed_mult"]
-        n_embed = n_heads * embed_mult
-        full_params["n_embed"] = n_embed
-
-        # Concrete ints for JAX
-        int_keys = ["n_heads", "n_embed", "batch_size", "seq_len", "n_layers", "tau_m", "n_iter"]
-        for k in int_keys:
-            if k in full_params:
-                full_params[k] = int(full_params[k])
-
-        loss_value = float("inf")
-        efe_val = ce_val = ppl_val = float("nan")
-        try:
-            print(
-                f"\nTrial {iteration} | Heads: {full_params['n_heads']} | D_Model: {full_params['n_embed']} | Seq: {full_params['seq_len']}"
-            )
-            loss_array = train_evaluate_model(full_params, objective=objective_name)
-            if loss_array is None:
-                raise ValueError("train_evaluate_model returned None")
-
-            loss_value = float(loss_array[0][0])
-            efe_val = float(loss_array[0][1])
-            ce_val = float(loss_array[0][2])
-            ppl_val = float(loss_array[0][3])
-
-            # Early pruning if EFE too large
-            if efe_val > 1000:
-                print(f"  Pruned trial: EFE={efe_val:.4f} > 1000 → assign large loss")
-                loss_value = 1e9
-                efe_val = ce_val = ppl_val = 1e9
-
-        except Exception as e:
-            print(f"!!! CRASH IN TRIAL {iteration} !!! Error: {e}")
-            loss_value = 1e9
-            efe_val = ce_val = ppl_val = 1e9
-
-        # Report to optimizer
-        optimizer.tell(candidate, loss_value)
-        losses.append(loss_value)
-        trial_summaries.append({
-            "iteration": iteration,
-            "loss": loss_value,
-            "efe": efe_val,
-            "ce": ce_val,
-            "ppl": ppl_val,
-            "params": full_params,
-        })
-
-        # Track best
-        if loss_value < best_loss:
-            best_loss = loss_value
-            best_params = full_params
-            best_metrics = {"efe": efe_val, "ce": ce_val, "ppl": ppl_val}
-            print(f">>> NEW BEST {objective_name.upper()} = {best_loss:.4f}")
-
-    return best_loss, best_params, losses, best_metrics, trial_summaries
-
-
-def run_two_phase_optimization(p1_budget=config.p1_budget, p2_budget=config.p2_budget):
-    print("--- Phase 1: Nevergrad (EFE) ---")
-    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=p1_budget)
-    best_efe, best_arch, history1, metrics_efe, summaries_efe = run_phase(opt1, "efe")
-
-    if best_arch is None:
-        print("Search failed.")
-        return
-
-    # Identify the trial with the highest recorded EFE (ignore NaNs)
-    best_efe_entry = None
-    if summaries_efe:
-        feasible = [s for s in summaries_efe if not np.isnan(s.get("efe", float("nan")))]
-        if feasible:
-            best_efe_entry = max(feasible, key=lambda s: s["efe"])
-
-    if metrics_efe:
-        print(
-            f"\nPhase 1 best (EFE objective): loss={best_efe:.4f}, avg EFE={metrics_efe['efe']:.4f}, avg CE={metrics_efe['ce']:.4f}, avg PPL={metrics_efe['ppl']:.4f}"
-        )
-    else:
-        print(f"\nPhase 1 best (EFE objective): loss={best_efe:.4f} (no metrics recorded)")
-    print("Best Phase 1 params:", best_arch)
-    if best_efe_entry:
-        print(
-            "Best EFE by metric:",
-            {
-                "iteration": best_efe_entry["iteration"],
-                "efe": round(best_efe_entry["efe"], 4),
-                "ce": round(best_efe_entry["ce"], 4),
-                "ppl": round(best_efe_entry["ppl"], 4),
-                "params": best_efe_entry["params"],
-            },
+    # Use ProcessPoolExecutor for true parallel processing
+    with futures.ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+        # .minimize() automatically handles ask/tell and distributing to workers
+        recommendation_p1 = opt1.minimize(
+            evaluate_objective_efe, 
+            executor=executor, 
+            batch_mode=False
         )
 
-    print("\n--- Phase 2: Hyperparam Refinement (CE) ---")
-    opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_arch), budget=p2_budget)
+    best_p1_params = recommendation_p1.value
+    print(f"\n>>> Phase 1 Best Params: {best_p1_params}")
+
+    # --- PHASE 2: OPTIMIZE CE ---
+    print(f"\n=== Phase 2: CE Refinement (Budget: {config.p2_budget}) ===")
+    
+    # Create space based on Phase 1 results
+    p2_space = phase2_space(best_p1_params)
+    
+    opt2 = ng.optimizers.NGOpt(
+        parametrization=p2_space, 
+        budget=config.p2_budget, 
+        num_workers=N_WORKERS
+    )
+
+    # Warm start: Suggest the exact best point from Phase 1 as a starting point
+    # We construct a child based on best_p1_params, ensuring keys match
     try:
-        warm = opt2.parametrization.spawn_child(
-            new_value={
-                "eta": float(best_arch.get("eta")),
-                "wub": float(best_arch.get("wub")),
-                "wlb": float(best_arch.get("wlb")),
-                "dropout_rate": float(best_arch.get("dropout_rate"))
-            }
-        )
-        opt2.suggest(warm)
+        # Filter best_p1_params to match keys needed for Phase 2 initialization if needed,
+        # but NGOpt handles overlapping keys well usually.
+        opt2.suggest(**best_p1_params) 
     except Exception as e:
-        print("Warm-start suggest failed (Phase 2):", e)
+        print(f"Warm start warning: {e}")
 
-    best_ce, best_final, history2, metrics_ce, _ = run_phase(opt2, "ce", fixed_params=best_arch, history=history1)
-
-    print("\nOptimization Finished Successfully!")
-    print(f"Final Architecture: Heads={best_final['n_heads']}, D_Model={best_final['n_embed']}")
-    print(f"Final Params: Batch={best_final['batch_size']}, Seq={best_final['seq_len']}")
-    if metrics_ce:
-        print(
-            f"Final Loss (CE): {best_ce:.4f} | avg EFE={metrics_ce['efe']:.4f}, avg CE={metrics_ce['ce']:.4f}, avg PPL={metrics_ce['ppl']:.4f}"
+    with futures.ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+        recommendation_p2 = opt2.minimize(
+            evaluate_objective_ce, 
+            executor=executor, 
+            batch_mode=False
         )
-    else:
-        print(f"Final Loss (CE): {best_ce:.4f} (no metrics recorded)")
 
+    best_final_params = recommendation_p2.value
+    
+    # Calculate final display info
+    final_d_model = best_final_params['n_heads'] * best_final_params['embed_mult']
+    
+    print("\n==========================================")
+    print("OPTIMIZATION COMPLETE")
+    print(f"Final Architecture: Heads={best_final_params['n_heads']}, D_Model={final_d_model}")
+    print(f"Final Dynamics: Eta={best_final_params['eta']:.6f}, Dropout={best_final_params['dropout_rate']:.4f}")
+    print("==========================================")
 
 if __name__ == "__main__":
-    default_case = getattr(config, "case_nevergrad", 1)
-    case = int(os.environ.get("HPO_CASE", str(default_case)))
-    if case == 1:
-        run_two_phase_optimization()
+    run_two_phase_optimization()

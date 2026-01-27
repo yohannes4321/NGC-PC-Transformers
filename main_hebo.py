@@ -44,7 +44,9 @@ def phase1_space():
         n_iter=ng.p.Scalar(lower=1, upper=30).set_integer_casting(),
 
         # Fixed dropout (as in Optuna)
-        dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),
+        # dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),
+        dropout_rate=ng.p.Constant(0.0),
+
 
         # Weight bounds
         wub=ng.p.Scalar(lower=0.01, upper=0.1),
@@ -63,20 +65,38 @@ def phase1_space():
     )
 
 
-
 def phase2_space(best):
-    eta_best = float(best.get("eta"))
-    wub_best = float(best.get("wub"))
-    wlb_best = float(best.get("wlb"))
+    eta_best = float(best["eta"])
+    wub_best = float(best["wub"])
+    wlb_best = float(best["wlb"])
+    dropout_best = float(best.get("dropout_rate", 0.0))
 
     return ng.p.Dict(
-    eta=ng.p.Log(lower=1e-6, upper=1e-4),
+        # Log-scale refinement (same spirit as Optuna)
+        eta=ng.p.Log(
+            lower=eta_best * 0.2,
+            upper=eta_best * 5.0
+        ),
 
-    dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),
+        # Dropout stays fixed (as in Phase 1)
+        dropout_rate=ng.p.Scalar(
+            lower=dropout_best,
+            upper=dropout_best
+        ),
 
-    wub=ng.p.Scalar(lower=0.01, upper=0.1),
-    wlb=ng.p.Scalar(lower=-0.1, upper=-0.01),
-)
+        # Tight refinement around best
+        wub=ng.p.Scalar(
+            lower=max(0.01, wub_best - 0.02),
+            upper=min(0.1,  wub_best + 0.02)
+        ),
+
+        wlb=ng.p.Scalar(
+            lower=max(-0.1, wlb_best - 0.02),
+            upper=min(-0.01, wlb_best + 0.02)
+        ),
+    )
+
+
 
 
 

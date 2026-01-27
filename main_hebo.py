@@ -9,6 +9,11 @@ from config import Config as config
 from trainer_wrapper import train_evaluate_model
 
 
+# Treat trials with enormous losses as invalid to avoid wasting budget.
+EARLY_PRUNE_THRESHOLD = 2000.0
+EARLY_PRUNE_PENALTY = 1e6
+
+
 def constraint_embed_divisible(x):
     """Cheap constraint: ensure n_embed is divisible by n_heads."""
     try:
@@ -131,6 +136,7 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
                 full_params[k] = int(full_params[k])
 
         loss_value = float("inf")
+        pruned = False
         try:
             print(
                 f"\nTrial {iteration} | Heads: {full_params['n_heads']} | D_Model: {full_params['n_embed']} | Seq: {full_params['seq_len']}"
@@ -153,6 +159,22 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
             ce_val = float("nan")
             ppl_val = float("nan")
 
+        metric_spike = max(
+            abs(loss_value) if not math.isnan(loss_value) else 0.0,
+            ce_val if not np.isnan(ce_val) else 0.0,
+            ppl_val if not np.isnan(ppl_val) else 0.0,
+        )
+
+        if metric_spike > EARLY_PRUNE_THRESHOLD:
+            pruned = True
+            print(
+                f"Early prune: metric spike {metric_spike:.2f} exceeds {EARLY_PRUNE_THRESHOLD:.0f}. Bad combination; skipping detailed logging."
+            )
+            loss_value = EARLY_PRUNE_PENALTY
+            efe_val = float("nan")
+            ce_val = float("nan")
+            ppl_val = float("nan")
+
         optimizer.tell(candidate, loss_value)
         losses.append(loss_value)
         trial_summaries.append({
@@ -162,9 +184,10 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
             "ce": ce_val,
             "ppl": ppl_val,
             "params": full_params,
+            "status": "pruned" if pruned else "ok",
         })
 
-        if loss_value < best_loss:
+        if not pruned and loss_value < best_loss:
             best_loss = loss_value
             best_params = full_params
             best_metrics = {"efe": efe_val, "ce": ce_val, "ppl": ppl_val}

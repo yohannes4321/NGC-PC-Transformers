@@ -76,7 +76,7 @@ def phase2_space(best_p1):
 
 def run_two_phase_optimization():
     # Number of workers (adjust based on your CPU cores / GPU VRAM)
-    N_WORKERS = int(os.environ.get("NG_WORKERS", 1))
+    N_WORKERS = int(os.environ.get("NG_WORKERS", 2))
     
     # --- PHASE 1: OPTIMIZE EFE ---
     print(f"\n=== Phase 1: EFE Optimization (Budget: {config.p1_budget}) ===")

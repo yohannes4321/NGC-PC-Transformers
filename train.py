@@ -46,9 +46,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
 
     total_efe, total_ce, total_batches = 0.0, 0.0, 0
     train_EFE = 0.0
-    # best_train_efe_abs, best_train_ce = inf, inf
-    # last_efe_window = []
-    # plateau_triggered = False
+   
     
     total_start_time = time.time()
     for i in range(cfg.num_iter):
@@ -77,14 +75,14 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
                 batch_ppl = jnp.exp(batch_ce_loss)
                 
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
-        
+                if abs(_EFE) > 1000:
+                    print("Pruned this makes greater than 1000 ,STOP it return infinity for efe ,ce,ppl ")
+                    return float('inf'),float('inf'),float('inf')
         avg_train_EFE = train_EFE / total_batches  if total_batches > 0 else 0
         
         dev_ce, dev_ppl = eval_model(model, valid_loader, config.vocab_size)
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
-        if total_batches >= max_train_batches:
-            print(f"Reached max_train_batches={max_train_batches}; stopping early.")
-            break
+       
         # if  i == (num_iter-1):
         #   model.save_to_disk(params_only=False) # save final state of model to disk
     total_time = time.time() - total_start_time

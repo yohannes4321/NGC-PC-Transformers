@@ -146,15 +146,15 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
             ppl_val = float(loss_array[0][3]) 
             if loss_value >1000:
                 print (loss_value)
-                print("🛑 Early pruning: EFE > 1000 → skip this trial")
+                print(" Early pruning: EFE > 1000 → skip this trial")
                 optimizer.tell(candidate, 1e9)
                 losses.append(1e9)
                 trial_summaries.append({
                     "iteration": iteration,
-                    "loss": float('inf'),
-                    "efe": float('inf'),
-                    "ce": float('inf'),
-                    "ppl": float('inf'),
+                    "loss": 1e9,
+                    "efe": 1e9,
+                    "ce": 1e9,
+                    "ppl": 1e9,
                     "params": full_params,
                 })
                 continue

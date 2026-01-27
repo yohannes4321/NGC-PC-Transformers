@@ -77,7 +77,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None)
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
                 if abs(_EFE) > 1000:
                     print("Pruned this makes greater than 1000 ,STOP it return infinity for efe ,ce,ppl ")
-                    return float('inf'),float('inf'),float('inf')
+                    return 1e9,1e9,1e9
         avg_train_EFE = train_EFE / total_batches  if total_batches > 0 else 0
         
         dev_ce, dev_ppl = eval_model(model, valid_loader, config.vocab_size)

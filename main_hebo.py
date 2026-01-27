@@ -9,6 +9,11 @@ from config import Config as config
 from trainer_wrapper import train_evaluate_model
 
 
+# Treat trials with enormous losses as invalid to avoid wasting budget.
+EARLY_PRUNE_THRESHOLD = 2000.0
+EARLY_PRUNE_PENALTY = 1e6
+
+
 def constraint_embed_divisible(x):
     """Cheap constraint: ensure n_embed is divisible by n_heads."""
     try:
@@ -131,6 +136,7 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
                 full_params[k] = int(full_params[k])
 
         loss_value = float("inf")
+        pruned = False
         try:
             print(
                 f"\nTrial {iteration} | Heads: {full_params['n_heads']} | D_Model: {full_params['n_embed']} | Seq: {full_params['seq_len']}"
@@ -140,29 +146,31 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
                 raise ValueError("train_evaluate_model returned None")
 
             loss_value = float(loss_array[0][0])
-            
-            efe_val = float(loss_array[0][1]) 
-            ce_val = float(loss_array[0][2]) 
-            ppl_val = float(loss_array[0][3]) 
-            if loss_value >1000:
-                print (loss_value)
-                print("🛑 Early pruning: EFE > 1000 → skip this trial")
-                optimizer.tell(candidate, 1e9)
-                losses.append(1e9)
-                trial_summaries.append({
-                    "iteration": iteration,
-                    "loss": float('inf'),
-                    "efe": float('inf'),
-                    "ce": float('inf'),
-                    "ppl": float('inf'),
-                    "params": full_params,
-                })
-                continue
+            efe_val = float(loss_array[0][1]) if loss_array.shape[1] > 1 else float("nan")
+            ce_val = float(loss_array[0][2]) if loss_array.shape[1] > 2 else float("nan")
+            ppl_val = float(loss_array[0][3]) if loss_array.shape[1] > 3 else float("nan")
+            print ("**********",loss_value)
             if np.isnan(loss_value):
                 loss_value = float("inf")
         except Exception as e:
             print(f"!!! CRASH IN TRIAL {iteration} !!! Error: {e}")
             loss_value = float("inf")
+            efe_val = float("nan")
+            ce_val = float("nan")
+            ppl_val = float("nan")
+
+        metric_spike = max(
+            abs(loss_value) if not math.isnan(loss_value) else 0.0,
+            ce_val if not np.isnan(ce_val) else 0.0,
+            ppl_val if not np.isnan(ppl_val) else 0.0,
+        )
+
+        if metric_spike > EARLY_PRUNE_THRESHOLD:
+            pruned = True
+            print(
+                f"Early prune: metric spike {metric_spike:.2f} exceeds {EARLY_PRUNE_THRESHOLD:.0f}. Bad combination; skipping detailed logging."
+            )
+            loss_value = EARLY_PRUNE_PENALTY
             efe_val = float("nan")
             ce_val = float("nan")
             ppl_val = float("nan")
@@ -176,9 +184,10 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
             "ce": ce_val,
             "ppl": ppl_val,
             "params": full_params,
+            "status": "pruned" if pruned else "ok",
         })
 
-        if loss_value < best_loss:
+        if not pruned and loss_value < best_loss:
             best_loss = loss_value
             best_params = full_params
             best_metrics = {"efe": efe_val, "ce": ce_val, "ppl": ppl_val}
@@ -188,7 +197,7 @@ def run_phase(optimizer, objective_name, fixed_params=None, history=None):
 
 
 def run_two_phase_optimization(p1_budget=config.p1_budget, p2_budget=config.p2_budget):
-    print("--- Phase 1: Nevergrad (EFE) ---")
+    print("--- Phase 1: Arch Search (EFE) ---")
     opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=p1_budget)
     best_efe, best_arch, history1, metrics_efe, summaries_efe = run_phase(opt1, "efe")
 
@@ -251,14 +260,177 @@ def run_two_phase_optimization(p1_budget=config.p1_budget, p2_budget=config.p2_b
         print(f"Final Loss (CE): {best_ce:.4f} (no metrics recorded)")
 
 
+def run_two_phase_parallel(phase1_budget=3, phase2_budget=2, num_workers=4):
+    """Asynchronous parallel evaluation using ProcessPoolExecutor and minimize."""
+    print("Starting Phase 1 (async minimize, EFE)...")
+
+    def func_phase1(**x):
+        arr = train_evaluate_model(x, objective="efe")
+        return float(arr[0][0])
+
+    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=phase1_budget, num_workers=num_workers)
+    opt1.parametrization.register_cheap_constraint(constraint_embed_divisible)
+
+    with futures.ProcessPoolExecutor(max_workers=opt1.num_workers) as executor:
+        rec1 = opt1.minimize(func_phase1, executor=executor, batch_mode=False)
+
+    best_params_efe = rec1.value
+    best_efe_loss = rec1.loss if hasattr(rec1, "loss") else None
+
+    print("\nStarting Phase 2 (async minimize, CE)...")
+
+    def func_phase2(**x):
+        merged = {**best_params_efe, **x}
+        arr = train_evaluate_model(merged, objective="ce")
+        return float(arr[0][0])
+
+    opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget, num_workers=num_workers)
+    try:
+        warm = opt2.parametrization.spawn_child(
+            new_value={
+                "eta": float(best_params_efe.get("eta", 1e-3)),
+                "dropout": float(best_params_efe.get("dropout", 0.1)),
+                "wub": float(best_params_efe.get("wub", 0.02)),
+                "wlb": float(best_params_efe.get("wlb", -0.02)),
+            }
+        )
+        opt2.suggest(warm)
+    except Exception as e:
+        print("Warm-start suggest failed (parallel Phase 2):", e)
+
+    with futures.ProcessPoolExecutor(max_workers=opt2.num_workers) as executor:
+        rec2 = opt2.minimize(func_phase2, executor=executor, batch_mode=False)
+
+    best_ce_loss = rec2.loss if hasattr(rec2, "loss") else None
+
+    print("Parallel two-phase finished.")
+    print("Best Phase1 params:", best_params_efe)
+    print("Best Phase2 params:", rec2.value)
+    return {
+        "label": "parallel",
+        "phase1_params": best_params_efe,
+        "phase1_loss": best_efe_loss,
+        "phase2_params": rec2.value,
+        "phase2_loss": best_ce_loss,
+    }
+
+
+def run_two_phase_with_portfolio(phase1_budget=30, phase2_budget=40):
+    """Use PortfolioDiscreteOnePlusOne for mixed discrete space in Phase 1."""
+    print("Phase 1 with PortfolioDiscreteOnePlusOne (EFE)...")
+    opt1 = ng.optimizers.PortfolioDiscreteOnePlusOne(parametrization=phase1_space(), budget=phase1_budget)
+    opt1.parametrization.register_cheap_constraint(constraint_embed_divisible)
+    best_efe, best_params_efe, _, _, _ = run_phase(opt1, "efe")
+
+    print("\nPhase 2 with NGOpt (CE)...")
+    opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget)
+    try:
+        warm = opt2.parametrization.spawn_child(
+            new_value={
+                "eta": float(best_params_efe.get("eta", 1e-3)),
+                "dropout": float(best_params_efe.get("dropout", 0.1)),
+                "wub": float(best_params_efe.get("wub", 0.02)),
+                "wlb": float(best_params_efe.get("wlb", -0.02)),
+            }
+        )
+        opt2.suggest(warm)
+    except Exception as e:
+        print("Warm-start suggest failed (portfolio Phase 2):", e)
+
+    best_ce, best_params_ce, _, _, _ = run_phase(opt2, "ce", fixed_params=best_params_efe)
+    print("Done. Phase1 EFE:", best_efe, "Phase2 CE:", best_ce)
+    return {
+        "label": "portfolio",
+        "phase1_params": best_params_efe,
+        "phase1_loss": best_efe,
+        "phase2_params": best_params_ce,
+        "phase2_loss": best_ce,
+    }
+
+
+def run_two_phase_with_chaining(phase1_budget=30, phase2_budget=40):
+    """Use LHS then DE in Phase 2 via Chaining for refinement."""
+    print("Phase 1 with NGOpt (EFE)...")
+    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=phase1_budget)
+    opt1.parametrization.register_cheap_constraint(constraint_embed_divisible)
+    _, best_params_efe, _, _, _ = run_phase(opt1, "efe")
+
+    print("\nPhase 2 with Chaining(LHS -> DE) (CE)...")
+    ChainOpt = ng.optimizers.Chaining([ng.optimizers.LHSSearch, ng.optimizers.DE], [int(phase2_budget * 0.2)])
+    opt2 = ChainOpt(parametrization=phase2_space(best_params_efe), budget=phase2_budget)
+    best_ce, best_params_ce, _, _, _ = run_phase(opt2, "ce", fixed_params=best_params_efe)
+    print("Chaining finished. Best CE:", best_ce)
+    return {
+        "label": "chaining",
+        "phase1_params": best_params_efe,
+        "phase1_loss": None,
+        "phase2_params": best_params_ce,
+        "phase2_loss": best_ce,
+    }
+
+
+def run_phase2_multiobjective_de(best_params, phase2_budget=40):
+    """Multi-objective DE: minimize [CE, |EFE|], show Pareto front."""
+    print("Phase 2 multi-objective DE ([CE, |EFE|])...")
+    opt = ng.optimizers.DE(parametrization=phase2_space(best_params), budget=phase2_budget)
+    opt.tell(ng.p.MultiobjectiveReference(), [10.0, 10.0])
+
+    for _ in range(phase2_budget):
+        cand = opt.ask()
+        x = cand.value
+        merged = {**best_params, **x}
+        arr_ce = train_evaluate_model(merged, objective="ce")
+        ce = float(arr_ce[0][0])
+        arr_efe = train_evaluate_model(merged, objective="efe")
+        efe = float(arr_efe[0][0])
+        opt.tell(cand, [ce, abs(efe)])
+
+    pareto = sorted(opt.pareto_front(), key=lambda c: c.losses)
+    print("Pareto front (params and losses):")
+    for p in pareto:
+        print({"params": p.value, "losses": p.losses})
+    return pareto
+
+
+def run_advanced(phase1_budget=30, phase2_budget=40, num_workers=4):
+    """Run a portfolio of advanced strategies and summarize the best result."""
+    results = []
+
+    try:
+        results.append(run_two_phase_parallel(phase1_budget, phase2_budget, num_workers))
+    except Exception as e:
+        print("Parallel strategy failed:", e)
+
+    try:
+        results.append(run_two_phase_with_portfolio(phase1_budget, phase2_budget))
+    except Exception as e:
+        print("Portfolio strategy failed:", e)
+
+    try:
+        results.append(run_two_phase_with_chaining(phase1_budget, phase2_budget))
+    except Exception as e:
+        print("Chaining strategy failed:", e)
+
+    scored = [r for r in results if r and r.get("phase2_loss") is not None]
+    best = min(scored, key=lambda r: r["phase2_loss"]) if scored else None
+
+    if best:
+        print("\nBest single-strategy CE:", best["phase2_loss"], "from", best["label"])
+        pareto = run_phase2_multiobjective_de(best["phase2_params"], phase2_budget)
+        return {"strategies": results, "best": best, "pareto": pareto}
+
+    print("No advanced strategy produced a valid result.")
+    return {"strategies": results, "best": None, "pareto": None}
+
+
 if __name__ == "__main__":
     default_case = getattr(config, "case_nevergrad", 1)
     case = int(os.environ.get("HPO_CASE", str(default_case)))
     if case == 1:
         run_two_phase_optimization()
-    # elif case == 2:
-    #     run_advanced()
-    # else:
-    #     print(f"Unknown case {case}; defaulting to case 1 (basic run)")
-    #     run_two_phase_optimization()
-    #     # finished
+    elif case == 2:
+        run_advanced()
+    else:
+        print(f"Unknown case {case}; defaulting to case 1 (basic run)")
+        run_two_phase_optimization()
+        # finished

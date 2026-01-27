@@ -45,7 +45,7 @@ def phase1_space():
 
         # Fixed dropout (as in Optuna)
         # dropout_rate=ng.p.Scalar(lower=0.0, upper=0.0),
-        dropout_rate=ng.p.Constant(0.0)
+        dropout_rate=ng.p.Constant(0.0),
 
 
         # Weight bounds

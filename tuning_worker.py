@@ -1,16 +1,16 @@
 import os
 import nevergrad as ng
+from concurrent import futures
 from config import Config as config
 from trainer_wrapper import evaluate_objective_efe, evaluate_objective_ce
 
 def print_callback(optimizer, candidate, value):
-    """Nevergrad callback to print results immediately in sequential mode."""
+    """Nevergrad callback to print results from the main process immediately."""
+    # Value is what the function returned (EFE in P1, CE in P2)
     print(f"[CALLBACK] Trial Finished. Metric Value: {value:.4f}")
-    # Note: recommendation.value gives the current best parameters
     print(f"[CALLBACK] Best so far: {optimizer.provide_recommendation().value}")
 
 def phase1_space():
-    """Defines the initial search space for Architecture and Dynamics."""
     return ng.p.Dict(
         n_layers=ng.p.Scalar(lower=1, upper=8).set_integer_casting(),
         n_heads=ng.p.Scalar(lower=2, upper=8).set_integer_casting(),
@@ -29,40 +29,37 @@ def phase1_space():
     )
 
 def phase2_space(best_p1):
-    """Refines hyperparameters while keeping the Phase 1 architecture fixed."""
     return ng.p.Dict(
         eta=ng.p.Log(lower=float(best_p1["eta"]) * 0.2, upper=float(best_p1["eta"]) * 5.0),
         wub=ng.p.Scalar(lower=max(0.01, float(best_p1["wub"]) - 0.02), upper=min(0.1, float(best_p1["wub"]) + 0.02)),
         wlb=ng.p.Scalar(lower=max(-0.1, float(best_p1["wlb"]) - 0.02), upper=min(-0.01, float(best_p1["wlb"]) + 0.02)),
         dropout_rate=ng.p.Scalar(lower=0.0, upper=0.3),
-        # Fixed Arch constants from Phase 1
+        # Fixed Arch from P1
         **{k: ng.p.Constant(v) for k, v in best_p1.items() if k not in ["eta", "wub", "wlb", "dropout_rate"]}
     )
 
 def run_two_phase_optimization():
-    # --- PHASE 1: EFE ---
-    print(f"\n=== Phase 1: EFE Optimization (Budget: {config.p1_budget}) ===")
+    N_WORKERS = int(os.environ.get("NG_WORKERS", 4))
     
-    # Sequential: num_workers defaults to 1
-    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=config.p1_budget)
+    # PHASE 1
+    print(f"\n=== Phase 1: EFE Optimization (Budget: {config.p1_budget}) ===")
+    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=config.p1_budget, num_workers=N_WORKERS)
     opt1.register_callback("tell", print_callback)
 
-    # Calling minimize without an executor runs it sequentially
-    recommendation_p1 = opt1.minimize(evaluate_objective_efe)
+    with futures.ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+        recommendation_p1 = opt1.minimize(evaluate_objective_efe, executor=executor, batch_mode=False)
 
     best_p1 = recommendation_p1.value
     print(f"\n>>> PHASE 1 COMPLETE. Best EFE Params: {best_p1}")
 
-    # --- PHASE 2: CE ---
+    # PHASE 2
     print(f"\n=== Phase 2: CE Refinement (Budget: {config.p2_budget}) ===")
-    
-    opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_p1), budget=config.p2_budget)
+    opt2 = ng.optimizers.NGOpt(parametrization=phase2_space(best_p1), budget=config.p2_budget, num_workers=N_WORKERS)
     opt2.register_callback("tell", print_callback)
-    
-    # Suggest the best from Phase 1 as the starting point for Phase 2
     opt2.suggest(**best_p1)
 
-    recommendation_p2 = opt2.minimize(evaluate_objective_ce)
+    with futures.ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+        recommendation_p2 = opt2.minimize(evaluate_objective_ce, executor=executor, batch_mode=False)
 
     print(f"\n>>> PHASE 2 COMPLETE. Final Params: {recommendation_p2.value}")
 

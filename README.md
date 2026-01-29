@@ -13,11 +13,6 @@ Navigate to the Project Directory
 ```bash
 cd NGC-PC-Transformers
 ```
-Switch to ngc-clean branch:
-
-```bash
-git checkout ngc-clean
-```  
 Create a virtual environment (optional but recommended):
 
 ```bash

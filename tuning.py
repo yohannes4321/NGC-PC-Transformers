@@ -1,3 +1,10 @@
+import os
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+# This tells JAX to use the GPU as the default platform
+os.environ["JAX_PLATFORMS"] = "cuda"
+import jax
+print(f"Default backend: {jax.default_backend()}")
+print(f"Devices: {jax.devices()}")
 import numpy as np
 import os
 import nevergrad as ng

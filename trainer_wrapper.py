@@ -1,15 +1,8 @@
-
-import os
-os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform" # Takes only what is needed
-# This tells JAX to use the GPU as the default platform
-os.environ["JAX_PLATFORMS"] = "cuda"
-import jax
-# print(f"Default backend: {jax.default_backend()}")
-# print(f"Devices: {jax.devices()}")
+import osz
 import gc
 import sys
 import time
-# import jax
+import jax
 import numpy as np
 from experiment_logger import DualLogger, LOG_DIR
 from train_tuning import run_training, PruningError

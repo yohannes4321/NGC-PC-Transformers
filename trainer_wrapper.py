@@ -4,8 +4,8 @@ os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform" # Takes only what is need
 # This tells JAX to use the GPU as the default platform
 os.environ["JAX_PLATFORMS"] = "cuda"
 import jax
-print(f"Default backend: {jax.default_backend()}")
-print(f"Devices: {jax.devices()}")
+# print(f"Default backend: {jax.default_backend()}")
+# print(f"Devices: {jax.devices()}")
 import gc
 import sys
 import time

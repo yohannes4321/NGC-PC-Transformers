@@ -76,10 +76,8 @@ def phase2_space(best_p1):
 
 # --- 3. RUN OPTIMIZATION ---
 def run_optimization_in_notebook():
-    # Use max_workers=1 or 2. Since JAX uses all GPU memory by default, 
-    # running multiple concurrent JAX trainings on one GPU usually causes OOM.
-    # We recommend num_workers=1 for single-GPU setups.
-    num_workers = 1 
+    
+    num_workers = 2 
     os.makedirs("checkpoints", exist_ok=True)
     
     print(f"JAX Backend: {jax.default_backend()}")

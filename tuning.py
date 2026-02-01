@@ -71,8 +71,8 @@ def run_two_phase_optimization():
     FAILURE_PENALTY = 1e9
     os.makedirs("checkpoints", exist_ok=True)
     
-    # Use 4 workers to keep 2 GPUs saturated (2 trials per GPU)
-    num_workers = 4
+    # Use 2 workers to keep 2 GPUs saturated (2 trials per GPU)
+    num_workers = 2
 
     # --- Phase 1: EFE Optimization ---
     print(f"\n=== Phase 1: EFE Optimization (Budget: {config.p1_budget}) ===")

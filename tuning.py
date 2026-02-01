@@ -1,9 +1,13 @@
-import numpy as np
 import os
+os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda" # Standard path
+import jax
+jax.config.update("jax_platform_name", "gpu")
+import numpy as np
+# import os
 import nevergrad as ng
 from concurrent import futures
 import warnings
-import jax
+# import jax
 
 # --- 1. SETUP & CONFIGURATION ---
 warnings.filterwarnings("ignore")

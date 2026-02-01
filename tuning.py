@@ -1,22 +1,21 @@
 import os
 import warnings
-
-# --- 0. FORCE GPU & MEMORY SETTINGS ---
-# 1. Prevent JAX from taking 90% of VRAM immediately (crucial for Nevergrad)
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-# 2. Tell JAX where the CUDA libraries are on Kaggle
-os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda"
-
-# 3. If you only want to use ONE of your two GPUs to stay safe:
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0" 
-
 import jax
 import numpy as np
 import nevergrad as ng
 from concurrent import futures
 
-# Verify connection immediately
+# --- 0. FORCE GPU & MEMORY SETTINGS ---
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda"
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+warnings.filterwarnings("ignore")
+
+from trainer_wrapper import evaluate_objective_efe, evaluate_objective_ce
+
+# --- 1. DEFINE SEARCH SPACES ---
+# (Your phase1_space and phase2_space functions remain exactly as you defined them)
+
 try:
     print(f"JAX Backend: {jax.default_backend()}")
     print(f"Available Devices: {jax.devices()}")
@@ -74,42 +73,55 @@ def phase2_space(best_p1):
         wlb=ng.p.Scalar(lower=max(-0.2, best_p1["wlb"]-0.05), upper=min(-0.001, best_p1["wlb"]+0.05)).set_mutation(sigma=0.01),
     )
 
-# --- 3. RUN OPTIMIZATION ---
 def run_optimization_in_notebook():
+    # Since num_workers = 1, we don't need ThreadPoolExecutor anymore.
+    # This avoids any GIL or threading overhead.
     
-    num_workers = 2 
     os.makedirs("checkpoints", exist_ok=True)
-    
     print(f"JAX Backend: {jax.default_backend()}")
     print(f"Devices: {jax.devices()}")
 
-    # === Phase 1 ===
+    # === Phase 1: EFE Optimization ===
     print("\n=== Phase 1: EFE Optimization ===")
-    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=10)
+    budget1 = 10
+    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=budget1, num_workers=1)
+    
+    # Optional Logger
     logger1 = ng.callbacks.ParametersLogger("checkpoints/phase1_logs.json")
     opt1.register_callback("tell", logger1)
 
-    # Note: We use ThreadPoolExecutor. JAX releases the GIL mostly, so this works fine.
-    with futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-        recommendation1 = opt1.minimize(evaluate_objective_efe, executor=executor)
-    
+    # Ask and Tell Loop for Phase 1
+    for _ in range(opt1.budget):
+        candidate = opt1.ask()
+        # evaluate_objective_efe(**candidate.value) is speed-priority
+        loss = evaluate_objective_efe(**candidate.value)
+        opt1.tell(candidate, loss)
+        print(f"P1 Trial {_+1}/{budget1} - Loss: {loss:.4f}")
+
+    recommendation1 = opt1.provide_recommendation()
     print(f"Phase 1 Winner: {recommendation1.value}")
 
-    # === Phase 2 ===
+    # === Phase 2: CE Optimization ===
     print("\n=== Phase 2: CE Optimization ===")
+    budget2 = 10
     p2_param = phase2_space(recommendation1.value)
-    opt2 = ng.optimizers.NGOpt(parametrization=p2_param, budget=10)
+    opt2 = ng.optimizers.NGOpt(parametrization=p2_param, budget=budget2, num_workers=1)
     
-    # Inoculate with best Phase 1 result
+    # INOCULATION: Inject the winner of Phase 1 as the starting point for Phase 2
     opt2.suggest(**recommendation1.value)
     
     logger2 = ng.callbacks.ParametersLogger("checkpoints/phase2_logs.json")
     opt2.register_callback("tell", logger2)
 
-    with futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-        recommendation2 = opt2.minimize(evaluate_objective_ce, executor=executor)
+    # Ask and Tell Loop for Phase 2
+    for _ in range(opt2.budget):
+        candidate = opt2.ask()
+        loss = evaluate_objective_ce(**candidate.value)
+        opt2.tell(candidate, loss)
+        print(f"P2 Trial {_+1}/{budget2} - Loss: {loss:.4f}")
 
-    print(f"Phase 2 Winner: {recommendation2.value}")
+    recommendation2 = opt2.provide_recommendation()
+    print(f"Final Phase 2 Winner: {recommendation2.value}")
 
-# Run it
-run_optimization_in_notebook()
+if __name__ == "__main__":
+    run_optimization_in_notebook()

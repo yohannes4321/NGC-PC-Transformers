@@ -1,6 +1,6 @@
-# import os
+
 import os
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform" # Takes only what is needed
 # This tells JAX to use the GPU as the default platform
 os.environ["JAX_PLATFORMS"] = "cuda"
 import jax

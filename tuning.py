@@ -6,7 +6,8 @@ from trainer_wrapper import evaluate_objective_efe, evaluate_objective_ce
 from nevergrad import callbacks
 import warnings
 warnings.filterwarnings("ignore")
-
+import os
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform" # Takes only what is needed
 # --- Phase 1 Search Space (Architecture + Hyperparams) ---
 def phase1_space():
     return ng.p.Dict(

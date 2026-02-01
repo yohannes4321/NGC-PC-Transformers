@@ -1,16 +1,11 @@
 import os
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
-# This tells JAX to use the GPU as the default platform
-os.environ["JAX_PLATFORMS"] = "cuda"
 import jax
-print(f"Default backend: {jax.default_backend()}")
-print(f"Devices: {jax.devices()}")
-import sys
-import os
-import time
-from math import inf
 import jax.numpy as jnp
-from jax import random
+from jax import random, device_put
+import time
+
+# Set memory allocation behavior BEFORE imports
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 # Project Imports
 from model import NGCTransformer
@@ -19,10 +14,7 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 from eval import eval_model
 
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
 class PruningError(Exception):
-    """Exception raised when a trial is performing significantly worse than best."""
     pass
 
 def _build_cfg(params_override=None):
@@ -76,37 +68,42 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
             if total_batches >= max_train_batches:
                 break
 
-            inputs, targets = batch[0][1], batch[1][1]
-            targets_flat = jnp.eye(config.vocab_size)[targets].reshape(-1, config.vocab_size)
+            # --- OPTIMIZATION 1: Use device_put to keep data on GPU ---
+            inputs = device_put(jnp.array(batch[0][1]))
+            targets = device_put(jnp.array(batch[1][1]))
+            
+            # --- OPTIMIZATION 2: Efficient Target Handling ---
+            # If your model.process requires one-hot, only expand it right before the call
+            # and reshape it to avoid giant intermediate matrices.
+            targets_one_hot = jax.nn.one_hot(targets, config.vocab_size).reshape(-1, config.vocab_size)
 
             # FORWARD
-            _, _, efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            # Using model.process with device-resident data
+            y_mu, _, efe = model.process(obs=inputs, lab=targets_one_hot, adapt_synapses=True)
             current_efe = float(abs(efe))
 
             # --- DYNAMIC PRUNING ---
-            # We start checking after 10 batches to let the model settle
             if pruning_threshold is not None and total_batches > 10:
                 if current_efe > (pruning_threshold * 3.0):
-                    print(f"[PRUNE] Current EFE {current_efe:.2f} > 3x Best ({pruning_threshold:.2f})")
                     raise PruningError(f"Trial EFE {current_efe} exceeded threshold.")
 
             # --- SAFETY PRUNING ---
             if not jnp.isfinite(efe) or current_efe > 1e7:
-                print("[PRUNE-HARD] Instability detected")
                 raise PruningError("Numerical instability.")
 
             sum_efe += float(efe)
             total_batches += 1
 
             if batch_idx % 10 == 0:
-                y_pred = _.reshape(-1, config.vocab_size)
-                y_true = jnp.eye(config.vocab_size)[targets.flatten()]
-                batch_ce = measure_CatNLL(y_pred, y_true).mean()
+                # OPTIMIZATION 3: Memory-efficient Categorical NLL
+                y_pred = y_mu.reshape(-1, config.vocab_size)
+                # Instead of jnp.eye, use targets directly for CE
+                # We reuse the one-hot version only for the calculation to save VRAM
+                batch_ce = measure_CatNLL(y_pred, targets_one_hot).mean()
                 print(f"B:{batch_idx} | EFE:{efe:.2f} | CE:{batch_ce:.4f}")
 
-        avg_train_EFE = sum_efe / max(total_batches, 1)
-        dev_ce, dev_ppl = eval_model(model, valid_loader, config.vocab_size)
+    avg_train_EFE = sum_efe / max(total_batches, 1)
+    dev_ce, dev_ppl = eval_model(model, valid_loader, config.vocab_size)
 
-    total_time = time.time() - start_time
-    print("time",total_time)
+    print(f"Time: {time.time() - start_time:.2f}s")
     return float(abs(avg_train_EFE)), float(dev_ce), float(dev_ppl)

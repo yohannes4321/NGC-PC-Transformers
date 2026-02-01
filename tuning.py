@@ -1,10 +1,28 @@
 import os
-os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda" # Standard path
+import warnings
+
+# --- 0. FORCE GPU & MEMORY SETTINGS ---
+# 1. Prevent JAX from taking 90% of VRAM immediately (crucial for Nevergrad)
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
+# 2. Tell JAX where the CUDA libraries are on Kaggle
+os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda"
+
+# 3. If you only want to use ONE of your two GPUs to stay safe:
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0" 
+
 import jax
-jax.config.update("jax_platform_name", "gpu")
 import numpy as np
-# import os
 import nevergrad as ng
+from concurrent import futures
+
+# Verify connection immediately
+try:
+    print(f"JAX Backend: {jax.default_backend()}")
+    print(f"Available Devices: {jax.devices()}")
+except RuntimeError as e:
+    print(f"GPU Error: {e}. Falling back to CPU is disabled.")
+# import nevergrad as ng
 from concurrent import futures
 import warnings
 # import jax

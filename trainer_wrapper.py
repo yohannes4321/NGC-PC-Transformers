@@ -30,6 +30,7 @@ def _prepare_params(args, kwargs):
 def _run_trial_internal(args, kwargs, objective_type="efe"):
     params = _prepare_params(args, kwargs)
     state.trial_count += 1
+    print(f"\n[TRIAL {state.trial_count}] Params: {params}", flush=True)
     
     # Logic for pruning
     threshold = state.best_efe if objective_type == "efe" else state.best_ce

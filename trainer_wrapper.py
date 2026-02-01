@@ -1,13 +1,10 @@
 import os
 import gc
 import sys
-import time
 import jax
-import numpy as np
-from experiment_logger import DualLogger, LOG_DIR
 from train_tuning import run_training, PruningError
 
-# State tracker for pruning
+# Global state tracker
 class StudyState:
     best_efe = float('inf')
     best_ce = float('inf')
@@ -33,21 +30,10 @@ def _prepare_params(args, kwargs):
 def _run_trial_internal(args, kwargs, objective_type="efe"):
     params = _prepare_params(args, kwargs)
     state.trial_count += 1
-    trial_label = state.trial_count
-    os.makedirs(LOG_DIR, exist_ok=True)
-    log_path = os.path.join(LOG_DIR, f"trial_{trial_label}.txt")
-
-    print(f"[TRIAL {trial_label}] Objective: {objective_type}")
-    print(f"[TRIAL {trial_label}] Params: {params}")
-
-    # Set threshold based on current objective
+    
+    # Logic for pruning
     threshold = state.best_efe if objective_type == "efe" else state.best_ce
-    # Don't prune if we haven't found a good best yet
     if threshold > 1e9: threshold = None 
-
-    original_stdout = sys.stdout
-    logger = DualLogger(log_path)
-    sys.stdout = logger
 
     try:
         clean_memory()
@@ -56,31 +42,27 @@ def _run_trial_internal(args, kwargs, objective_type="efe"):
             pruning_threshold=threshold
         )
 
-        # Update global bests if not pruned
         if objective_type == "efe" and efe < state.best_efe:
             state.best_efe = efe
         if objective_type == "ce" and ce < state.best_ce:
             state.best_ce = ce
 
-        return efe, ce, ppl, False
+        return efe, ce, ppl
 
     except PruningError as e:
-        print(f"Stopping Trial: {e}")
-        return 1e12, 1e12, 1e12, True # Penalty score
+        print(f"Trial {state.trial_count} Pruned: {e}")
+        return 1e12, 1e12, 1e12
 
     except Exception as e:
-        print(f"[SYSTEM FAILURE] {repr(e)}")
-        return 1e12, 1e12, 1e12, True
-
+        print(f"[TRIAL {state.trial_count} FAILURE] {repr(e)}")
+        return 1e12, 1e12, 1e12
     finally:
-        logger.close()
-        sys.stdout = original_stdout
         clean_memory()
 
 def evaluate_objective_efe(*args, **kwargs):
-    efe, ce, ppl, unstable = _run_trial_internal(args, kwargs, "efe")
+    efe, _, _ = _run_trial_internal(args, kwargs, "efe")
     return efe
 
 def evaluate_objective_ce(*args, **kwargs):
-    efe, ce, ppl, unstable = _run_trial_internal(args, kwargs, "ce")
+    _, ce, _ = _run_trial_internal(args, kwargs, "ce")
     return ce

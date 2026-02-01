@@ -68,110 +68,43 @@ from concurrent import futures
 import numpy as np
 
 def run_two_phase_optimization():
-    FAILURE_PENALTY = 1e9
+    # 1. SETUP
+    num_workers = 2  # Matches your 2 GPUs
     os.makedirs("checkpoints", exist_ok=True)
     
-    # Use 2 workers to keep 2 GPUs saturated (2 trials per GPU)
-    num_workers = 2
-
-    # --- Phase 1: EFE Optimization ---
-    print(f"\n=== Phase 1: EFE Optimization (Budget: {config.p1_budget}) ===")
+    # --- PHASE 1: EFE OPTIMIZATION ---
+    print("\n=== Phase 1: EFE Optimization ===")
+    p1_log_path = "checkpoints/phase1_logs.json"
     
-    optimizer1 = ng.optimizers.NGOpt(
-        parametrization=phase1_space(), 
-        budget=config.p1_budget, 
-        num_workers=num_workers
-    )
-    optimizer1.register_callback("tell", callbacks.OptimizerDump("checkpoints/optimizer1.pkl"))
+    # Define Optimizer & Logger
+    opt1 = ng.optimizers.NGOpt(parametrization=phase1_space(), budget=10)
+    logger1 = ng.callbacks.ParametersLogger(p1_log_path)
+    opt1.register_callback("tell", logger1)
 
-    best_p1_params = None
-    best_p1_loss = float("inf")
+    # Parallel Execution Loop
+    with futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+        recommendation1 = opt1.minimize(evaluate_objective_efe, executor=executor)
+    
+    print(f"Phase 1 Best EFE Params: {recommendation1.value}")
+
+    # --- PHASE 2: CE OPTIMIZATION ---
+    print("\n=== Phase 2: CE Optimization ===")
+    p2_log_path = "checkpoints/phase2_logs.json"
+    
+    # Use best results from Phase 1 as a starting point for Phase 2
+    p2_param = phase2_space()
+    p2_param.set_name("CE_Space")
+    # Suggesting the best candidate from Phase 1 to Phase 2
+    p2_param.value = recommendation1.value 
+
+    opt2 = ng.optimizers.NGOpt(parametrization=p2_param, budget=10)
+    logger2 = ng.callbacks.ParametersLogger(p2_log_path)
+    opt2.register_callback("tell", logger2)
 
     with futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-        pending_trials = {}
-        
-        # Fill the pipeline
-        for _ in range(min(num_workers, optimizer1.budget)):
-            cand = optimizer1.ask()
-            task = executor.submit(evaluate_objective_efe, **cand.value)
-            pending_trials[task] = cand
+        recommendation2 = opt2.minimize(evaluate_objective_ce, executor=executor)
 
-        while pending_trials:
-            done, _ = futures.wait(pending_trials.keys(), return_when=futures.FIRST_COMPLETED)
-            
-            for task in done:
-                cand = pending_trials.pop(task)
-                try:
-                    loss = task.result()
-                    if np.isnan(loss) or np.isinf(loss) or loss > 1e7:
-                        optimizer1.tell(cand, FAILURE_PENALTY)
-                    else:
-                        optimizer1.tell(cand, loss)
-                        if loss < best_p1_loss:
-                            best_p1_loss = loss
-                            best_p1_params = cand.value
-                            print(f"[P1] ✅ New Best EFE: {loss:.4f}")
-                except Exception as e:
-                    print(f"Trial failed: {e}")
-                    optimizer1.tell(cand, FAILURE_PENALTY)
-
-                # Ask for a new candidate if budget remains
-                if optimizer1.num_ask < optimizer1.budget:
-                    new_cand = optimizer1.ask()
-                    new_task = executor.submit(evaluate_objective_efe, **new_cand.value)
-                    pending_trials[new_task] = new_cand
-
-    recommendation1 = optimizer1.provide_recommendation()
-    best_architecture = recommendation1.value
-    print(f"\n>>> PHASE 1 COMPLETE. Best Loss: {best_p1_loss}")
-
-    # --- Phase 2: CE Refinement ---
-    print(f"\n=== Phase 2: CE Refinement (Budget: {config.p2_budget}) ===")
-    
-    optimizer2 = ng.optimizers.NGOpt(
-        parametrization=phase2_space(best_architecture), 
-        budget=config.p2_budget,
-        num_workers=num_workers
-    )
-    optimizer2.register_callback("tell", callbacks.OptimizerDump("checkpoints/optimizer2.pkl"))
-    optimizer2.suggest(**best_architecture)
-
-    best_p2_loss = float("inf")
-
-    with futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-        pending_trials = {}
-        
-        for _ in range(min(num_workers, optimizer2.budget)):
-            cand = optimizer2.ask()
-            task = executor.submit(evaluate_objective_ce, **cand.value)
-            pending_trials[task] = cand
-
-        while pending_trials:
-            done, _ = futures.wait(pending_trials.keys(), return_when=futures.FIRST_COMPLETED)
-            
-            for task in done:
-                cand = pending_trials.pop(task)
-                try:
-                    loss = task.result()
-                    if np.isnan(loss) or np.isinf(loss) or loss > 16:
-                        optimizer2.tell(cand, FAILURE_PENALTY)
-                    else:
-                        optimizer2.tell(cand, loss)
-                        if loss < best_p2_loss:
-                            best_p2_loss = loss
-                            print(f"[P2] ✅ New Best CE: {loss:.4f}")
-                except Exception as e:
-                    print(f"Trial failed: {e}")
-                    optimizer2.tell(cand, FAILURE_PENALTY)
-
-                if optimizer2.num_ask < optimizer2.budget:
-                    new_cand = optimizer2.ask()
-                    new_task = executor.submit(evaluate_objective_ce, **new_cand.value)
-                    pending_trials[new_task] = new_cand
-
-    recommendation2 = optimizer2.provide_recommendation()
-    print("\n>>> OPTIMIZATION FINISHED")
-    print(f"Final CE Loss: {best_p2_loss}")
-    print(f"Best Params: {recommendation2.value}")
+    print(f"Phase 2 Best CE Params: {recommendation2.value}")
+    return recommendation2.value
 if __name__ == "__main__":
     run_two_phase_optimization()#

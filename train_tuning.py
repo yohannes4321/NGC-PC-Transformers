@@ -35,7 +35,8 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
 
     dkey = random.PRNGKey(1234)
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
-    train_loader, valid_loader, _ = data_loader.load_and_prepare_data()
+    # We still load, but we won't use valid_loader here
+    train_loader, _, _ = data_loader.load_and_prepare_data()
 
     model = NGCTransformer(
         dkey,
@@ -61,6 +62,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
 
     total_batches = 0
     sum_efe = 0.0
+    sum_ce = 0.0 # Track CE during training
     start_time = time.time()
 
     for epoch in range(cfg.epoch):
@@ -68,42 +70,39 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
             if total_batches >= max_train_batches:
                 break
 
-            # --- OPTIMIZATION 1: Use device_put to keep data on GPU ---
             inputs = device_put(jnp.array(batch[0][1]))
             targets = device_put(jnp.array(batch[1][1]))
-            
-            # --- OPTIMIZATION 2: Efficient Target Handling ---
-            # If your model.process requires one-hot, only expand it right before the call
-            # and reshape it to avoid giant intermediate matrices.
             targets_one_hot = jax.nn.one_hot(targets, config.vocab_size).reshape(-1, config.vocab_size)
 
             # FORWARD
-            # Using model.process with device-resident data
             y_mu, _, efe = model.process(obs=inputs, lab=targets_one_hot, adapt_synapses=True)
+            
+            # Calculate CE for this batch
+            y_pred = y_mu.reshape(-1, config.vocab_size)
+            batch_ce = measure_CatNLL(y_pred, targets_one_hot).mean()
+            batch_ppl = jnp.exp(batch_ce)
+            # Update accumulators
             current_efe = float(abs(efe))
+            sum_efe += float(efe)
+            sum_ce += float(batch_ce)
+            total_batches += 1
 
-            # --- DYNAMIC PRUNING ---
+            # DYNAMIC PRUNING
             if pruning_threshold is not None and total_batches > 10:
                 if current_efe > (pruning_threshold * 3.0):
                     raise PruningError(f"Trial EFE {current_efe} exceeded threshold.")
 
-            # --- SAFETY PRUNING ---
             if not jnp.isfinite(efe) or current_efe > 1e7:
                 raise PruningError("Numerical instability.")
 
-            sum_efe += float(efe)
-            total_batches += 1
-
             if batch_idx % 10 == 0:
-                # OPTIMIZATION 3: Memory-efficient Categorical NLL
-                y_pred = y_mu.reshape(-1, config.vocab_size)
-                # Instead of jnp.eye, use targets directly for CE
-                # We reuse the one-hot version only for the calculation to save VRAM
-                batch_ce = measure_CatNLL(y_pred, targets_one_hot).mean()
-                print(f"B:{batch_idx} | EFE:{efe:.2f} | CE:{batch_ce:.4f}")
+                print(f"B:{batch_idx} | EFE:{efe:.2f} | CE:{batch_ce:.4f} | PPL:{batch_ppl:.2f}")
 
-    avg_train_EFE = sum_efe / max(total_batches, 1)
-    dev_ce, dev_ppl = eval_model(model, valid_loader, config.vocab_size)
+    # Calculate final stats from the training batches
+    avg_train_efe = sum_efe / max(total_batches, 1)
+    avg_train_ce = sum_ce / max(total_batches, 1)
+    # Perplexity approximation: exp(CrossEntropy)
+    approx_ppl = jnp.exp(avg_train_ce)
 
-    print(f"Time: {time.time() - start_time:.2f}s")
-    return float(abs(avg_train_EFE)), float(dev_ce), float(dev_ppl)
+    print(f"Trial Finished. Time: {time.time() - start_time:.2f}s")
+    return float(abs(avg_train_efe)), float(avg_train_ce), float(approx_ppl)

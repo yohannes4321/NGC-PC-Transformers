@@ -10,12 +10,18 @@ warnings.filterwarnings("ignore")
 # --- Phase 1 Search Space (Architecture + Hyperparams) ---
 def phase1_space():
     return ng.p.Dict(
-        n_layers=ng.p.Choice([1, 2, 3, 4, 5, 6, 7, 8]),
-        n_heads=ng.p.Choice([2, 3, 4, 5, 6, 7, 8]),
-        embed_mult=ng.p.Choice([8, 12, 16]),
+# CRITICAL: Increase batch size significantly to use the GPU VRAM
+        # Since you have 15GB VRAM, try much larger powers of 2 (32, 64, 128)
+        batch_size=ng.p.Choice([32, 64, 128, 256]),
 
-        batch_size=ng.p.Choice([2, 4, 6, 8, 10, 12]),
-        seq_len=ng.p.Choice([8, 12, 16, 20, 24, 28, 32]),
+        # Optional: If your sequence length is small, the GPU finishes too fast.
+        # Try testing slightly larger sequences if your data allows it.
+        seq_len=ng.p.Choice([32, 64, 128]),
+
+        # These are likely fine for the model structure
+        n_layers=ng.p.Choice([1, 2, 3, 4, 5, 6, 7, 8]),
+        n_heads=ng.p.Choice([2, 4, 8]), # Usually better as multiples of 2
+        embed_mult=ng.p.Choice([8, 12, 16]),
 
         pos_learnable=ng.p.Choice([True, False]),
         act_fx=ng.p.Choice(["identity", "relu", "tanh"]),
@@ -23,7 +29,6 @@ def phase1_space():
         tau_m=ng.p.Choice([10, 12, 14, 16, 18, 20]),
         n_iter=ng.p.Choice([1, 4, 8, 16, 24, 30]),
 
-        # FIXED: Added lower/upper keywords
         eta=ng.p.Log(lower=1e-6, upper=1e-4).set_mutation(sigma=1.0),
         wub=ng.p.Scalar(lower=0.01, upper=0.1).set_mutation(sigma=0.02),
         wlb=ng.p.Scalar(lower=-0.1, upper=-0.01).set_mutation(sigma=0.02),

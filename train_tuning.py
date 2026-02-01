@@ -32,7 +32,7 @@ def _build_cfg(params_override=None):
 
 def run_training(params_override=None, save_model=False, max_train_batches=None, pruning_threshold=None):
     cfg = _build_cfg(params_override)
-    max_train_batches = 10 if max_train_batches is None else int(max_train_batches)
+    max_train_batches = 30 if max_train_batches is None else int(max_train_batches)
 
     dkey = random.PRNGKey(1234)
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)

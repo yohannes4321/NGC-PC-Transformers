@@ -305,7 +305,6 @@ def run_phase2_trial(trial, best_params):
 
 def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)
-    Path("tuning_results").mkdir(exist_ok=True)
 
     print("PHASE 1: TPE optimizing EFE (all parameters)")
     study_efe = optuna.create_study(
@@ -384,6 +383,32 @@ def case1_efe_to_ce_complete():
             change_pct = ((phase2_val - phase1_val) / phase1_val * 100) if phase1_val != 0 else 0
             print(f"  {key}: {phase1_val:.6f} → {phase2_val:.6f} ({change_pct:+.1f}%)")
         
+        with open("tuning/best_hyperparameters.txt", "w") as f:
+            f.write("="*60 + "\n")
+            f.write("BEST HYPERPARAMETERS\n")
+            f.write("="*60 + "\n\n")
+            
+            f.write("PHASE 1 - BEST FOR EFE:\n")
+            f.write("-"*40 + "\n")
+            f.write(f"Best EFE: {best_efe:.6f}\n")
+            f.write(f"Corresponding CE: {best_efe_ce:.6f}\n")
+            f.write("-"*40 + "\n")
+            
+            for key, value in best_params.items():
+                f.write(f"{key} = {value}\n")
+            
+            f.write("\n" + "="*60 + "\n\n")
+            
+            f.write("PHASE 2 - BEST FOR CE:\n")
+            f.write("-"*40 + "\n")
+            f.write(f"Best CE: {best_ce:.6f}\n")
+            f.write("-"*40 + "\n")
+            
+            for key, value in final_params.items():
+                f.write(f"{key} = {value}\n")
+        
+        print(f"\n✓ Best hyperparameters saved to: tuning/best_hyperparameters.txt")
+        
         return {
             "phase1_best_efe": best_efe,
             "phase1_best_ce": best_efe_ce,
@@ -413,6 +438,7 @@ def main():
             print(f"- Phase 2 Best CE: {results['phase2_best_ce']:.4f}")
             if 'improvement_pct' in results:
                 print(f"- Improvement: {results['improvement_pct']:+.1f}%")
+            print(f"\n Parameters saved to: tuning/best_hyperparameters.txt")
         else:
             print("Tuning failed or was interrupted.")
     except KeyboardInterrupt:

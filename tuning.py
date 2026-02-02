@@ -108,7 +108,7 @@ def run_optimization_in_notebook():
     opt2 = ng.optimizers.NGOpt(parametrization=p2_param, budget=budget2, num_workers=1)
     
     # INOCULATION: Inject the winner of Phase 1 as the starting point for Phase 2
-    opt2.suggest(**recommendation1.value)
+    opt2.suggest(recommendation1.value)
     
     logger2 = ng.callbacks.ParametersLogger("checkpoints/phase2_logs.json")
     opt2.register_callback("tell", logger2)

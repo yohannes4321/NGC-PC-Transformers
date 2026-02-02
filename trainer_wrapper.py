@@ -30,9 +30,6 @@ def _prepare_params(args, kwargs):
 def _run_trial_internal(args, kwargs, objective_type="efe"):
     params = _prepare_params(args, kwargs)
     state.trial_count += 1
-    
-    # Loosen threshold: Trial 1 shouldn't kill everything.
-    # Only prune if it's truly exploding (e.g., > 1e8)
     threshold = 1e8 
 
     try:

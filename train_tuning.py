@@ -32,6 +32,11 @@ def _build_cfg(params_override=None):
 def run_training(params_override=None, save_model=False, max_train_batches=None, pruning_threshold=None):
     cfg = _build_cfg(params_override)
     max_train_batches = 30 if max_train_batches is None else int(max_train_batches)
+    cfg_params = {
+        k: getattr(cfg, k)
+        for k in dir(cfg)
+        if not k.startswith("_") and not callable(getattr(cfg, k))
+    }
 
     dkey = random.PRNGKey(1234)
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
@@ -101,6 +106,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
                 raise PruningError("Numerical instability.")
 
             if batch_idx % 10 == 0:
+                print(f"Params: {cfg_params}")
                 print(f"B:{batch_idx} | EFE:{efe:.2f} | CE:{batch_ce:.4f} | PPL:{batch_ppl:.2f}")
 
     # Calculate final stats from the training batches

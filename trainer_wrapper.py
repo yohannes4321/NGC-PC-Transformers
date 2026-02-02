@@ -30,30 +30,26 @@ def _prepare_params(args, kwargs):
 def _run_trial_internal(args, kwargs, objective_type="efe"):
     params = _prepare_params(args, kwargs)
     state.trial_count += 1
-    threshold = 1e8 
-
+    
     try:
-        efe, ce, ppl = run_training(
-            params_override=params,
-            pruning_threshold=threshold 
-        )
+        efe, ce, ppl = run_training(params_override=params, pruning_threshold=1e8)
 
-        # Instead of raw absolute EFE, use log10 to smooth the optimizer's view
-        # This prevents 4,000,000 from looking infinitely worse than 80
-        # and helps the optimizer find the "path" down.
-        smooth_efe = np.log10(abs(efe) + 1.0)
+        # --- FIX 1: PREVENT CRASH (NaN Guard) ---
+        if not np.isfinite(efe) or not np.isfinite(ce):
+            print(f"[TRIAL {state.trial_count}] Diverged (NaN). Penalty applied.")
+            return 1e9, 1e9, 1e9
+
+      
+        
+        smooth_efe = np.log10(np.abs(efe) + 1.0)
         
         if objective_type == "efe":
             return smooth_efe, ce, ppl
         return efe, ce, ppl
 
-    except PruningError as e:
-        # Instead of a giant wall (1e12), give a "bad but informative" score
-        return 20.0, 20.0, 20.0 # Log10(1e20) is too much, 20 is a safe "bad" score
-
     except Exception as e:
-        print(f"[TRIAL {state.trial_count} FAILURE] {repr(e)}")
-        return 1e12, 1e12, 1e12
+        print(f"Failed: {e}")
+        return 1e9, 1e9, 1e9
     finally:
         clean_memory()
 

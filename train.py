@@ -86,7 +86,7 @@ def main():
           model.save_to_disk(params_only=False) # save final state of model to disk
     total_time = time.time() - total_start_time
     print(f"\nTraining finished.")
-    print(f"Total training time: {total_time:.0f} seconds")
+    print(f"Total training time: {total_time:.0f} seconds") #
    
 if __name__ == "__main__":
     main()

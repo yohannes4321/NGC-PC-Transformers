@@ -71,6 +71,8 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
     sum_ce = 0.0 # Track CE during training
     start_time = time.time()
 
+    print(f"Params: {cfg_params}")
+
     for epoch in range(cfg.epoch):
         for batch_idx, batch in enumerate(train_loader):
             if total_batches >= max_train_batches:
@@ -106,7 +108,6 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
                 raise PruningError("Numerical instability.")
 
             if batch_idx % 10 == 0:
-                print(f"Params: {cfg_params}")
                 print(f"B:{batch_idx} | EFE:{efe:.2f} | CE:{batch_ce:.4f} | PPL:{batch_ppl:.2f}")
 
     # Calculate final stats from the training batches

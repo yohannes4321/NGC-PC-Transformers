@@ -3,7 +3,7 @@ import gc
 import sys
 import jax
 from train_tuning import run_training, PruningError
-
+import numpy as np
 # Global state tracker
 class StudyState:
     best_efe = float('inf')
@@ -30,29 +30,29 @@ def _prepare_params(args, kwargs):
 def _run_trial_internal(args, kwargs, objective_type="efe"):
     params = _prepare_params(args, kwargs)
     state.trial_count += 1
-    print(f"\n[TRIAL {state.trial_count}] Params: {params}", flush=True)
     
-    # Logic for pruning
-    threshold = state.best_efe if objective_type == "efe" else state.best_ce
-    if threshold > 1e9: threshold = None 
+    # Loosen threshold: Trial 1 shouldn't kill everything.
+    # Only prune if it's truly exploding (e.g., > 1e8)
+    threshold = 1e8 
 
     try:
-        clean_memory()
         efe, ce, ppl = run_training(
             params_override=params,
-            pruning_threshold=threshold
+            pruning_threshold=threshold 
         )
 
-        if objective_type == "efe" and efe < state.best_efe:
-            state.best_efe = efe
-        if objective_type == "ce" and ce < state.best_ce:
-            state.best_ce = ce
-
+        # Instead of raw absolute EFE, use log10 to smooth the optimizer's view
+        # This prevents 4,000,000 from looking infinitely worse than 80
+        # and helps the optimizer find the "path" down.
+        smooth_efe = np.log10(abs(efe) + 1.0)
+        
+        if objective_type == "efe":
+            return smooth_efe, ce, ppl
         return efe, ce, ppl
 
     except PruningError as e:
-        print(f"Trial {state.trial_count} Pruned: {e}")
-        return 1e12, 1e12, 1e12
+        # Instead of a giant wall (1e12), give a "bad but informative" score
+        return 20.0, 20.0, 20.0 # Log10(1e20) is too much, 20 is a safe "bad" score
 
     except Exception as e:
         print(f"[TRIAL {state.trial_count} FAILURE] {repr(e)}")

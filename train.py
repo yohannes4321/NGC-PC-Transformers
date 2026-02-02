@@ -1,4 +1,4 @@
-
+import jax
 from jax import numpy as jnp, random
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
@@ -69,9 +69,10 @@ def main():
 
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, vocab_size)
-                y_true = jnp.eye(vocab_size)[targets.flatten()]
-                
-                batch_nll = measure_CatNLL(y_pred, y_true)
+                # y_true = jnp.eye(vocab_size)[targets.flatten()]
+                targets_one_hot = jax.nn.one_hot(targets, config.vocab_size).reshape(-1, config.vocab_size)
+
+                batch_nll = measure_CatNLL(y_pred, targets_one_hot)
                 batch_ce_loss = batch_nll.mean()  
                 batch_ppl = jnp.exp(batch_ce_loss)
                 

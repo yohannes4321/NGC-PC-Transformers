@@ -62,6 +62,7 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
 
     total_batches = 0
     sum_efe = 0.0
+    sum_abs_efe = 0.0
     sum_ce = 0.0 # Track CE during training
     start_time = time.time()
 
@@ -82,17 +83,21 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
             batch_ce = measure_CatNLL(y_pred, targets_one_hot).mean()
             batch_ppl = jnp.exp(batch_ce)
             # Update accumulators
-            current_efe = float(abs(efe))
+            current_efe = float(efe)
+            current_abs_efe = float(abs(efe))
             sum_efe += float(efe)
+            sum_abs_efe += current_abs_efe
             sum_ce += float(batch_ce)
             total_batches += 1
 
             # DYNAMIC PRUNING
             if pruning_threshold is not None and total_batches > 10:
-                if current_efe > (pruning_threshold * 3.0):
-                    raise PruningError(f"Trial EFE {current_efe} exceeded threshold.")
+                if current_abs_efe > (pruning_threshold * 3.0):
+                    raise PruningError(
+                        f"Trial |EFE| {current_abs_efe} exceeded threshold {pruning_threshold}."
+                    )
 
-            if not jnp.isfinite(efe) or current_efe > 1e7:
+            if not jnp.isfinite(efe) or current_abs_efe > 1e7:
                 raise PruningError("Numerical instability.")
 
             if batch_idx % 10 == 0:
@@ -100,9 +105,10 @@ def run_training(params_override=None, save_model=False, max_train_batches=None,
 
     # Calculate final stats from the training batches
     avg_train_efe = sum_efe / max(total_batches, 1)
+    avg_train_abs_efe = sum_abs_efe / max(total_batches, 1)
     avg_train_ce = sum_ce / max(total_batches, 1)
     # Perplexity approximation: exp(CrossEntropy)
     approx_ppl = jnp.exp(avg_train_ce)
 
     print(f"Trial Finished. Time: {time.time() - start_time:.2f}s")
-    return float(abs(avg_train_efe)), float(avg_train_ce), float(approx_ppl)
+    return float(avg_train_abs_efe), float(avg_train_ce), float(approx_ppl)

@@ -53,6 +53,7 @@ def main():
     for i in range(epoch):
         print(f"\nEpoch {i}")
         train_EFE=0
+        total_batches=0
         for batch_idx, batch in enumerate(train_loader):
             # START STEP TIMER
             step_start = time.time()

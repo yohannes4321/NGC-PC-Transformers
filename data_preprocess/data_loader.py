@@ -59,9 +59,9 @@ class DataLoader:
 
         print("RAM after loading:", ram_mb(), "MB")
 
-        train_loader = self._create_data_loader(train_tokens, shuffle=True, tag="TRAIN")
-        valid_loader = self._create_data_loader(valid_tokens, shuffle=False, tag="VALID")
-        test_loader  = self._create_data_loader(test_tokens,  shuffle=False, tag="TEST")
+        train_loader = self._create_data_loader(train_tokens, shuffle=True)
+        valid_loader = self._create_data_loader(valid_tokens, shuffle=False )
+        test_loader  = self._create_data_loader(test_tokens,  shuffle=False)
 
         return train_loader, valid_loader, test_loader
 

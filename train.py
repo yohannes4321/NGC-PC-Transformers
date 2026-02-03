@@ -12,8 +12,7 @@ from eval import eval_model
 
 # ------------------------------------------------------------------
 #  OPTIMIZATION: JIT-compiled training step
-# ------------------------------------------------------------------
-@partial(jax.jit, static_argnames=['adapt_synapses'])
+@partial(jax.jit, static_argnames=['model', 'adapt_synapses'])
 def train_step(model, inputs, targets_flat, adapt_synapses=True):
     yMu_inf, _, _EFE = model.process(
         obs=inputs,

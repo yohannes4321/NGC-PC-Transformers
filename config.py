@@ -1,7 +1,7 @@
 class Config:
     SEED = 42
-    p1_budget=100
-    p2_budget=100
+    # Select tuning branch: 1 = two-phase EFE→CE, 2 = combined CE+EFE
+    case = 2
     seq_len =  8
     n_embed = 16
     batch_size = 2
@@ -13,7 +13,7 @@ class Config:
     exp_dir = "exp" 
     pos_learnable = True
     optim_type = "adam"
-    epoch = 1
+    num_iter = 1
     n_iter= 17
     # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
     wub = 0.052687144037646905

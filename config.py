@@ -1,7 +1,7 @@
 class Config:
     SEED = 42
-    p1_budget=10
-    p2_budget=10
+    p1_budget=100
+    p2_budget=100
     seq_len =  8
     n_embed = 16
     batch_size = 2

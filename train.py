@@ -1,5 +1,7 @@
 import jax
-from jax import numpy as jnp, random
+import jax.numpy as jnp
+from jax import random
+from functools import partial  # Required for jit static arguments
 
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
@@ -7,6 +9,22 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 from eval import eval_model
 
+# ------------------------------------------------------------------
+#  OPTIMIZATION: Define the JIT-compiled training step
+# ------------------------------------------------------------------
+# We compile this function once. 
+# 'static_argnames' tells JAX to re-compile only if 'adapt_synapses' changes value.
+@partial(jax.jit, static_argnames=['adapt_synapses'])
+def train_step(model, inputs, targets_flat, adapt_synapses=True):
+    # process() returns the outputs and the internal metric
+    yMu_inf, _, _EFE = model.process(
+        obs=inputs,
+        lab=targets_flat,
+        adapt_synapses=adapt_synapses
+    )
+    # CRITICAL: We must return the 'model' because JAX updates are functional.
+    # The 'model' object returned here contains the updated synaptic weights.
+    return model, yMu_inf, _EFE
 
 def main():
     # ----------------------------
@@ -42,6 +60,7 @@ def main():
     # ----------------------------
     # Model
     # ----------------------------
+    print("Initializing Model...")
     model = NGCTransformer(
         dkey,
         batch_size=batch_size,
@@ -66,38 +85,17 @@ def main():
     )
 
     # ----------------------------
-    # Train-only CE evaluation
-    # ----------------------------
-    # def train_model(data_loader):
-    #     total_nll = 0.0
-    #     total_tokens = 0
-
-    #     for batch in data_loader:
-    #         inputs = batch[0][1]
-    #         targets = batch[1][1]  # (B, S)
-
-    #         targets_onehot = jax.nn.one_hot(targets, vocab_size)  # (B, S, V)
-    #         targets_flat = targets_onehot.reshape(-1, vocab_size)
-
-    #         yMu_inf, _, _ = model.process(
-    #             obs=inputs,
-    #             lab=targets_flat,
-    #             adapt_synapses=False
-    #         )
-
-    #         y_pred = yMu_inf.reshape(-1, vocab_size)
-
-    #         nll = measure_CatNLL(y_pred, targets_flat)
-    #         total_nll += nll * targets_flat.shape[0]
-    #         total_tokens += targets_flat.shape[0]
-
-    #     ce_loss = total_nll / total_tokens
-    #     ppl = jnp.exp(ce_loss)
-    #     return ce_loss, ppl
-
-    # ----------------------------
     # Training loop
     # ----------------------------
+    print("Starting Training...")
+    
+    # Optional: Trigger one compilation pass before the loop to separate compile time from train time
+    # print("Compiling JIT function...")
+    # dummy_in = jnp.zeros((batch_size, seq_len))
+    # dummy_tar = jnp.zeros((batch_size * seq_len, vocab_size))
+    # train_step(model, dummy_in, dummy_tar, True)
+    # print("Compilation complete.")
+
     for i in range(num_iter):
         train_EFE = 0.0
         total_batches = 0
@@ -108,25 +106,38 @@ def main():
             inputs = batch[0][1]
             targets = batch[1][1]  # (B, S)
 
-            # ✅ one_hot (NO jnp.eye)
+            # ✅ one_hot
             targets_onehot = jax.nn.one_hot(targets, vocab_size)
             targets_flat = targets_onehot.reshape(-1, vocab_size)
 
-            yMu_inf, _, _EFE = model.process(
-                obs=inputs,
-                lab=targets_flat,
+            # -------------------------------------------------------
+            #  FAST JIT EXECUTION
+            # -------------------------------------------------------
+            # Note: We overwrite 'model' with the result. 
+            # In JAX, the state is immutable, so we must capture the new state.
+            model, yMu_inf, _EFE = train_step(
+                model, 
+                inputs, 
+                targets_flat, 
                 adapt_synapses=True
             )
+
+            # NOTE: If you get errors about "Tracer" or "Abstract values",
+            # ensure your NGCTransformer is registered as a JAX PyTree 
+            # (ngclearn models usually are by default).
 
             train_EFE += _EFE
             total_batches += 1
 
             if batch_idx % 10 == 0:
+                # We need to reshape the output from the JITed function
                 y_pred = yMu_inf.reshape(-1, vocab_size)
                 y_true = jax.nn.one_hot(
                     targets.flatten(), vocab_size
                 )
 
+                # Move calculation to CPU or keep on device? 
+                # Keeping it simple here.
                 batch_nll = measure_CatNLL(y_pred, y_true)
                 batch_ce = batch_nll.mean()
                 batch_ppl = jnp.exp(batch_ce)
@@ -140,6 +151,8 @@ def main():
 
         avg_train_EFE = train_EFE / max(total_batches, 1)
 
+        # Eval model is usually fast enough without JIT if data is small, 
+        # but you can JIT that too if needed.
         dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
 
         print(
@@ -151,7 +164,6 @@ def main():
 
         if i == num_iter - 1:
             model.save_to_disk(params_only=False)
-
 
 if __name__ == "__main__":
     main()

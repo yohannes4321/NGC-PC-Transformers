@@ -1,4 +1,3 @@
-import time
 import jax
 from jax import numpy as jnp, random
 
@@ -23,7 +22,7 @@ def main():
     optim_type = config.optim_type
 
     pos_learnable = config.pos_learnable
-    epoch = config.epoch
+    num_iter = config.num_iter
     wub = config.wub
     wlb = config.wlb
     eta = config.eta
@@ -67,39 +66,39 @@ def main():
     )
 
     # ----------------------------
-    # Evaluation helper
+    # Train-only CE evaluation
     # ----------------------------
-    def eval_ce(data_loader):
-        total_nll = 0.0
-        total_tokens = 0
+    # def train_model(data_loader):
+    #     total_nll = 0.0
+    #     total_tokens = 0
 
-        for batch in data_loader:
-            inputs = batch[0][1]
-            targets = batch[1][1]  # (B, S)
+    #     for batch in data_loader:
+    #         inputs = batch[0][1]
+    #         targets = batch[1][1]  # (B, S)
 
-            targets_onehot = jax.nn.one_hot(targets, vocab_size)  # (B, S, V)
-            targets_flat = targets_onehot.reshape(-1, vocab_size)
+    #         targets_onehot = jax.nn.one_hot(targets, vocab_size)  # (B, S, V)
+    #         targets_flat = targets_onehot.reshape(-1, vocab_size)
 
-            yMu_inf, _, _ = model.process(
-                obs=inputs, lab=targets_flat, adapt_synapses=False
-            )
+    #         yMu_inf, _, _ = model.process(
+    #             obs=inputs,
+    #             lab=targets_flat,
+    #             adapt_synapses=False
+    #         )
 
-            y_pred = yMu_inf.reshape(-1, vocab_size)
+    #         y_pred = yMu_inf.reshape(-1, vocab_size)
 
-            nll = measure_CatNLL(y_pred, targets_flat)
-            total_nll += nll * targets_flat.shape[0]
-            total_tokens += targets_flat.shape[0]
+    #         nll = measure_CatNLL(y_pred, targets_flat)
+    #         total_nll += nll * targets_flat.shape[0]
+    #         total_tokens += targets_flat.shape[0]
 
-        ce = total_nll / total_tokens
-        ppl = jnp.exp(ce)
-        return ce, ppl
+    #     ce_loss = total_nll / total_tokens
+    #     ppl = jnp.exp(ce_loss)
+    #     return ce_loss, ppl
 
     # ----------------------------
-    # Training
+    # Training loop
     # ----------------------------
-    total_start_time = time.time()
-
-    for i in range(epoch):
+    for i in range(num_iter):
         train_EFE = 0.0
         total_batches = 0
 
@@ -109,32 +108,26 @@ def main():
             inputs = batch[0][1]
             targets = batch[1][1]  # (B, S)
 
-            # ✅ one_hot instead of jnp.eye
-            targets_onehot = jax.nn.one_hot(targets, vocab_size)  # (B, S, V)
+            # ✅ one_hot (NO jnp.eye)
+            targets_onehot = jax.nn.one_hot(targets, vocab_size)
             targets_flat = targets_onehot.reshape(-1, vocab_size)
 
-            step_start = time.time()
-
             yMu_inf, _, _EFE = model.process(
-                obs=inputs, lab=targets_flat, adapt_synapses=True
+                obs=inputs,
+                lab=targets_flat,
+                adapt_synapses=True
             )
-
-            # ⛔ force sync for accurate timing + memory
-            jax.block_until_ready(yMu_inf)
-
-            step_time = time.time() - step_start
 
             train_EFE += _EFE
             total_batches += 1
 
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, vocab_size)
-
-                targets_flat_eval = jax.nn.one_hot(
+                y_true = jax.nn.one_hot(
                     targets.flatten(), vocab_size
                 )
 
-                batch_nll = measure_CatNLL(y_pred, targets_flat_eval)
+                batch_nll = measure_CatNLL(y_pred, y_true)
                 batch_ce = batch_nll.mean()
                 batch_ppl = jnp.exp(batch_ce)
 
@@ -142,8 +135,7 @@ def main():
                     f"  Batch {batch_idx:04d} | "
                     f"EFE={_EFE:.4f} | "
                     f"CE={batch_ce:.4f} | "
-                    f"PPL={batch_ppl:.4f} | "
-                    f"StepTime={step_time:.4f}s"
+                    f"PPL={batch_ppl:.4f}"
                 )
 
         avg_train_EFE = train_EFE / max(total_batches, 1)
@@ -157,12 +149,8 @@ def main():
             f"Avg EFE={avg_train_EFE:.4f}"
         )
 
-        if i == epoch - 1:
+        if i == num_iter - 1:
             model.save_to_disk(params_only=False)
-
-    total_time = time.time() - total_start_time
-    print("\nTraining finished.")
-    print(f"Total training time: {total_time:.1f} seconds")
 
 
 if __name__ == "__main__":

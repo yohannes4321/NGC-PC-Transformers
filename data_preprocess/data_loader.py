@@ -68,7 +68,7 @@ class DataLoader:
     # --------------------------------------------------------------
     # WINDOW CREATION (ZERO-COPY)
     # --------------------------------------------------------------
-    def _create_data_loader(self, tokens, shuffle: bool, tag: str):
+    def _create_data_loader(self, tokens, shuffle):
         """
         O(1) window creation using NumPy stride tricks.
         Zero-copy. No Python loops. No VRAM usage.
@@ -76,9 +76,9 @@ class DataLoader:
 
         window_size = self.seq_len + 1
 
-        print(f"\n[{tag}] Creating windows")
+     
         print("RAM before windowing:", ram_mb(), "MB")
-
+        start = time.time()
         # Pad only if required
         if len(tokens) < window_size:
             tokens = np.pad(
@@ -88,14 +88,14 @@ class DataLoader:
             )
 
         # ---------------- TIMING ----------------
-        start = time.time()
+        
 
         sequences = np.lib.stride_tricks.sliding_window_view(
             tokens, window_size
         )
 
         elapsed = time.time() - start
-        print(f"[{tag}] Windowing time: {elapsed:.6f} seconds")
+        print(f" Windowing time: {elapsed:.6f} seconds")
 
         print("RAM after windowing:", ram_mb(), "MB")
 
@@ -119,22 +119,3 @@ class DataLoader:
         return loader
 
 
-# ------------------------------------------------------------------
-# OPTIONAL: QUICK SANITY TEST
-# ------------------------------------------------------------------
-if __name__ == "__main__":
-    print("\n=== DataLoader Benchmark ===")
-
-    loader = DataLoader(
-        seq_len=256,
-        batch_size=64,
-    )
-
-    train_loader, valid_loader, test_loader = loader.load_and_prepare_data()
-
-    print("\n>>> Starting training loop")
-    for batch in train_loader:
-        x = batch["inputs"]
-        y = batch["targets"]
-        print("Batch shapes:", x.shape, y.shape)
-        break

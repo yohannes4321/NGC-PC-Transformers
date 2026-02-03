@@ -22,7 +22,7 @@ def main():
     optim_type = config.optim_type
 
     pos_learnable = config.pos_learnable
-    num_iter = config.num_iter
+    num_iter = config.epoch
     wub = config.wub
     wlb = config.wlb
     eta = config.eta

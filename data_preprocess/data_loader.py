@@ -2,9 +2,17 @@ import jax.numpy as jnp
 from pathlib import Path
 from ngclearn.utils.data_loader import DataLoader as NGCDataLoader
 import sys
-
+import psutil
+import time
+import os
 DIR = Path(__file__).parent
 sys.path.append(str(DIR.parent))
+
+
+
+def ram_mb():
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / 1024 / 1024
 
 class DataLoader:
     def __init__(self, seq_len, batch_size, data_dir= DIR / "outputs" / "tokenized_data"):
@@ -15,9 +23,16 @@ class DataLoader:
 
     def load_and_prepare_data(self):
         """Load tokenized data and prepare for training"""
+
+        print(">>> Loading token files (CPU RAM only)")
+        print("RAM before loading:", ram_mb(), "MB")
+
         train_tokens = jnp.load(self.data_dir / "train_tokens.npy")
         valid_tokens = jnp.load(self.data_dir / "valid_tokens.npy")
         test_tokens = jnp.load(self.data_dir / "test_tokens.npy")
+
+        print("RAM after loading:", ram_mb(), "MB")
+
 
         train_loader = self._create_data_loader(train_tokens, shuffle=True)
         valid_loader = self._create_data_loader(valid_tokens, shuffle=False)
@@ -28,6 +43,11 @@ class DataLoader:
     def _create_data_loader(self, tokens, shuffle):
         """Create sequences and return NGC DataLoader"""
         window_size = self.seq_len + 1 
+
+     
+        print("RAM before windowing:", ram_mb(), "MB")
+
+        start=self.seq_len + 1
         num_sequences = (len(tokens) - window_size + 1) // 1  
         
         if num_sequences <= 0:
@@ -41,8 +61,13 @@ class DataLoader:
             for i in range(num_sequences):
                 window = tokens[i:i + window_size]
                 sequences.append(window)
-            sequences = jnp.stack(sequences)  
-        
+            sequences = jnp.stack(sequences)
+
+        elapsed = time.time() - start
+        print(f" Windowing time: {elapsed:.6f} seconds")
+
+        print("RAM after windowing:", ram_mb(), "MB")
+
         inputs = sequences[:, :-1]    
         targets = sequences[:, 1:]    
                 

@@ -46,6 +46,8 @@ def main():
         
         ce_loss = total_nll / total_tokens
         return ce_loss, jnp.exp(ce_loss)
+    
+    start_time = time.time()
 
     for i in range(epoch):
         train_EFE = 0.
@@ -82,7 +84,7 @@ def main():
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
         if  i == (epoch-1):
           model.save_to_disk(params_only=False) # save final state of model to disk
-    total_time = time.time() - total_start_time
+    total_time = time.time() - start_time
     print(f"\nTraining finished.")
     print(f"Total training time: {total_time:.0f} seconds")
    

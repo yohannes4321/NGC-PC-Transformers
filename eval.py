@@ -1,41 +1,68 @@
-
 import os
+import time
+import jax
 import jax.numpy as jnp
+import jax.random as random
+
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 from config import Config as config
-import jax.random as random
+
 
 def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     """
-    Runs inference-only forward pass on a data loader and returns
-    cross-entropy and perplexity.
+    ❌ BASELINE EVAL (INTENTIONALLY BAD)
+    Uses jnp.eye -> allocates (V, V) matrix every batch.
     """
+    print("\n❌ Running BAD evaluation (jnp.eye)")
+    print(f"Vocab size: {vocab_size}")
+    print("Allocating V×V identity matrix per batch!\n")
+
+    start_time = time.time()
     total_nll = 0.0
     total_tokens = 0
 
-    for batch in data_loader:
-        inputs = batch[0][1]         
-        targets = batch[1][1]        
+    for batch_idx, batch in enumerate(data_loader):
+        inputs = batch[0][1]     # (B, S)
+        targets = batch[1][1]    # (B, S)
 
-       
-        targets_onehot = jnp.eye(vocab_size)[targets]             
-        targets_flat = targets_onehot.reshape(-1, vocab_size)      
+        step_start = time.time()
 
-        yMu_inf, _, _ = model.process(obs=inputs,
-                                      lab=targets_flat,
-                                      adapt_synapses=False)
+        # ❌ BAD: V×V allocation
+        targets_onehot = jnp.eye(vocab_size)[targets]   # (B, S, V)
+        targets_flat = targets_onehot.reshape(-1, vocab_size)
 
-        y_pred = yMu_inf.reshape(-1, vocab_size)   
+        yMu_inf, _, _ = model.process(
+            obs=inputs,
+            lab=targets_flat,
+            adapt_synapses=False
+        )
 
-        total_nll += measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
+        # ⛔ force sync so timing & memory are real
+        jax.block_until_ready(yMu_inf)
+
+        step_time = time.time() - step_start
+
+        y_pred = yMu_inf.reshape(-1, vocab_size)
+
+        nll = measure_CatNLL(y_pred, targets_flat)
+        total_nll += nll * targets_flat.shape[0]
         total_tokens += targets_flat.shape[0]
+
+        if batch_idx % 10 == 0:
+            print(
+                f"[BAD EVAL] Batch {batch_idx:04d} | "
+                f"StepTime={step_time:.4f}s"
+            )
 
     ce = total_nll / total_tokens
     ppl = jnp.exp(ce)
-    return ce, ppl
 
+    elapsed = time.time() - start_time
+    print(f"\n❌ BAD eval total time: {elapsed:.2f}s")
+
+    return ce, ppl
 
 
 def load_weights_into_model(model, model_dir):
@@ -63,13 +90,13 @@ def load_weights_into_model(model, model_dir):
     model.output.W_out.weights.set(out_data["weights"])
     if "biases" in out_data:
         model.output.W_out.biases.set(out_data["biases"])
+
     print("Weights loaded successfully.")
 
 
-
 if __name__ == "__main__":
-    
     dkey = random.PRNGKey(0)
+
     model = NGCTransformer(
         dkey=dkey,
         batch_size=config.batch_size,
@@ -79,21 +106,30 @@ if __name__ == "__main__":
         n_layers=config.n_layers,
         n_heads=config.n_heads,
         T=config.n_iter,
-        dt=1., tau_m=config.tau_m,
+        dt=1.0,
+        tau_m=config.tau_m,
         act_fx=config.act_fx,
         eta=config.eta,
         dropout_rate=config.dropout_rate,
         exp_dir="exp",
         model_name="ngc_transformer",
-        loadDir="exp",  
+        loadDir="exp",
         pos_learnable=config.pos_learnable,
         optim_type=config.optim_type,
         wub=config.wub,
         wlb=config.wlb,
     )
-    data_loader = DataLoader(seq_len=config.seq_len, batch_size=config.batch_size)
+
+    data_loader = DataLoader(
+        seq_len=config.seq_len,
+        batch_size=config.batch_size
+    )
     _, _, test_loader = data_loader.load_and_prepare_data()
 
+    start_time = time.time()
     test_ce, test_ppl = eval_model(model, test_loader, config.vocab_size)
-    print("\nFinal Test Evaluation:")
-    print(f"\nCE: {test_ce:.4f} | PPL: {test_ppl:.4f}")
+    elapsed_time = time.time() - start_time
+
+    print("\n❌ FINAL BAD TEST EVALUATION")
+    print(f"CE: {test_ce:.4f} | PPL: {test_ppl:.4f}")
+    print(f"Total evaluation time: {elapsed_time:.2f} seconds")

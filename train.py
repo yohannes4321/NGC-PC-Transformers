@@ -77,7 +77,8 @@ def main():
             
             # END STEP TIMER
             step_time = time.time() - step_start
-
+            train_EFE += _EFE
+            total_batches += 1
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, vocab_size)
                 
@@ -93,9 +94,10 @@ def main():
                     f"Batch {batch_idx:03d} | "
                     f"Time: {step_time:.4f}s | "
                     f"Allocated: {eye_mb:.2f} MB | "
+                    f"EFE: {_EFE} "
                     f"CE: {batch_ce:.4f}"
                 )
-
+        avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
         dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
         print(f"--- Epoch {i} Summary: Dev CE={dev_ce:.4f} ---")
 

@@ -1,145 +1,56 @@
+import time
 import jax
-from jax import numpy as jnp, random
+import jax.numpy as jnp
+from jax import random
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 from config import Config as config
 from eval import eval_model
-import time
-
 
 def main():
+    total_start_time = time.time() # Start Total Clock
+    
     # ---- config ----
-    seq_len = config.seq_len
-    batch_size = config.batch_size
-    n_embed = config.n_embed
-    vocab_size = config.vocab_size
-    n_layers = config.n_layers
-    n_heads = config.n_heads
-    n_iter = config.n_iter
-    optim_type = config.optim_type
-
-    pos_learnable = config.pos_learnable
-    epoch = config.epoch
-    wub = config.wub
-    wlb = config.wlb
-    eta = config.eta
-    T = config.n_iter
-    tau_m = config.tau_m
-    act_fx = config.act_fx
-    dropout_rate = config.dropout_rate
-
+    seq_len, batch_size, vocab_size = config.seq_len, config.batch_size, config.vocab_size
     dkey = random.PRNGKey(1234)
 
     # ---- data ----
     data_loader = DataLoader(seq_len=seq_len, batch_size=batch_size)
-    train_loader, valid_loader, test_loader = data_loader.load_and_prepare_data()
+    train_loader, valid_loader, _ = data_loader.load_and_prepare_data()
 
     # ---- model ----
-    model = NGCTransformer(
-        dkey,
-        batch_size=batch_size,
-        seq_len=seq_len,
-        n_embed=n_embed,
-        vocab_size=vocab_size,
-        n_layers=n_layers,
-        n_heads=n_heads,
-        T=T,
-        dt=1.0,
-        tau_m=tau_m,
-        act_fx=act_fx,
-        eta=eta,
-        dropout_rate=dropout_rate,
-        exp_dir="exp",
-        loadDir=None,
-        pos_learnable=pos_learnable,
-        optim_type=optim_type,
-        wub=wub,
-        wlb=wlb,
-        model_name="ngc_transformer",
-    )
+    model = NGCTransformer(dkey, batch_size=batch_size, seq_len=seq_len, n_embed=config.n_embed,
+        vocab_size=vocab_size, n_layers=config.n_layers, n_heads=config.n_heads,
+        T=config.n_iter, dt=1.0, tau_m=config.tau_m, act_fx=config.act_fx,
+        eta=config.eta, dropout_rate=config.dropout_rate, exp_dir="exp",
+        loadDir=None, pos_learnable=config.pos_learnable, 
+        optim_type=config.optim_type, wub=config.wub, wlb=config.wlb,
+        model_name="ngc_transformer")
 
-    # ---- eval-style loss ----
-    def train_model(data_loader):
-        total_nll = 0.0
-        total_tokens = 0
+    print(f"\n[STARTING STANDARD TRAINING]")
 
-        for batch in data_loader:
-            inputs = batch[0][1]
-            targets = batch[1][1]  # (B, S)
-
-            targets_onehot = jax.nn.one_hot(targets, vocab_size)  # (B, S, V)
-            targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
-
-            yMu_inf, _, _ = model.process(
-                obs=inputs,
-                lab=targets_flat,
-                adapt_synapses=False,
-            )
-
-            y_pred = yMu_inf.reshape(-1, vocab_size)  # (B*S, V)
-            y_true = targets_flat                     # (B*S, V)
-
-            total_nll += measure_CatNLL(y_pred, y_true) * y_true.shape[0]
-            total_tokens += y_true.shape[0]
-
-        ce_loss = total_nll / total_tokens
-        return ce_loss, jnp.exp(ce_loss)
-
-    # ---- training loop ----
-    for i in range(epoch):
-        train_EFE = 0.0
-        total_batches = 0
-
-        print(f"\niter {i}:")
-
+    for i in range(config.epoch):
+        batch_times = []
         for batch_idx, batch in enumerate(train_loader):
-            inputs = batch[0][1]
-            targets = batch[1][1]  # (B, S)
+            step_start = time.time()
+            
+            inputs, targets = batch[0][1], batch[1][1]
+            targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
 
-            # one-hot + flatten ONCE
-            targets_onehot = jax.nn.one_hot(targets, vocab_size)   # (B, S, V)
-            targets_flat = targets_onehot.reshape(-1, vocab_size) # (B*S, V)
-
-            yMu_inf, _, _EFE = model.process(
-                obs=inputs,
-                lab=targets_flat,
-                adapt_synapses=True,
-            )
-
-            train_EFE += _EFE
-            total_batches += 1
+            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf.block_until_ready() # Wait for GPU
+            
+            step_duration = time.time() - step_start
+            batch_times.append(step_duration)
 
             if batch_idx % 10 == 0:
-                y_pred = yMu_inf.reshape(-1, vocab_size)  # (B*S, V)
-                y_true = targets_flat                    # (B*S, V)
+                print(f"Iter {i} | Batch {batch_idx} | Time: {step_duration:.4f}s | EFE: {_EFE:.4f}")
 
-                batch_nll = measure_CatNLL(y_pred, y_true)
-                batch_ce_loss = batch_nll.mean()
-                batch_ppl = jnp.exp(batch_ce_loss)
+        avg_step = sum(batch_times) / len(batch_times)
+        print(f"--- Epoch {i} Average Step Time: {avg_step:.4f}s ---")
 
-                print(
-                    f"  Batch {batch_idx}: "
-                    f"EFE = {_EFE:.4f}, "
-                    f"CE = {batch_ce_loss:.4f}, "
-                    f"PPL = {batch_ppl:.4f}"
-                )
-
-        avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0.0
-
-        dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
-        print(
-            f"Iter {i} Summary: "
-            f"CE = {dev_ce:.4f}, "
-            f"PPL = {dev_ppl:.4f}, "
-            f"Avg EFE = {avg_train_EFE:.4f}"
-        )
-
-        if i == epoch - 1:
-            model.save_to_disk(params_only=False)
-
-    print("\nTraining finished.")
-
+    print(f"\n[STANDARD TOTAL RUNTIME]: {time.time() - total_start_time:.2f} seconds")
 
 if __name__ == "__main__":
     main()

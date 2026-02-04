@@ -11,24 +11,17 @@ import jax.numpy as jnp
 from ngclearn.utils.data_loader import DataLoader as NGCDataLoader
 
 
-# ------------------------------------------------------------------
-# PATH SETUP
-# ------------------------------------------------------------------
+
 DIR = Path(__file__).parent
 sys.path.append(str(DIR.parent))
 
 
-# ------------------------------------------------------------------
-# RAM MONITOR
-# ------------------------------------------------------------------
 def ram_mb():
     process = psutil.Process(os.getpid())
     return process.memory_info().rss / 1024 / 1024
 
 
-# ------------------------------------------------------------------
-# DATA LOADER
-# ------------------------------------------------------------------
+
 class DataLoader:
     def __init__(
         self,
@@ -41,9 +34,6 @@ class DataLoader:
         self.batch_size = batch_size
         self.pad_token = 0
 
-    # --------------------------------------------------------------
-    # LOAD DATA (CPU ONLY)
-    # --------------------------------------------------------------
     def load_and_prepare_data(self):
         """
         Load token arrays into CPU RAM.
@@ -65,9 +55,6 @@ class DataLoader:
 
         return train_loader, valid_loader, test_loader
 
-    # --------------------------------------------------------------
-    # WINDOW CREATION (ZERO-COPY)
-    # --------------------------------------------------------------
     def _create_data_loader(self, tokens, shuffle):
         """
         O(1) window creation using NumPy stride tricks.
@@ -87,7 +74,7 @@ class DataLoader:
                 constant_values=self.pad_token,
             )
 
-        # ---------------- TIMING ----------------
+
         
 
         sequences = np.lib.stride_tricks.sliding_window_view(
@@ -103,9 +90,7 @@ class DataLoader:
         inputs  = sequences[:, :-1]
         targets = sequences[:, 1:]
 
-        # ----------------------------------------------------------
-        # IMPORTANT: Data stays on CPU until batch transfer
-        # ----------------------------------------------------------
+ 
         loader = NGCDataLoader(
             design_matrices=[
                 ("inputs", inputs),

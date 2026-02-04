@@ -49,9 +49,9 @@ class DataLoader:
         test_tokens  = np.load(self.data_dir / "test_tokens.npy")
 
         # 🔹 Limit how much data is used
-        train_tokens = train_tokens[:3000]
-        valid_tokens = valid_tokens[:2000]
-        test_tokens = test_tokens[:1000]  # optional
+        train_tokens = train_tokens[:500]
+        valid_tokens = valid_tokens[:400]
+        test_tokens = test_tokens[:100]  # optional
 
         train_loader = self._create_data_loader(train_tokens, shuffle=True)
         valid_loader = self._create_data_loader(valid_tokens, shuffle=False)

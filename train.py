@@ -1,3 +1,4 @@
+import jax
 from jax import numpy as jnp, random
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
@@ -9,7 +10,7 @@ import time
 def main():
     seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.n_iter, config.optim_type
     pos_learnable= config.pos_learnable
-    epoch= config.epoch
+    epoch= config.num_iter
     wub= config.wub 
     wlb= config.wlb
     eta = config.eta
@@ -33,7 +34,7 @@ def main():
             inputs = batch[0][1]
             targets = batch[1][1]
             
-            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
+            targets_onehot = jax.nn.one_hot(targets, vocab_size)# (B, S, V)
             targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
 
             yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=False)
@@ -46,8 +47,6 @@ def main():
         
         ce_loss = total_nll / total_tokens
         return ce_loss, jnp.exp(ce_loss)
-    
-    start_time = time.time()
 
     for i in range(epoch):
         train_EFE = 0.
@@ -58,9 +57,10 @@ def main():
         for batch_idx, batch in enumerate(train_loader):
             inputs = batch[0][1]
             targets = batch[1][1]
+       
             
             #Convert targets to one-hot and flatten
-            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
+            targets_onehot = jax.nn.one_hot(targets, vocab_size) # (B, S, V)
             targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
 
             
@@ -70,7 +70,7 @@ def main():
 
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, vocab_size)
-                y_true = jnp.eye(vocab_size)[targets.flatten()]
+                y_true= jax.nn.one_hot(targets, vocab_size)
                 
                 batch_nll = measure_CatNLL(y_pred, y_true)
                 batch_ce_loss = batch_nll.mean()  
@@ -84,9 +84,9 @@ def main():
         print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
         if  i == (epoch-1):
           model.save_to_disk(params_only=False) # save final state of model to disk
-    total_time = time.time() - start_time
+    # total_time = time.time() - total_start_time
     print(f"\nTraining finished.")
-    print(f"Total training time: {total_time:.0f} seconds")
+    # print(f"Total training time: {total_time:.0f} seconds")
    
 if __name__ == "__main__":
     main()

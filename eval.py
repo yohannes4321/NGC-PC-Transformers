@@ -23,7 +23,7 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
         inputs = batch[0][1]    # (B, S)
         targets = batch[1][1]   # (B, S)
 
-        # ✅ one_hot instead of jnp.eye
+        #  one_hot instead of jnp.eye
         targets_onehot = jax.nn.one_hot(targets, vocab_size)  # (B, S, V)
         targets_flat = targets_onehot.reshape(-1, vocab_size)
 
@@ -33,7 +33,7 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
             adapt_synapses=False
         )
 
-        # # ⛔ sync for correct timing & memory accounting
+        # #  sync for correct timing & memory accounting
         # jax.block_until_ready(yMu_inf)
 
         y_pred = yMu_inf.reshape(-1, vocab_size)

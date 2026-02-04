@@ -39,6 +39,7 @@ def main():
             step_start = time.time()
             
             inputs, targets = batch[0][1], batch[1][1]
+            #  one_hot instead of jnp.eye to nn.one_hot
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
 
             yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)

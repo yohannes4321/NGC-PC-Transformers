@@ -10,7 +10,7 @@ import time
 def main():
     seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.n_iter, config.optim_type
     pos_learnable= config.pos_learnable
-    epoch= config.num_iter
+    epoch= config.epoch
     wub= config.wub 
     wlb= config.wlb
     eta = config.eta

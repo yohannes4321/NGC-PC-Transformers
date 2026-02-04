@@ -38,16 +38,27 @@ class DataLoader:
 
 
 
+     
+        """
+        Load token arrays into CPU RAM.
+        Never load full datasets into GPU memory.
+        """
+
         train_tokens = np.load(self.data_dir / "train_tokens.npy")
         valid_tokens = np.load(self.data_dir / "valid_tokens.npy")
         test_tokens  = np.load(self.data_dir / "test_tokens.npy")
 
+        # 🔹 Limit how much data is used
+        train_tokens = train_tokens[:3000]
+        valid_tokens = valid_tokens[:2000]
+        test_tokens = test_tokens[:1000]  # optional
 
         train_loader = self._create_data_loader(train_tokens, shuffle=True)
-        valid_loader = self._create_data_loader(valid_tokens, shuffle=False )
-        test_loader  = self._create_data_loader(test_tokens,  shuffle=False)
+        valid_loader = self._create_data_loader(valid_tokens, shuffle=False)
+        test_loader  = self._create_data_loader(test_tokens, shuffle=False)
 
         return train_loader, valid_loader, test_loader
+
 
     def _create_data_loader(self, tokens, shuffle):
         """

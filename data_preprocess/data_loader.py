@@ -16,10 +16,6 @@ DIR = Path(__file__).parent
 sys.path.append(str(DIR.parent))
 
 
-def ram_mb():
-    process = psutil.Process(os.getpid())
-    return process.memory_info().rss / 1024 / 1024
-
 
 
 class DataLoader:

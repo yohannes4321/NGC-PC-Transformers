@@ -36,14 +36,12 @@ class DataLoader:
         Never load full datasets into GPU memory.
         """
 
-        print(">>> Loading token files (CPU RAM only)")
-        print("RAM before loading:", ram_mb(), "MB")
+
 
         train_tokens = np.load(self.data_dir / "train_tokens.npy")
         valid_tokens = np.load(self.data_dir / "valid_tokens.npy")
         test_tokens  = np.load(self.data_dir / "test_tokens.npy")
 
-        print("RAM after loading:", ram_mb(), "MB")
 
         train_loader = self._create_data_loader(train_tokens, shuffle=True)
         valid_loader = self._create_data_loader(valid_tokens, shuffle=False )
@@ -60,8 +58,7 @@ class DataLoader:
         window_size = self.seq_len + 1
 
      
-        print("RAM before windowing:", ram_mb(), "MB")
-        start = time.time()
+        
         # Pad only if required
         if len(tokens) < window_size:
             tokens = np.pad(
@@ -77,10 +74,9 @@ class DataLoader:
             tokens, window_size
         )
 
-        elapsed = time.time() - start
-        print(f" Windowing time: {elapsed:.6f} seconds")
 
-        print("RAM after windowing:", ram_mb(), "MB")
+        
+
 
         # Split inputs / targets
         inputs  = sequences[:, :-1]

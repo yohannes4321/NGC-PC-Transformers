@@ -10,14 +10,8 @@ import numpy as np
 import jax.numpy as jnp
 from ngclearn.utils.data_loader import DataLoader as NGCDataLoader
 
-
-
 DIR = Path(__file__).parent
 sys.path.append(str(DIR.parent))
-
-
-
-
 class DataLoader:
     def __init__(
         self,
@@ -30,36 +24,28 @@ class DataLoader:
         self.batch_size = batch_size
         self.pad_token = 0
 
+
+    # LOAD DATA (CPU ONLY)
+ 
     def load_and_prepare_data(self):
         """
         Load token arrays into CPU RAM.
         Never load full datasets into GPU memory.
         """
 
-
-
-     
-        """
-        Load token arrays into CPU RAM.
-        Never load full datasets into GPU memory.
-        """
-
+  
         train_tokens = np.load(self.data_dir / "train_tokens.npy")
         valid_tokens = np.load(self.data_dir / "valid_tokens.npy")
         test_tokens  = np.load(self.data_dir / "test_tokens.npy")
 
-        # 🔹 Limit how much data is used
-        train_tokens = train_tokens[:500]
-        valid_tokens = valid_tokens[:400]
-        test_tokens = test_tokens[:100]  # optional
-
         train_loader = self._create_data_loader(train_tokens, shuffle=True)
-        valid_loader = self._create_data_loader(valid_tokens, shuffle=False)
-        test_loader  = self._create_data_loader(test_tokens, shuffle=False)
+        valid_loader = self._create_data_loader(valid_tokens, shuffle=False )
+        test_loader  = self._create_data_loader(test_tokens,  shuffle=False)
 
         return train_loader, valid_loader, test_loader
 
-
+    # WINDOW CREATION (ZERO-COPY)
+ 
     def _create_data_loader(self, tokens, shuffle):
         """
         O(1) window creation using NumPy stride tricks.
@@ -68,8 +54,8 @@ class DataLoader:
 
         window_size = self.seq_len + 1
 
-     
-        
+
+        start = time.time()
         # Pad only if required
         if len(tokens) < window_size:
             tokens = np.pad(
@@ -78,7 +64,7 @@ class DataLoader:
                 constant_values=self.pad_token,
             )
 
-
+        # ---------------- TIMING ----------------
         
 
         sequences = np.lib.stride_tricks.sliding_window_view(
@@ -86,14 +72,14 @@ class DataLoader:
         )
 
 
-        
-
 
         # Split inputs / targets
         inputs  = sequences[:, :-1]
         targets = sequences[:, 1:]
 
- 
+
+        # IMPORTANT: Data stays on CPU until batch transfer
+
         loader = NGCDataLoader(
             design_matrices=[
                 ("inputs", inputs),
@@ -105,4 +91,3 @@ class DataLoader:
         )
 
         return loader
-

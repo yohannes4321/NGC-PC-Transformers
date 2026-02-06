@@ -44,7 +44,7 @@ def main():
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
             
             yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            yMu_inf.block_until_ready() # Force GPU sync for accurate timing
+            yMu_inf.block_until_ready() 
             
          
             

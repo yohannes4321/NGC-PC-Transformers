@@ -34,7 +34,7 @@ def main():
     for i in range(config.epoch):
         train_EFE = 0.
         total_batches = 0
-        print("iter {i}")
+        print(f"iter {i}")
         for batch_idx, batch in enumerate(train_loader):
             step_start = time.time()
 

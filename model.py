@@ -385,6 +385,20 @@ class NGCTransformer:
     
     def clamp_infer_target(self,y):
         self.projection.eq_target.target.set(y)
+
+    def set_use_cache(self, use_cache):
+        """Enable or disable KV caching on all attention blocks."""
+        for block in self.blocks:
+            block.attention.set_use_cache(use_cache)
+        for block_proj in self.projection.blocks:
+            block_proj.q_attn_block.set_use_cache(use_cache)
+
+    def clear_kv_cache(self):
+        """Clear KV caches on all attention blocks."""
+        for block in self.blocks:
+            block.attention.clear_kv_cache()
+        for block_proj in self.projection.blocks:
+            block_proj.q_attn_block.clear_kv_cache()
         
     def save_to_disk(self, params_only=False):
         """
@@ -491,7 +505,8 @@ class NGCTransformer:
 
 
 
-    def process(self, obs, lab, adapt_synapses=True):
+    def process(self, obs, lab, adapt_synapses=True, use_cache=False):
+        self.set_use_cache(use_cache)
         
         self.reset.run()
         self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())

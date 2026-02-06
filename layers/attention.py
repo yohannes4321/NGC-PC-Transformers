@@ -65,3 +65,11 @@ class Attention:
         
         self.E_attn = StaticSynapse(f"{prefix}E_attn", shape=(n_embed, n_embed),
                         weight_init=dist.uniform(low=wlb, high=wub),  key=subkeys[4])
+
+    def set_use_cache(self, use_cache):
+        """Enable or disable KV caching for attention."""
+        self.attn_block.set_use_cache(use_cache)
+
+    def clear_kv_cache(self):
+        """Clear cached keys and values for attention."""
+        self.attn_block.clear_kv_cache()

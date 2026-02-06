@@ -4,8 +4,8 @@ from jax import numpy as jnp, random, jit
 from ngclearn import compilable
 import jax
 from functools import partial
-@partial(jit, static_argnums=[4, 5, 6, 7, 8])
-def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, batch_size, key):
+@partial(jit, static_argnums=[4, 5, 6, 7, 8, 9])
+def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, batch_size, key, use_cache=False, kv_cache=None):
     """
     Compute multi-head attention 
     """
@@ -21,16 +21,34 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
         # 3D input: (batch_size, seq_len, n_embed)
         B, S, D = Q.shape
         Q_3d, K_3d, V_3d = Q, K, V
+    if use_cache:
+        if kv_cache is None:
+            k_all = K_3d
+            v_all = V_3d
+        else:
+            k_cache, v_cache = kv_cache
+            k_all = jnp.concatenate([k_cache, K_3d], axis=1)
+            v_all = jnp.concatenate([v_cache, V_3d], axis=1)
+        k_all = k_all[:, -seq_len:, :]
+        v_all = v_all[:, -seq_len:, :]
+    else:
+        k_all = K_3d
+        v_all = V_3d
+
     # Reshape for multi-head attention
     q = Q_3d.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
-    k = K_3d.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3]) 
-    v = V_3d.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
+    k = k_all.reshape((B, k_all.shape[1], n_heads, d_head)).transpose([0, 2, 1, 3]) 
+    v = v_all.reshape((B, v_all.shape[1], n_heads, d_head)).transpose([0, 2, 1, 3])
     # Scaled dot-product attention
     score = jnp.einsum("BHTE,BHSE->BHTS", q, k) / jnp.sqrt(d_head)
     
     if mask is not None:
         Tq, Tk = q.shape[2], k.shape[2]
-        _mask = mask.reshape((B, 1, Tq, Tk))
+        if mask.ndim == 3:
+            _mask = mask[:, :Tq, :Tk]
+        else:
+            _mask = mask
+        _mask = _mask.reshape((B, 1, Tq, Tk))
         score = jnp.where(_mask, score, -1e-9)
         
     score = jax.nn.softmax(score, axis=-1)
@@ -44,7 +62,8 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
     attention = jnp.einsum("BHTS,BHSE->BHTE", score, v)
     attention = attention.transpose([0, 2, 1, 3]).reshape((B, S, -1))
     
-    return attention
+    new_kv_cache = (k_all, v_all) if use_cache else None
+    return attention, new_kv_cache
 
 class AttentionBlock(JaxComponent):
     """
@@ -92,6 +111,8 @@ class AttentionBlock(JaxComponent):
         self.key = Compartment(random.PRNGKey(0))
         # Output compartment
         self.outputs = Compartment(jnp.zeros((batch_size, seq_len, n_embed)))
+        self.use_cache = False
+        self.kv_cache = None
     @compilable
     def advance_state(self):
         """
@@ -105,16 +126,21 @@ class AttentionBlock(JaxComponent):
         d_head=self.d_head
         dropout_rate=self.dropout_rate
         key=self.key.get()
-        attention = _compute_attention(
+        attention, new_kv_cache = _compute_attention(
             inputs_q, inputs_k, inputs_v, mask,        
             self.n_heads,        
             self.d_head,        
             self.dropout_rate, 
             self.seq_len,
             self.batch_size,  
-            key                  
+            key,
+            self.use_cache,
+            self.kv_cache
         )
-        
+        if self.use_cache:
+            self.kv_cache = new_kv_cache
+        else:
+            self.kv_cache = None
         self.outputs.set(attention)
     @compilable
     def reset(self):
@@ -132,6 +158,18 @@ class AttentionBlock(JaxComponent):
         self.inputs_v.set(zeros_3d)
         self.mask.set(mask)
         self.outputs.set(zeros_3d)
+        if not self.use_cache:
+            self.kv_cache = None
+
+    def set_use_cache(self, use_cache):
+        """Enable or disable KV caching for this block."""
+        self.use_cache = bool(use_cache)
+        if not self.use_cache:
+            self.kv_cache = None
+
+    def clear_kv_cache(self):
+        """Clear the KV cache."""
+        self.kv_cache = None
 
     @classmethod
     def help(cls):

@@ -31,18 +31,20 @@ def main():
 
     print(f"\n[STARTING GPU-OPTIMIZED TRAINING]")
     start_time=time.time()
+    model.set_use_cache(True)
     for i in range(config.epoch):
         train_EFE = 0.
         total_batches = 0
         for batch_idx, batch in enumerate(train_loader):
             step_start = time.time()
+            model.clear_kv_cache()
 
             # Cast to bfloat16 for 2x speedup on Tensor Cores
             inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
             targets = jax.device_put(batch[1][1])
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
             
-            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True, use_cache=True)
             
             
             step_duration = time.time() - step_start

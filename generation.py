@@ -23,7 +23,8 @@ def generate_text(
     max_new_tokens: int = 100,
     seq_len: int = 8,
     temperature: float = 1.0,
-    key=None
+    key=None,
+    use_kv_cache: bool = False
 ):
     # Encode prompt
     prompt_ids = enc.encode_ordinary(prompt)
@@ -31,6 +32,10 @@ def generate_text(
 
     current_tokens = prompt_tensor
     current_key = key
+
+    if use_kv_cache:
+        model.clear_kv_cache()
+        model.set_use_cache(True)
 
     for _ in range(max_new_tokens):
         # Truncate or pad to fit within seq_len
@@ -46,7 +51,7 @@ def generate_text(
         dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))  
 
         # Run inference 
-        y_mu_inf, _, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
+        y_mu_inf, _, _ = model.process(input_seq, dummy_target, adapt_synapses=False, use_cache=use_kv_cache)
 
         logits = y_mu_inf.reshape(config.batch_size, config.seq_len, config.vocab_size)
 
@@ -67,6 +72,9 @@ def generate_text(
 
     # Decode full sequence to string
     generated_ids = current_tokens[0].tolist()
+    if use_kv_cache:
+        model.set_use_cache(False)
+
     return enc.decode(generated_ids)
 
 # Example usage
@@ -77,6 +85,7 @@ generated = generate_text(
     max_new_tokens=200,
     seq_len=config.seq_len,        
     temperature=0.8,
-    key=jax.random.PRNGKey(42)  
+    key=jax.random.PRNGKey(42),
+    use_kv_cache=True
 )
 print(generated)

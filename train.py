@@ -47,19 +47,33 @@ def main():
             targets = jax.device_put(batch[1][1])
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
             
-            yMu_inf, _, _ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, _, batch_efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             yMu_inf.block_until_ready() 
             
             step_duration = time.time() - step_start
 
+            if batch_idx % 10 == 0:
+                y_pred = yMu_inf.reshape(-1, vocab_size)
+                y_true = targets_flat
+
+                batch_nll = measure_CatNLL(y_pred, y_true)
+                batch_ce_loss = batch_nll.mean()
+                batch_ppl = jnp.exp(batch_ce_loss)
+            else:
+                batch_ce_loss = None
+                batch_ppl = None
+
             # --- THE CLEANUP LOGIC ---
             del inputs, targets, targets_flat, yMu_inf
-            gc.collect() 
+            gc.collect()
 
-            if batch_idx % 20 == 0:
+            if batch_idx % 10 == 0:
                 # Logging memory AFTER the cleanup to show the low baseline
                 log_mem(f"Epoch {i} Batch {batch_idx}")
-                print(f"Step Time: {step_duration:.4f}s")
+                print(
+                    f"Step Time: {step_duration:.4f}s | "
+                    f"EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}"
+                )
 
     print(f"Total Time: {time.time() - start_time:.2f}s")
 

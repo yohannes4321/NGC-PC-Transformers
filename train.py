@@ -36,7 +36,7 @@ def main():
         model_name="ngc_transformer")
 
     start_time = time.time()
-    
+    # add iteration number
     for i in range(config.epoch):
         print(f"\n>> Starting Epoch {i}")
         for batch_idx, batch in enumerate(train_loader):

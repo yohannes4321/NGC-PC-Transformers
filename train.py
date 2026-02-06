@@ -30,9 +30,11 @@ def main():
         model_name="ngc_transformer")
 
     print(f"\n[STARTING GPU-OPTIMIZED TRAINING]")
-
+    start_time=time.time()
     for i in range(config.epoch):
-        batch_times = []
+        train_EFE = 0.
+        total_batches = 0
+        print("iter {i}")
         for batch_idx, batch in enumerate(train_loader):
             step_start = time.time()
 
@@ -44,19 +46,33 @@ def main():
             yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             yMu_inf.block_until_ready() # Force GPU sync for accurate timing
             
+         
+            
             step_duration = time.time() - step_start
-            batch_times.append(step_duration)
+           
 
             if batch_idx % 10 == 0:
-                print(f"| Batch {batch_idx} | Time: {step_duration:.4f}s | EFE: {_EFE:.4f}")
-            
+                y_pred = yMu_inf.reshape(-1, vocab_size)
+                y_true = jnp.eye(vocab_size)[targets.flatten()]
+                
+                batch_nll = measure_CatNLL(y_pred, y_true)
+                batch_ce_loss = batch_nll.mean()  
+                batch_ppl = jnp.exp(batch_ce_loss)
+                print(f" Batch {batch_idx} | Time: {step_duration:.4f}s | EFE: {_EFE:.4f} | CE = {batch_ce_loss:.4f} | PPL = {batch_ppl:.4f}")
+        
             del inputs, targets, targets_flat
+        gc.collect()
+        avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
+        
+        dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
+        print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
+        if  i == (config.epoch-1):
+          model.save_to_disk(params_only=False) # save final state of model to disk
 
-        gc.collect() # Prevent memory fragmentation
-        avg_step = sum(batch_times) / len(batch_times)
-        print(f"--- Epoch {i} Average Step Time: {avg_step:.4f}s ---")
+    total_time = time.time() - start_time
+    print(f"\nTraining finished.")
+    print(f"Total training time: {total_time:.0f} seconds")
 
-    print(f"\n[OPTIMIZED TOTAL RUNTIME]: {time.time() - total_start_time:.2f} seconds")
-
+      
 if __name__ == "__main__":
     main()

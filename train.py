@@ -79,9 +79,10 @@ def main():
         ce_loss = total_nll / total_tokens
         return ce_loss, jnp.exp(ce_loss)
     
-    start_time = time.time()
+   
 
     for i in range(epoch):
+        start_time = time.time()
         train_EFE = 0.
         total_batches = 0
         

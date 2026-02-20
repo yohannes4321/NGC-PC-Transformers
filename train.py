@@ -77,10 +77,9 @@ def main():
         ce_loss = total_nll / total_tokens
         return ce_loss, jnp.exp(ce_loss)
     
-    overall_start_time = time.time()
+    start_time = time.time()
 
     for i in range(epoch):
-        epoch_start_time = time.time()
         train_EFE = 0.
         total_batches = 0
         
@@ -104,23 +103,17 @@ def main():
                 y_true = targets_flat
 
                 batch_ce_loss, batch_ppl = compute_metrics(y_pred, y_true)
+                elapsed = time.time() - start_time
                 
-                print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+                print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}, Time = {elapsed:.2f}s")
         
-        epoch_time = time.time() - epoch_start_time
         avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
-        tokens_processed = total_batches * batch_size * seq_len
-        tokens_per_sec = tokens_processed / epoch_time if epoch_time > 0 else 0.0
-        
+
         dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
-        print(
-            f"Iter {i} Summary: "
-            f"CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}, "
-            f"Epoch time = {epoch_time:.2f}s, throughput = {tokens_per_sec:.1f} tokens/s"
-        )
+        print(f"Iter {i} Summary: CE = {dev_ce:.4f}, PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
         if  i == (epoch-1):
             model.save_to_disk(params_only=False) # save final state of model to disk
-    total_time = time.time() - overall_start_time
+    total_time = time.time() - start_time
     print(f"\nTraining finished.")
     print(f"Total training time: {total_time:.0f} seconds")
    

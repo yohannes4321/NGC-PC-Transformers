@@ -20,7 +20,11 @@ class FlaxTransformer(nn.Module):
         x = x + pos_emb
         # Transformer blocks
         for _ in range(self.n_layers):
-            x = nn.SelfAttention(num_heads=self.n_heads, qkv_features=self.n_embed, dropout_rate=self.dropout_rate)(x)
+            x = nn.SelfAttention(
+                num_heads=self.n_heads,
+                qkv_features=self.n_embed,
+                dropout_rate=self.dropout_rate
+            )(x, deterministic=not train)
             x = nn.LayerNorm()(x)
             x = nn.Dense(self.n_embed)(x)
             x = nn.relu(x)

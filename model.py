@@ -20,39 +20,38 @@ import numpy as np
 
 
 class NGCTransformer:
-
-        @staticmethod
-        @jit
-        def process_jit(self, obs, lab, adapt_synapses=True):
-            # Same as process, but JIT-compiled for speed
-            self.reset.run()
-            self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
-            if self.embedding.W_embed.pos_learnable:
-                self.projection.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.get())
-            for i in range(self.n_layers):
-                block_proj = self.projection.blocks[i]
-                block = self.blocks[i]
-                block_proj.Q_q.weights.set(block.attention.W_q.weights.get())
-                block_proj.Q_q.biases.set(block.attention.W_q.biases.get())
-                block_proj.Q_k.weights.set(block.attention.W_k.weights.get())
-                block_proj.Q_k.biases.set(block.attention.W_k.biases.get())
-                block_proj.Q_v.weights.set(block.attention.W_v.weights.get())
-                block_proj.Q_v.biases.set(block.attention.W_v.biases.get())
-                block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get())
-                block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
-                block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
-                block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
-                block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get())
-                block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get())
-                block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get())
-                block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get())
-                block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get())
-                block.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
-                block.mlp.z_mlp.z.set(block_proj.q_mlp_Ratecell.z.get())
-                block.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
-                block.attention.E_attn.weights.set(jnp.transpose(block.attention.W_attn_out.weights.get()))
-                block.mlp.E_mlp.weights.set(jnp.transpose(block.mlp.W_mlp2.weights.get()))
-                block.mlp.E_mlp1.weights.set(jnp.transpose(block.mlp.W_mlp1.weights.get()))
+    @staticmethod
+    @jit
+    def process_jit(self, obs, lab, adapt_synapses=True):
+        # Same as process, but JIT-compiled for speed
+        self.reset.run()
+        self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
+        if self.embedding.W_embed.pos_learnable:
+            self.projection.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.get())
+        for i in range(self.n_layers):
+            block_proj = self.projection.blocks[i]
+            block = self.blocks[i]
+            block_proj.Q_q.weights.set(block.attention.W_q.weights.get())
+            block_proj.Q_q.biases.set(block.attention.W_q.biases.get())
+            block_proj.Q_k.weights.set(block.attention.W_k.weights.get())
+            block_proj.Q_k.biases.set(block.attention.W_k.biases.get())
+            block_proj.Q_v.weights.set(block.attention.W_v.weights.get())
+            block_proj.Q_v.biases.set(block.attention.W_v.biases.get())
+            block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get())
+            block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
+            block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
+            block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
+            block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get())
+            block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get())
+            block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get())
+            block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get())
+            block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get())
+            block.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
+            block.mlp.z_mlp.z.set(block_proj.q_mlp_Ratecell.z.get())
+            block.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
+            block.attention.E_attn.weights.set(jnp.transpose(block.attention.W_attn_out.weights.get()))
+            block.mlp.E_mlp.weights.set(jnp.transpose(block.mlp.W_mlp2.weights.get()))
+            block.mlp.E_mlp1.weights.set(jnp.transpose(block.mlp.W_mlp1.weights.get()))
             self.projection.Q_out.weights.set(self.output.W_out.weights.get())
             self.projection.Q_out.biases.set(self.output.W_out.biases.get())
             self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
@@ -83,29 +82,8 @@ class NGCTransformer:
                 self.embedding_evolve.run()
                 self.evolve.run(t=self.T, dt=1.)
             return y_mu_inf, y_mu, EFE
-    """
-    Predictive Coding Transformer following PCN architecture from:
-    Whittington & Bogacz (2017) - "An approximation of the error backpropagation 
-    algorithm in a predictive coding network with local hebbian synaptic plasticity"
-
-    Architecture:
-    z_embed -(W_embed)-> e_embed, z_qkv -(W_q,W_k,W_v - > W_attn_out)-> e_attn, z_mlp -(W_mlp1,W_mlp2)-> e_mlp, z_out -(W_out)-> e_out
-    e_attn -(E_attn)-> z_qkv <- e_embed, e_mlp -(E_mlp)-> z_mlp <- e_attn, e_out -(E_out)-> z_out <- e_mlp
-
-    Args:
-        dkey: JAX seeding key
-        vocab_size: vocabulary size
-        seq_len: sequence length
-        n_embed: embedding dimension
-        n_heads: number of attention heads
-        batch_size: batch size
-        n_layers: number of transformer blocks
-        dt: integration time constant
-        tau_m: membrane time constant
-        eta: learning rate for Hebbian synapses
-        exp_dir: experimental directory
-        model_name: unique model name
-    """
+   
+   
 
    
     def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, n_layers, n_heads, T, dt, tau_m, act_fx, eta, dropout_rate, exp_dir, model_name, loadDir=None, pos_learnable=False, optim_type="adam", wub=1.0, wlb=0.0, **kwargs):
@@ -437,18 +415,16 @@ class NGCTransformer:
 
 
     
-    def clamp_input(self,x):
+    def clamp_input(self, x):
         self.embedding.z_embed.j.set(x)
-        self.projection.q_embed_Ratecell.j.set(x) 
-        
-    
-    def clamp_target(self,y):
+        self.projection.q_embed_Ratecell.j.set(x)
+
+    def clamp_target(self, y):
         self.z_target.j.set(y)
 
-    
-    def clamp_infer_target(self,y):
+    def clamp_infer_target(self, y):
         self.projection.eq_target.target.set(y)
-        
+
     def save_to_disk(self, params_only=False):
         """
         Saves current model parameter get()s to disk

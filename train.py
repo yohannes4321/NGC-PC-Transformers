@@ -66,6 +66,8 @@ def main():
             targets_flat = compute_one_hot(targets.reshape(-1))
 
             yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=False)
+            # Ensure all device computation is complete before using outputs
+            yMu_inf.block_until_ready()
             
             y_pred = yMu_inf.reshape(-1, vocab_size)
             y_true = targets_flat

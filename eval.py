@@ -1,7 +1,7 @@
 
 import os
 import jax.numpy as jnp
-from jax import jit, device_put
+from jax import device_put, jit
 from jax.nn import one_hot
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
@@ -12,13 +12,16 @@ import time
 
 # JIT-compiled helper functions for speed
 @jit
-def compute_one_hot(targets_flat, vocab_size):
-    """JIT-compiled one-hot encoding"""
-    return one_hot(targets_flat, vocab_size)
+def compute_one_hot(flat_targets):
+    """
+    JIT-compiled one-hot encoding.
+    vocab_size is captured from config so it is a static constant.
+    """
+    return one_hot(flat_targets, config.vocab_size)
 
 @jit
 def compute_metrics(y_pred, y_true):
-    """JIT-compiled metric computation"""
+    """JIT-compiled metric computation (CE + PPL)."""
     batch_nll = measure_CatNLL(y_pred, y_true)
     batch_ce_loss = batch_nll.mean()
     batch_ppl = jnp.exp(batch_ce_loss)
@@ -39,8 +42,8 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
         inputs = device_put(batch[0][1])
         targets = device_put(batch[1][1])
 
-        # JIT-compiled one-hot conversion
-        targets_flat = compute_one_hot(targets.reshape(-1), vocab_size)
+        # Efficient JIT-compiled one-hot conversion (no jnp.eye)
+        targets_flat = compute_one_hot(targets.reshape(-1))
 
         yMu_inf, _, _ = model.process(
             obs=inputs,
@@ -50,7 +53,6 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
 
         y_pred = yMu_inf.reshape(-1, vocab_size)
 
-        # JIT-compiled metric computation
         batch_nll = measure_CatNLL(y_pred, targets_flat)
         total_nll += batch_nll.sum() * targets_flat.shape[0]
         total_tokens += targets_flat.shape[0]
@@ -59,7 +61,6 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
             y_pred = yMu_inf.reshape(-1, vocab_size)
             y_true = targets_flat
 
-            # JIT-compiled metric computation
             batch_ce_loss, batch_ppl = compute_metrics(y_pred, y_true)
             print(f" Eval Batch {batch_idx}: | CE = {batch_ce_loss:.4f} | PPL = {batch_ppl:.4f}")
 

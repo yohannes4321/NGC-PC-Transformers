@@ -1,4 +1,4 @@
-from jax import numpy as jnp, random, jit, device_put
+from jax import numpy as jnp, random, device_put, jit
 from jax.nn import one_hot
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
@@ -6,16 +6,20 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 from eval import eval_model
 import time
-#
+
 # JIT-compiled helper functions for speed
 @jit
-def compute_one_hot(targets_flat, vocab_size):
-    """JIT-compiled one-hot encoding"""
-    return one_hot(targets_flat, vocab_size)
+def compute_one_hot(flat_targets):
+    """
+    JIT-compiled one-hot encoding.
+    vocab_size is captured from config so it is a static constant,
+    avoiding the ConcretizationTypeError.
+    """
+    return one_hot(flat_targets, config.vocab_size)
 
 @jit
 def compute_metrics(y_pred, y_true):
-    """JIT-compiled metric computation"""
+    """JIT-compiled metric computation (CE + PPL)."""
     batch_nll = measure_CatNLL(y_pred, y_true)
     batch_ce_loss = batch_nll.mean()
     batch_ppl = jnp.exp(batch_ce_loss)
@@ -49,15 +53,14 @@ def main():
             inputs = device_put(batch[0][1])
             targets = device_put(batch[1][1])
             
-            # JIT-compiled one-hot conversion
-            targets_flat = compute_one_hot(targets.reshape(-1), vocab_size)
+            # Efficient JIT-compiled one-hot conversion (no jnp.eye)
+            targets_flat = compute_one_hot(targets.reshape(-1))
 
             yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=False)
             
             y_pred = yMu_inf.reshape(-1, vocab_size)
             y_true = targets_flat
             
-            # JIT-compiled metric computation
             batch_nll = measure_CatNLL(y_pred, y_true)
             total_nll += float(batch_nll.sum()) * y_true.shape[0]
             total_tokens += y_true.shape[0]
@@ -78,8 +81,8 @@ def main():
             inputs = device_put(batch[0][1])
             targets = device_put(batch[1][1])
             
-            # JIT-compiled one-hot conversion
-            targets_flat = compute_one_hot(targets.reshape(-1), vocab_size)
+            # Efficient JIT-compiled one-hot conversion (no jnp.eye)
+            targets_flat = compute_one_hot(targets.reshape(-1))
 
             yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE
@@ -90,7 +93,6 @@ def main():
                 # Reuse the same one-hot targets for logging metrics
                 y_true = targets_flat
 
-                # JIT-compiled metric computation
                 batch_ce_loss, batch_ppl = compute_metrics(y_pred, y_true)
                 
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")

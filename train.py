@@ -56,26 +56,17 @@ def main():
 
     def train_model(data_loader):
         total_nll, total_tokens = 0., 0
-        
         for batch in data_loader:
-            # Move data to device once
             inputs = device_put(batch[0][1])
             targets = device_put(batch[1][1])
-            
-            # Efficient JIT-compiled one-hot conversion (no jnp.eye)
             targets_flat = compute_one_hot(targets.reshape(-1))
-
-            yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=False)
-            # Ensure all device computation is complete before using outputs
+            yMu_inf, y_mu, _EFE = model.process_jit(model, obs=inputs, lab=targets_flat, adapt_synapses=False)
             yMu_inf.block_until_ready()
-            
             y_pred = yMu_inf.reshape(-1, vocab_size)
             y_true = targets_flat
-            
             batch_nll = measure_CatNLL(y_pred, y_true)
             total_nll += float(batch_nll.sum()) * y_true.shape[0]
             total_tokens += y_true.shape[0]
-        
         ce_loss = total_nll / total_tokens
         return ce_loss, jnp.exp(ce_loss)
     
@@ -89,25 +80,17 @@ def main():
         print(f"\n iter {i}:")
         
         for batch_idx, batch in enumerate(train_loader):
-            # Move data to device once (avoids repeated host-device transfers)
             inputs = device_put(batch[0][1])
             targets = device_put(batch[1][1])
-            
-            # Efficient JIT-compiled one-hot conversion (no jnp.eye)
             targets_flat = compute_one_hot(targets.reshape(-1))
-
-            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, _, _EFE = model.process_jit(model, obs=inputs, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE
             total_batches += 1
-
             if batch_idx % 10 == 0:
                 y_pred = yMu_inf.reshape(-1, vocab_size)
-                # Reuse the same one-hot targets for logging metrics
                 y_true = targets_flat
-
                 batch_ce_loss, batch_ppl = compute_metrics(y_pred, y_true)
                 elapsed = time.time() - start_time
-                
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}, Time = {elapsed:.2f}s")
         
         avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0

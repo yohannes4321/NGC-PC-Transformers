@@ -1,3 +1,5 @@
+import os
+import jax
 from jax import numpy as jnp, random, device_put, jit
 from jax.nn import one_hot
 from model import NGCTransformer
@@ -6,6 +8,13 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 from eval import eval_model
 import time
+
+# Prefer fast 32-bit math on GPU/TPU
+jax.config.update("jax_enable_x64", False)
+
+# Optional XLA runtime tuning (can help memory / autotuning)
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.9")
 
 # JIT-compiled helper functions for speed
 @jit

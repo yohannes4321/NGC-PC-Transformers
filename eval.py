@@ -1,5 +1,6 @@
 
 import os
+import jax
 import jax.numpy as jnp
 from jax import device_put, jit
 from jax.nn import one_hot
@@ -9,6 +10,12 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 import jax.random as random
 import time
+
+# Prefer fast 32-bit math on GPU/TPU
+jax.config.update("jax_enable_x64", False)
+
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.9")
 
 # JIT-compiled helper functions for speed
 @jit

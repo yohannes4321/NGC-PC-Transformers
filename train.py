@@ -6,7 +6,7 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 from eval import eval_model
 import time
-
+#
 # JIT-compiled helper functions for speed
 @jit
 def compute_one_hot(targets_flat, vocab_size):
@@ -40,16 +40,6 @@ def main():
     model = NGCTransformer(dkey, batch_size=batch_size, seq_len=seq_len, n_embed=n_embed, vocab_size=vocab_size, n_layers=n_layers, n_heads=config.n_heads,
                           T=T, dt=1., tau_m=tau_m , act_fx=act_fx, eta=eta, dropout_rate= dropout_rate, exp_dir="exp",
                   loadDir= None, pos_learnable= pos_learnable, optim_type=optim_type, wub = wub, wlb= wlb, model_name="ngc_transformer" )
-    
-    # Warmup JIT functions on first batch to avoid compilation overhead during training
-    print("Warming up JIT functions...")
-    for batch in train_loader:
-        inputs = device_put(batch[0][1])
-        targets = device_put(batch[1][1])
-        targets_flat = compute_one_hot(targets.reshape(-1), vocab_size)
-        _ = compute_metrics(targets_flat[:10], targets_flat[:10])  # Warmup with small sample
-        break
-    print("JIT warmup complete!")
 
     def train_model(data_loader):
         total_nll, total_tokens = 0., 0

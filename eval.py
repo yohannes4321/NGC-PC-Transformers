@@ -1,12 +1,28 @@
 
 import os
 import jax.numpy as jnp
+from jax import jit, device_put
+from jax.nn import one_hot
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
 from config import Config as config
 import jax.random as random
 import time
+
+# JIT-compiled helper functions for speed
+@jit
+def compute_one_hot(targets_flat, vocab_size):
+    """JIT-compiled one-hot encoding"""
+    return one_hot(targets_flat, vocab_size)
+
+@jit
+def compute_metrics(y_pred, y_true):
+    """JIT-compiled metric computation"""
+    batch_nll = measure_CatNLL(y_pred, y_true)
+    batch_ce_loss = batch_nll.mean()
+    batch_ppl = jnp.exp(batch_ce_loss)
+    return batch_ce_loss, batch_ppl
 
 def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     """
@@ -19,30 +35,32 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     batch_idx = 0
 
     for batch in data_loader:
-        inputs = batch[0][1]         
-        targets = batch[1][1]        
+        # Move data to device once (avoids repeated host-device transfers)
+        inputs = device_put(batch[0][1])
+        targets = device_put(batch[1][1])
 
-       
-        targets_onehot = jnp.eye(vocab_size)[targets]             
-        targets_flat = targets_onehot.reshape(-1, vocab_size)      
+        # JIT-compiled one-hot conversion
+        targets_flat = compute_one_hot(targets.reshape(-1), vocab_size)
 
-        yMu_inf, _, _ = model.process(obs=inputs,
-                                      lab=targets_flat,
-                                      adapt_synapses=False)
+        yMu_inf, _, _ = model.process(
+            obs=inputs,
+            lab=targets_flat,
+            adapt_synapses=False,
+        )
 
-        y_pred = yMu_inf.reshape(-1, vocab_size)   
-        
+        y_pred = yMu_inf.reshape(-1, vocab_size)
 
-        total_nll += measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
+        # JIT-compiled metric computation
+        batch_nll = measure_CatNLL(y_pred, targets_flat)
+        total_nll += batch_nll.sum() * targets_flat.shape[0]
         total_tokens += targets_flat.shape[0]
         
         if batch_idx % 10 == 0:
             y_pred = yMu_inf.reshape(-1, vocab_size)
-            y_true = jnp.eye(vocab_size)[targets.flatten()]
-            
-            batch_nll = measure_CatNLL(y_pred, y_true)
-            batch_ce_loss = batch_nll.mean()  
-            batch_ppl = jnp.exp(batch_ce_loss)
+            y_true = targets_flat
+
+            # JIT-compiled metric computation
+            batch_ce_loss, batch_ppl = compute_metrics(y_pred, y_true)
             print(f" Eval Batch {batch_idx}: | CE = {batch_ce_loss:.4f} | PPL = {batch_ppl:.4f}")
 
         batch_idx += 1

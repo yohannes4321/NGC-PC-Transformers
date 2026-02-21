@@ -1,31 +1,4 @@
-    def get_params(self):
-        """
-        Collect all trainable parameters (weights, biases) from the model as a dict.
-        Returns:
-            params (dict): All weights and biases as JAX arrays, grouped by layer/block.
-        """
-        params = {}
-        # Embedding
-        params['embedding_W_embed_weights'] = self.embedding.W_embed.weights.get()
-        params['embedding_W_embed_biases'] = self.embedding.W_embed.biases.get()
-        # Blocks
-        for i, block in enumerate(self.blocks):
-            params[f'block{i}_attn_W_q_weights'] = block.attention.W_q.weights.get()
-            params[f'block{i}_attn_W_q_biases'] = block.attention.W_q.biases.get()
-            params[f'block{i}_attn_W_k_weights'] = block.attention.W_k.weights.get()
-            params[f'block{i}_attn_W_k_biases'] = block.attention.W_k.biases.get()
-            params[f'block{i}_attn_W_v_weights'] = block.attention.W_v.weights.get()
-            params[f'block{i}_attn_W_v_biases'] = block.attention.W_v.biases.get()
-            params[f'block{i}_attn_W_attn_out_weights'] = block.attention.W_attn_out.weights.get()
-            params[f'block{i}_attn_W_attn_out_biases'] = block.attention.W_attn_out.biases.get()
-            params[f'block{i}_mlp_W_mlp1_weights'] = block.mlp.W_mlp1.weights.get()
-            params[f'block{i}_mlp_W_mlp1_biases'] = block.mlp.W_mlp1.biases.get()
-            params[f'block{i}_mlp_W_mlp2_weights'] = block.mlp.W_mlp2.weights.get()
-            params[f'block{i}_mlp_W_mlp2_biases'] = block.mlp.W_mlp2.biases.get()
-        # Output
-        params['output_W_out_weights'] = self.output.W_out.weights.get()
-        params['output_W_out_biases'] = self.output.W_out.biases.get()
-        return params
+    
 #import
 import jax
 from ngclearn import Context, MethodProcess
@@ -71,7 +44,34 @@ class NGCTransformer:
         exp_dir: experimental directory
         model_name: unique model name
     """
-
+    def get_params(self):
+        """
+        Collect all trainable parameters (weights, biases) from the model as a dict.
+        Returns:
+            params (dict): All weights and biases as JAX arrays, grouped by layer/block.
+        """
+        params = {}
+        # Embedding
+        params['embedding_W_embed_weights'] = self.embedding.W_embed.weights.get()
+        params['embedding_W_embed_biases'] = self.embedding.W_embed.biases.get()
+        # Blocks
+        for i, block in enumerate(self.blocks):
+            params[f'block{i}_attn_W_q_weights'] = block.attention.W_q.weights.get()
+            params[f'block{i}_attn_W_q_biases'] = block.attention.W_q.biases.get()
+            params[f'block{i}_attn_W_k_weights'] = block.attention.W_k.weights.get()
+            params[f'block{i}_attn_W_k_biases'] = block.attention.W_k.biases.get()
+            params[f'block{i}_attn_W_v_weights'] = block.attention.W_v.weights.get()
+            params[f'block{i}_attn_W_v_biases'] = block.attention.W_v.biases.get()
+            params[f'block{i}_attn_W_attn_out_weights'] = block.attention.W_attn_out.weights.get()
+            params[f'block{i}_attn_W_attn_out_biases'] = block.attention.W_attn_out.biases.get()
+            params[f'block{i}_mlp_W_mlp1_weights'] = block.mlp.W_mlp1.weights.get()
+            params[f'block{i}_mlp_W_mlp1_biases'] = block.mlp.W_mlp1.biases.get()
+            params[f'block{i}_mlp_W_mlp2_weights'] = block.mlp.W_mlp2.weights.get()
+            params[f'block{i}_mlp_W_mlp2_biases'] = block.mlp.W_mlp2.biases.get()
+        # Output
+        params['output_W_out_weights'] = self.output.W_out.weights.get()
+        params['output_W_out_biases'] = self.output.W_out.biases.get()
+        return params
    
     def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, n_layers, n_heads, T, dt, tau_m, act_fx, eta, dropout_rate, exp_dir, model_name, loadDir=None, pos_learnable=False, optim_type="adam", wub=1.0, wlb=0.0, **kwargs):
 

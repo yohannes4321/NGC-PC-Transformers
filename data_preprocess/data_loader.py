@@ -83,7 +83,5 @@ class DataLoader:
             batch_size=self.batch_size,
             disable_shuffle=not shuffle,
             ensure_equal_batches=True,
-            prefetch_batches=self.prefetch_batches,
-            pin_memory=self.pin_memory,
         )
         return loader

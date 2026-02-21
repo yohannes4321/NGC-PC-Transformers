@@ -66,7 +66,14 @@ def main():
         (loss, batch_efe), grads = grad_fn(params, inputs, targets_flat)
         
         # Optimizer updates
-        grads = optax.clip_by_global_norm(grads, 1.0)
+        # Clip gradients by global norm (implements optax.clip_by_global_norm behavior)
+        def _global_norm(tree):
+            leaves = jax.tree_util.tree_leaves(tree)
+            return jnp.sqrt(sum([jnp.sum(jnp.square(x)) for x in leaves]))
+
+        g_norm = _global_norm(grads)
+        clip_coef = jnp.where(g_norm > 1.0, 1.0 / (g_norm + 1e-6), 1.0)
+        grads = jax.tree_util.tree_map(lambda x: x * clip_coef, grads)
         updates, opt_state = optimizer.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
         

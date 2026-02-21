@@ -141,7 +141,6 @@ def main():
                 print("Early stopping triggered.")
                 break
         # Log peak memory usage
-        import jax
         print(f"Max memory used: {jax.devices()[0].memory_stats()['max_allocated_bytes'] / 1e9:.2f} GB")
     print(f"Total Time: {time.time() - start_time:.2f}s")
 

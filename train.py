@@ -1,5 +1,5 @@
-import time
 import jax
+import time
 import jax.numpy as jnp
 from jax import random
 import gc

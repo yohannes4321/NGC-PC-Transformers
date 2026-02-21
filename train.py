@@ -46,8 +46,15 @@ def main():
     import optax
     # Gradient clipping and accumulation
     import optax
-    warmup_steps = max(1, int(0.01 * config.epoch * data_loader.num_batches))
-    total_steps = config.epoch * data_loader.num_batches
+    # Sequence length scheduling: start short, increase
+    schedule_seq_lens = [max(8, seq_len // 4), max(16, seq_len // 2), seq_len]
+    for scheduled_len in schedule_seq_lens:
+        print(f"Training with sequence length: {scheduled_len}")
+        train_loader, valid_loader, _ = data_loader.load_and_prepare_data(schedule_seq_len=scheduled_len)
+        num_batches = len(train_loader)
+        warmup_steps = max(1, int(0.01 * config.epoch * num_batches))
+        total_steps = config.epoch * num_batches
+        # ...existing code for training loop...
     schedule = optax.join_schedules([
         optax.linear_schedule(init_value=0.1 * config.lr, end_value=config.lr, transition_steps=warmup_steps),
         optax.cosine_decay_schedule(init_value=config.lr, decay_steps=total_steps - warmup_steps)

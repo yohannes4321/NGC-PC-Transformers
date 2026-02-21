@@ -98,9 +98,8 @@ def main():
         
         optimizer = optax.adamw(learning_rate=schedule, weight_decay=0.01)
         
-        # Placeholder: Extract actual model parameters if optax is managing them, 
-        # otherwise ngclearn manages weights internally.
-        params = model 
+        # Extract actual model parameters for optax
+        params = model.get_params()
         opt_state = optimizer.init(params)
         patience_counter = 0
 

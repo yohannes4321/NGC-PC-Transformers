@@ -1,5 +1,5 @@
-import jax
 import time
+import jax
 import jax.numpy as jnp
 from jax import random
 import gc
@@ -71,8 +71,7 @@ def main():
                 batch_nll = measure_CatNLL(y_pred, y_true)
                 batch_ce_loss = batch_nll.mean()
                 batch_ppl = jnp.exp(batch_ce_loss)
-                if batch_idx % 10 == 0:
-                    print(f"Batch {batch_idx}: EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+                print(f"Batch {batch_idx}: EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
     schedule = optax.join_schedules([
         optax.linear_schedule(init_value=0.1 * config.lr, end_value=config.lr, transition_steps=warmup_steps),
         optax.cosine_decay_schedule(init_value=config.lr, decay_steps=total_steps - warmup_steps)
@@ -124,7 +123,7 @@ def main():
                 batch_ce_loss = None
                 batch_ppl = None
             del inputs, targets, targets_flat
-          
+            gc.collect()
             if batch_idx % 10 == 0:
                 log_mem(f"Epoch {i} Batch {batch_idx}")
                 print(
@@ -142,6 +141,7 @@ def main():
                 print("Early stopping triggered.")
                 break
         # Log peak memory usage
+       
         print(f"Max memory used: {jax.devices()[0].memory_stats()['max_allocated_bytes'] / 1e9:.2f} GB")
     print(f"Total Time: {time.time() - start_time:.2f}s")
 

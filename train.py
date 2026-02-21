@@ -71,7 +71,8 @@ def main():
                 batch_nll = measure_CatNLL(y_pred, y_true)
                 batch_ce_loss = batch_nll.mean()
                 batch_ppl = jnp.exp(batch_ce_loss)
-                print(f"Batch {batch_idx}: EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+                if batch_idx % 10 == 0:
+                    print(f"Batch {batch_idx}: EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
     schedule = optax.join_schedules([
         optax.linear_schedule(init_value=0.1 * config.lr, end_value=config.lr, transition_steps=warmup_steps),
         optax.cosine_decay_schedule(init_value=config.lr, decay_steps=total_steps - warmup_steps)

@@ -534,16 +534,12 @@ class NGCTransformer:
         y_mu_inf = self.projection.q_target_Ratecell.z.get()
         EFE = 0.
         y_mu = 0.
-        # Use lax.scan for inference loop
-        def inference_step(carry, _):
-            # carry: tuple (obs, lab)
-            self.clamp_input(carry[0])
-            self.clamp_target(carry[1])
-            self.advance.run(t=0, dt=1.)
-            return carry, None
+        # Use a standard Python for-loop for inference
         if adapt_synapses:
-            init_state = (obs, lab)
-            _, _ = jax.lax.scan(inference_step, init_state, None, length=self.T)
+            for ts in range(self.T):
+                self.clamp_input(obs)
+                self.clamp_target(lab)
+                self.advance.run(t=ts, dt=1.)
         y_mu = self.output.W_out.outputs.get()
         L1 = self.embedding.e_embed.L.get()
         L4 = self.output.e_out.L.get()

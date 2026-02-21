@@ -46,8 +46,8 @@ def main():
     import optax
     # Gradient clipping and accumulation
     import optax
-    warmup_steps = max(1, int(0.01 * config.epoch * len(train_loader)))
-    total_steps = config.epoch * len(train_loader)
+    warmup_steps = max(1, int(0.01 * config.epoch * data_loader.num_batches))
+    total_steps = config.epoch * data_loader.num_batches
     schedule = optax.join_schedules([
         optax.linear_schedule(init_value=0.1 * config.lr, end_value=config.lr, transition_steps=warmup_steps),
         optax.cosine_decay_schedule(init_value=config.lr, decay_steps=total_steps - warmup_steps)

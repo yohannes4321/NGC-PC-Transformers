@@ -55,7 +55,23 @@ def main():
         num_batches = sum(1 for _ in train_loader)
         warmup_steps = max(1, int(0.01 * config.epoch * num_batches))
         total_steps = config.epoch * num_batches
-        # ...existing code for training loop...
+        # Reset train_loader iterator after counting
+        train_loader, valid_loader, _ = data_loader.load_and_prepare_data(schedule_seq_len=scheduled_len)
+        for i in range(config.epoch):
+            print(f"\n>> Starting Epoch {i}")
+            for batch_idx, batch in enumerate(train_loader):
+                step_start = time.time()
+                inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
+                targets = jax.device_put(batch[1][1])
+                targets_flat = jax.nn.one_hot(targets, config.vocab_size).astype(jnp.bfloat16).reshape(-1, config.vocab_size)
+                yMu_inf, _, batch_efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                yMu_inf.block_until_ready()
+                y_pred = yMu_inf.reshape(-1, config.vocab_size)
+                y_true = targets_flat
+                batch_nll = measure_CatNLL(y_pred, y_true)
+                batch_ce_loss = batch_nll.mean()
+                batch_ppl = jnp.exp(batch_ce_loss)
+                print(f"Batch {batch_idx}: EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
     schedule = optax.join_schedules([
         optax.linear_schedule(init_value=0.1 * config.lr, end_value=config.lr, transition_steps=warmup_steps),
         optax.cosine_decay_schedule(init_value=config.lr, decay_steps=total_steps - warmup_steps)

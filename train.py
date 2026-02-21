@@ -24,7 +24,7 @@ def main():
     seq_len, batch_size, vocab_size = config.seq_len, config.batch_size, config.vocab_size
     dkey = random.PRNGKey(1234)
     # Enable prefetch and pin_memory in DataLoader
-    data_loader = DataLoader(seq_len=seq_len, batch_size=batch_size, prefetch_batches=4, pin_memory=True)
+    data_loader = DataLoader(seq_len=seq_len, batch_size=batch_size)
     # Sequence length scheduling: start short, increase
     schedule_seq_lens = [max(8, seq_len // 4), max(16, seq_len // 2), seq_len]
     for scheduled_len in schedule_seq_lens:

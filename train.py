@@ -101,6 +101,10 @@ def main():
         # Extract actual model parameters for optax
         params = model.get_params()
         opt_state = optimizer.init(params)
+        # Replicate params and optimizer state across devices for pmap
+        devices = jax.devices()
+        params = jax.device_put_replicated(params, devices)
+        opt_state = jax.device_put_replicated(opt_state, devices)
         patience_counter = 0
 
         for epoch in range(config.epoch):

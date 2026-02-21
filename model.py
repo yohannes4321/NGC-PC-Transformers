@@ -1,4 +1,4 @@
-    def get_params(self):
+def get_params(self):
         """
         Collect all trainable parameters (weights, biases) from the model as a dict.
         Returns:

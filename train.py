@@ -72,12 +72,11 @@ def main():
                 batch_ce_loss = batch_nll.mean()
                 batch_ppl = jnp.exp(batch_ce_loss)
                 print(f"Batch {batch_idx}: EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
-        lr = getattr(config, 'lr', 1e-3)
-        schedule = optax.join_schedules([
-            optax.linear_schedule(init_value=0.1 * lr, end_value=lr, transition_steps=warmup_steps),
-            optax.cosine_decay_schedule(init_value=lr, decay_steps=total_steps - warmup_steps)
-        ], [warmup_steps])
-        optimizer = optax.adamw(learning_rate=schedule, weight_decay=0.01)
+    schedule = optax.join_schedules([
+        optax.linear_schedule(init_value=0.1 * config.lr, end_value=config.lr, transition_steps=warmup_steps),
+        optax.cosine_decay_schedule(init_value=config.lr, decay_steps=total_steps - warmup_steps)
+    ], [warmup_steps])
+    optimizer = optax.adamw(learning_rate=schedule, weight_decay=0.01)
     accum_steps = 4
     # Multi-GPU parallelism
     devices = jax.devices()

@@ -51,9 +51,13 @@ class NGCTransformer:
             params (dict): All weights and biases as JAX arrays, grouped by layer/block.
         """
         params = {}
-        # Embedding
-        params['embedding_W_embed_weights'] = self.embedding.W_embed.weights.get()
-        params['embedding_W_embed_biases'] = self.embedding.W_embed.biases.get()
+        # Embedding (EmbeddingSynapse uses word_weights and pos_weights)
+        params['embedding_word_weights'] = self.embedding.W_embed.word_weights.get()
+        # pos_weights may be fixed sinusoidal or learnable
+        try:
+            params['embedding_pos_weights'] = self.embedding.W_embed.pos_weights.get()
+        except Exception:
+            params['embedding_pos_weights'] = None
         # Blocks
         for i, block in enumerate(self.blocks):
             params[f'block{i}_attn_W_q_weights'] = block.attention.W_q.weights.get()

@@ -26,9 +26,7 @@ class DataLoader:
 
     @property
     def num_batches(self):
-        if hasattr(self, 'train_loader'):
-            return self.train_loader.num_batches
-        return None
+        return getattr(self, '_num_batches', None)
 
     # LOAD DATA (CPU ONLY)
     def load_and_prepare_data(self, schedule_seq_len=None):
@@ -48,6 +46,11 @@ class DataLoader:
         valid_loader = self._create_data_loader(valid_tokens, shuffle=False)
         test_loader  = self._create_data_loader(test_tokens, shuffle=False)
         self.train_loader = train_loader
+        # Try to get number of batches from train_loader
+        try:
+            self._num_batches = len(train_loader)
+        except Exception:
+            self._num_batches = None
         return train_loader, valid_loader, test_loader
 
     # WINDOW CREATION (ZERO-COPY)

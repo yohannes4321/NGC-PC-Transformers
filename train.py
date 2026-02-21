@@ -51,7 +51,9 @@ def main():
     for scheduled_len in schedule_seq_lens:
         print(f"Training with sequence length: {scheduled_len}")
         train_loader, valid_loader, _ = data_loader.load_and_prepare_data(schedule_seq_len=scheduled_len)
-        num_batches = len(train_loader)
+        num_batches = getattr(train_loader, 'num_batches', None)
+        if num_batches is None:
+            raise RuntimeError("train_loader does not have a num_batches property. Please check ngclearn DataLoader API or calculate manually.")
         warmup_steps = max(1, int(0.01 * config.epoch * num_batches))
         total_steps = config.epoch * num_batches
         # ...existing code for training loop...

@@ -1,5 +1,3 @@
-class NGCTransformer:
-    # ...existing code...
     def get_params(self):
         """
         Collect all trainable parameters (weights, biases) from the model as a dict.

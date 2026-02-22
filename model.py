@@ -17,6 +17,8 @@ from layers.output import Output
 from utils.model_util import ReshapeComponent
 from projection.projection import Projection
 import numpy as np
+from ngclearn import compilable
+import jax.numpy as jnp
 
 
 
@@ -44,38 +46,6 @@ class NGCTransformer:
         exp_dir: experimental directory
         model_name: unique model name
     """
-    def get_params(self):
-        """
-        Collect all trainable parameters (weights, biases) from the model as a dict.
-        Returns:
-            params (dict): All weights and biases as JAX arrays, grouped by layer/block.
-        """
-        params = {}
-        # Embedding (EmbeddingSynapse uses word_weights and pos_weights)
-        params['embedding_word_weights'] = self.embedding.W_embed.word_weights.get()
-        # pos_weights may be fixed sinusoidal or learnable
-        try:
-            params['embedding_pos_weights'] = self.embedding.W_embed.pos_weights.get()
-        except Exception:
-            params['embedding_pos_weights'] = None
-        # Blocks
-        for i, block in enumerate(self.blocks):
-            params[f'block{i}_attn_W_q_weights'] = block.attention.W_q.weights.get()
-            params[f'block{i}_attn_W_q_biases'] = block.attention.W_q.biases.get()
-            params[f'block{i}_attn_W_k_weights'] = block.attention.W_k.weights.get()
-            params[f'block{i}_attn_W_k_biases'] = block.attention.W_k.biases.get()
-            params[f'block{i}_attn_W_v_weights'] = block.attention.W_v.weights.get()
-            params[f'block{i}_attn_W_v_biases'] = block.attention.W_v.biases.get()
-            params[f'block{i}_attn_W_attn_out_weights'] = block.attention.W_attn_out.weights.get()
-            params[f'block{i}_attn_W_attn_out_biases'] = block.attention.W_attn_out.biases.get()
-            params[f'block{i}_mlp_W_mlp1_weights'] = block.mlp.W_mlp1.weights.get()
-            params[f'block{i}_mlp_W_mlp1_biases'] = block.mlp.W_mlp1.biases.get()
-            params[f'block{i}_mlp_W_mlp2_weights'] = block.mlp.W_mlp2.weights.get()
-            params[f'block{i}_mlp_W_mlp2_biases'] = block.mlp.W_mlp2.biases.get()
-        # Output
-        params['output_W_out_weights'] = self.output.W_out.weights.get()
-        params['output_W_out_biases'] = self.output.W_out.biases.get()
-        return params
    
     def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, n_layers, n_heads, T, dt, tau_m, act_fx, eta, dropout_rate, exp_dir, model_name, loadDir=None, pos_learnable=False, optim_type="adam", wub=1.0, wlb=0.0, **kwargs):
 
@@ -518,131 +488,103 @@ class NGCTransformer:
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
           
             
-            
+
   
-    def process(self, obs, lab, adapt_synapses=True):
-        # 1. Reset state (Compiled)
-        self.reset.run()
-
-        # 2. Batch get/set for weight sync to minimize Python-JAX overhead
-        # Embedding weights
-        embed_word_weights = self.embedding.W_embed.word_weights.get()
-        self.projection.Q_embed.word_weights.set(embed_word_weights)
+    @compilable
+    def sync_pre_projection(self):
+        """Fuses all pre-projection weight and state synchronizations into one GPU operation."""
+        # 1. Embedding weights
+        self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
         if self.embedding.W_embed.pos_learnable:
-            embed_pos_weights = self.embedding.W_embed.pos_weights.get()
-            self.projection.Q_embed.pos_weights.set(embed_pos_weights)
+            self.projection.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.get())
+        
+        # 2. Block weights and states
+        for i in range(self.n_layers):
+            block_proj = self.projection.blocks[i]
+            block = self.blocks[i] 
+            
+            # Sync Q blocks
+            block_proj.Q_q.weights.set(block.attention.W_q.weights.get())
+            block_proj.Q_q.biases.set(block.attention.W_q.biases.get())
+            block_proj.Q_k.weights.set(block.attention.W_k.weights.get())
+            block_proj.Q_k.biases.set(block.attention.W_k.biases.get())
+            block_proj.Q_v.weights.set(block.attention.W_v.weights.get())
+            block_proj.Q_v.biases.set(block.attention.W_v.biases.get())
+            block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get())
+            block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get())
+            block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get())
+            block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get())
+            block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get())
+            block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get())
 
-        # Batch get all block weights and states
-        attn_Wq_weights = [block.attention.W_q.weights.get() for block in self.blocks]
-        attn_Wq_biases  = [block.attention.W_q.biases.get() for block in self.blocks]
-        attn_Wk_weights = [block.attention.W_k.weights.get() for block in self.blocks]
-        attn_Wk_biases  = [block.attention.W_k.biases.get() for block in self.blocks]
-        attn_Wv_weights = [block.attention.W_v.weights.get() for block in self.blocks]
-        attn_Wv_biases  = [block.attention.W_v.biases.get() for block in self.blocks]
-        attn_Wattn_weights = [block.attention.W_attn_out.weights.get() for block in self.blocks]
-        attn_Wattn_biases  = [block.attention.W_attn_out.biases.get() for block in self.blocks]
-        mlp_W1_weights = [block.mlp.W_mlp1.weights.get() for block in self.blocks]
-        mlp_W1_biases  = [block.mlp.W_mlp1.biases.get() for block in self.blocks]
-        mlp_W2_weights = [block.mlp.W_mlp2.weights.get() for block in self.blocks]
-        mlp_W2_biases  = [block.mlp.W_mlp2.biases.get() for block in self.blocks]
+            # Sync inputs and rate cells
+            block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
+            block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
+            block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
+            block.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
+            block.mlp.z_mlp.z.set(block_proj.q_mlp_Ratecell.z.get())
+            block.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
+            
+            # Calculate Error routing transposes entirely on GPU
+            block.attention.E_attn.weights.set(jnp.transpose(block.attention.W_attn_out.weights.get()))
+            block.mlp.E_mlp.weights.set(jnp.transpose(block.mlp.W_mlp2.weights.get()))  
+            block.mlp.E_mlp1.weights.set(jnp.transpose(block.mlp.W_mlp1.weights.get()))
 
-        # Set all projection block weights in batch
-        for i, block_proj in enumerate(self.projection.blocks):
-            block_proj.Q_q.weights.set(attn_Wq_weights[i])
-            block_proj.Q_q.biases.set(attn_Wq_biases[i])
-            block_proj.Q_k.weights.set(attn_Wk_weights[i])
-            block_proj.Q_k.biases.set(attn_Wk_biases[i])
-            block_proj.Q_v.weights.set(attn_Wv_weights[i])
-            block_proj.Q_v.biases.set(attn_Wv_biases[i])
-            block_proj.Q_attn_out.weights.set(attn_Wattn_weights[i])
-            block_proj.Q_attn_out.biases.set(attn_Wattn_biases[i])
-            block_proj.Q_mlp1.weights.set(mlp_W1_weights[i])
-            block_proj.Q_mlp1.biases.set(mlp_W1_biases[i])
-            block_proj.Q_mlp2.weights.set(mlp_W2_weights[i])
-            block_proj.Q_mlp2.biases.set(mlp_W2_biases[i])
-
-        # Sync attn block states in batch
-        attn_inputs_q = [block.attention.attn_block.inputs_q.get() for block in self.blocks]
-        attn_inputs_k = [block.attention.attn_block.inputs_k.get() for block in self.blocks]
-        attn_inputs_v = [block.attention.attn_block.inputs_v.get() for block in self.blocks]
-        for i, block_proj in enumerate(self.projection.blocks):
-            block_proj.q_attn_block.inputs_q.set(attn_inputs_q[i])
-            block_proj.q_attn_block.inputs_k.set(attn_inputs_k[i])
-            block_proj.q_attn_block.inputs_v.set(attn_inputs_v[i])
-
-        # Sync rate cell states in batch
-        qkv_z = [block_proj.q_qkv_Ratecell.z.get() for block_proj in self.projection.blocks]
-        mlp_z = [block_proj.q_mlp_Ratecell.z.get() for block_proj in self.projection.blocks]
-        mlp2_z = [block_proj.q_mlp2_Ratecell.z.get() for block_proj in self.projection.blocks]
-        for i, block in enumerate(self.blocks):
-            block.attention.z_qkv.z.set(qkv_z[i])
-            block.mlp.z_mlp.z.set(mlp_z[i])
-            block.mlp.z_mlp2.z.set(mlp2_z[i])
-
-        # Transpose operations (compute on GPU, set once per block)
-        for i, block in enumerate(self.blocks):
-            block.attention.E_attn.weights.set(jnp.transpose(attn_Wattn_weights[i]))
-            block.mlp.E_mlp.weights.set(jnp.transpose(mlp_W2_weights[i]))
-            block.mlp.E_mlp1.weights.set(jnp.transpose(mlp_W1_weights[i]))
-
-        # Output weights
-        out_W_weights = self.output.W_out.weights.get()
-        out_W_biases  = self.output.W_out.biases.get()
-        self.projection.Q_out.weights.set(out_W_weights)
-        self.projection.Q_out.biases.set(out_W_biases)
-        self.output.E_out.weights.set(jnp.transpose(out_W_weights))
-
-        # 3. Set Inputs Once
+        # 3. Output syncing
+        self.projection.Q_out.weights.set(self.output.W_out.weights.get())
+        self.projection.Q_out.biases.set(self.output.W_out.biases.get())
+        self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
         self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
-        self.clamp_input(obs)
-        self.clamp_infer_target(lab)
 
-        # 4. Run Projection (Compiled)
-        self.project.run(t=0., dt=1.)
-
-        # 5. Retrieve post-projection states (batch get/set)
+    @compilable
+    def sync_post_projection(self):
+        """Fuses post-projection state transfers."""
         self.output.z_out.z.set(self.projection.q_out_Ratecell.z.get())
         self.output.e_out.dmu.set(self.projection.eq_target.dmu.get())
         self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.get())
+    def process(self, obs, lab, adapt_synapses=True):
+        
+        self.reset.run()
+        
+        # 1. Single compiled call runs all pre-syncs on the GPU
+        self.sync_pre_projection()
+        
+        self.clamp_input(obs)
+        self.clamp_infer_target(lab)
+
+        self.project.run(t=0., dt=1.)
+        
+        # 2. Single compiled call runs post-syncs
+        self.sync_post_projection()
+        
+        ## get projected prediction (from the P-step)
         y_mu_inf = self.projection.q_target_Ratecell.z.get()
-
-        # 6. INFERENCE LOOP - FIXED
+    
+        EFE = 0. 
+        y_mu = 0.
         if adapt_synapses:
-            self.clamp_input(obs)
-            self.clamp_target(lab)
-            for step in range(self.T):
-                self.advance.run(t=step, dt=1.)
+            for ts in range(0, self.T):
+                self.clamp_input(obs)
+                self.clamp_target(lab)
+                self.advance.run(t=ts, dt=1.)
+            
+        y_mu = self.output.W_out.outputs.get() 
 
-        # 7. Collect Results (batch get)
-        y_mu = self.output.W_out.outputs.get()
         L1 = self.embedding.e_embed.L.get()
         L4 = self.output.e_out.L.get()
+        
         block_errors = 0.
-        block_attn_L = [block.attention.e_attn.L.get() for block in self.blocks]
-        block_mlp_L = [block.mlp.e_mlp.L.get() for block in self.blocks]
-        block_mlp1_L = [block.mlp.e_mlp1.L.get() for block in self.blocks]
-        block_errors = sum(block_attn_L) + sum(block_mlp_L) + sum(block_mlp1_L)
+        for i in range(self.n_layers):
+            block = self.blocks[i]
+            block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+
         EFE = L4 + block_errors + L1
 
-        # 8. Evolve Synapses (Compiled)
         if adapt_synapses:
             self.embedding_evolve.run()
             self.evolve.run(t=self.T, dt=1.)
-
+                
         return y_mu_inf, y_mu, EFE
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     def get_latents(self):
         return self.q_out_Ratecell.z.get()

@@ -553,13 +553,13 @@ class NGCTransformer:
     
         EFE = 0. 
         y_mu = 0.
-        if adapt_synapses:
-            for ts in range(0, self.T):
+        #if adapt_synapses:
+        for ts in range(0, self.T):
         
-                self.clamp_input(obs)
-                self.clamp_target(lab)
+            self.clamp_input(obs)
+            self.clamp_target(lab)
              
-                self.advance.run(t=ts,dt=1.)
+            self.advance.run(t=ts,dt=1.)
            
         y_mu = self.output.W_out.outputs.get() 
 

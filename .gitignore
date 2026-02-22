@@ -14,3 +14,4 @@ logs/
 *.log   
 /tuning
 /python3.11
+/exp

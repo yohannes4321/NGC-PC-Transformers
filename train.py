@@ -64,12 +64,12 @@ def main():
             targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
 
             
-            yMu_inf, _, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE
             total_batches += 1
 
             if batch_idx % 10 == 0:
-                y_pred = yMu_inf.reshape(-1, vocab_size)
+                y_pred = y_mu.reshape(-1, vocab_size)
                 y_true = jnp.eye(vocab_size)[targets.flatten()]
                 
                 batch_nll = measure_CatNLL(y_pred, y_true)

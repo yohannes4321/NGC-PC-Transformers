@@ -46,9 +46,9 @@ def generate_text(
         dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))  
 
         # Run inference 
-        y_mu_inf, _, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
+        y_mu_inf, y_mu, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
 
-        logits = y_mu_inf.reshape(config.batch_size, config.seq_len, config.vocab_size)
+        logits = y_mu.reshape(config.batch_size, config.seq_len, config.vocab_size)
 
         # Get logits for the last **real** token in the input (not padding)
         actual_len = min(current_tokens.shape[1], seq_len)

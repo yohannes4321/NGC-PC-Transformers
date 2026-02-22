@@ -26,12 +26,11 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
         targets_onehot = jnp.eye(vocab_size)[targets]             
         targets_flat = targets_onehot.reshape(-1, vocab_size)      
 
-        yMu_inf, _, _ = model.process(obs=inputs,
+        yMu_inf, y_mu, _ = model.process(obs=inputs,
                                       lab=targets_flat,
                                       adapt_synapses=False)
 
-        y_pred = yMu_inf.reshape(-1, vocab_size)   
-        
+        y_pred = y_mu.reshape(-1, vocab_size)   
 
         total_nll += measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
         total_tokens += targets_flat.shape[0]

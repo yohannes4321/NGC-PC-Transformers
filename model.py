@@ -486,24 +486,19 @@ class NGCTransformer:
             
             block_proj.reshape_3d_to_2d_proj1.outputs.set(self.circuit.get_components(f"{p_prefix}_reshape_3d_to_2d_proj1").outputs.get())
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
-          
-            
 
-  
+
     @compilable
     def sync_pre_projection(self):
-        """Fuses all pre-projection weight and state synchronizations into one GPU operation."""
-        # 1. Embedding weights
+        """Fuses all pre-projection weight and state synchronizations into one GPU kernel."""
         self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
         if self.embedding.W_embed.pos_learnable:
             self.projection.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.get())
         
-        # 2. Block weights and states
         for i in range(self.n_layers):
             block_proj = self.projection.blocks[i]
             block = self.blocks[i] 
             
-            # Sync Q blocks
             block_proj.Q_q.weights.set(block.attention.W_q.weights.get())
             block_proj.Q_q.biases.set(block.attention.W_q.biases.get())
             block_proj.Q_k.weights.set(block.attention.W_k.weights.get())
@@ -511,30 +506,28 @@ class NGCTransformer:
             block_proj.Q_v.weights.set(block.attention.W_v.weights.get())
             block_proj.Q_v.biases.set(block.attention.W_v.biases.get())
             block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get())
+            block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
+            block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
+            block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
             block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get())
             block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get())
             block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get())
             block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get())
             block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get())
 
-            # Sync inputs and rate cells
-            block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
-            block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
-            block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
             block.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
             block.mlp.z_mlp.z.set(block_proj.q_mlp_Ratecell.z.get())
             block.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
             
-            # Calculate Error routing transposes entirely on GPU
+            # Transposes happen purely on the GPU
             block.attention.E_attn.weights.set(jnp.transpose(block.attention.W_attn_out.weights.get()))
             block.mlp.E_mlp.weights.set(jnp.transpose(block.mlp.W_mlp2.weights.get()))  
             block.mlp.E_mlp1.weights.set(jnp.transpose(block.mlp.W_mlp1.weights.get()))
 
-        # 3. Output syncing
         self.projection.Q_out.weights.set(self.output.W_out.weights.get())
         self.projection.Q_out.biases.set(self.output.W_out.biases.get())
-        self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
         self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
+        self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
 
     @compilable
     def sync_post_projection(self):
@@ -542,34 +535,18 @@ class NGCTransformer:
         self.output.z_out.z.set(self.projection.q_out_Ratecell.z.get())
         self.output.e_out.dmu.set(self.projection.eq_target.dmu.get())
         self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.get())
-    def process(self, obs, lab, adapt_synapses=True):
-        
-        self.reset.run()
-        
-        # 1. Single compiled call runs all pre-syncs on the GPU
-        self.sync_pre_projection()
-        
-        self.clamp_input(obs)
-        self.clamp_infer_target(lab)
 
-        self.project.run(t=0., dt=1.)
-        
-        # 2. Single compiled call runs post-syncs
-        self.sync_post_projection()
-        
-        ## get projected prediction (from the P-step)
-        y_mu_inf = self.projection.q_target_Ratecell.z.get()
-    
-        EFE = 0. 
-        y_mu = 0.
-        if adapt_synapses:
-            for ts in range(0, self.T):
-                self.clamp_input(obs)
-                self.clamp_target(lab)
-                self.advance.run(t=ts, dt=1.)
-            
-        y_mu = self.output.W_out.outputs.get() 
+    @compilable
+    def run_inference_loop(self, obs, lab):
+        """Fuses the entire T-step loop (including clamps) into a single GPU graph."""
+        for ts in range(self.T):
+            self.clamp_input(obs)
+            self.clamp_target(lab)
+            self.advance.run(t=float(ts), dt=1.)
 
+    @compilable
+    def calculate_efe(self):
+        """Fuses the error calculation loop to prevent Python .get() overhead."""
         L1 = self.embedding.e_embed.L.get()
         L4 = self.output.e_out.L.get()
         
@@ -577,14 +554,44 @@ class NGCTransformer:
         for i in range(self.n_layers):
             block = self.blocks[i]
             block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+            
+        return L4 + block_errors + L1
 
-        EFE = L4 + block_errors + L1
+    def process(self, obs, lab, adapt_synapses=True):
+        self.reset.run()
+        
+        # 1. Run all pre-projection gets/sets at once on GPU
+        self.sync_pre_projection()
+        
+        self.clamp_input(obs)
+        self.clamp_infer_target(lab)
+
+        self.project.run(t=0., dt=1.)
+        
+        # 2. Run post-projection gets/sets at once on GPU
+        self.sync_post_projection()
+        
+        ## get projected prediction (from the P-step)
+        y_mu_inf = self.projection.q_target_Ratecell.z.get()
+
+        EFE = 0. 
+        y_mu = 0.
+        
+        if adapt_synapses:
+            # 3. Native JAX Loop: Clamps and advances T times without CPU interruption
+            self.run_inference_loop(obs, lab)
+            
+        y_mu = self.output.W_out.outputs.get() 
+
+        # 4. Calculate error in one GPU pass (removes your block_errors loop)
+        EFE = self.calculate_efe()
 
         if adapt_synapses:
             self.embedding_evolve.run()
             self.evolve.run(t=self.T, dt=1.)
                 
         return y_mu_inf, y_mu, EFE
+
 
     def get_latents(self):
         return self.q_out_Ratecell.z.get() #

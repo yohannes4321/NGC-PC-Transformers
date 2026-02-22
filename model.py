@@ -587,4 +587,4 @@ class NGCTransformer:
         return y_mu_inf, y_mu, EFE
 
     def get_latents(self):
-        return self.q_out_Ratecell.z.get()
+        return self.q_out_Ratecell.z.get() #

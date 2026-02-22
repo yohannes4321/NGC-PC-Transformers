@@ -11,7 +11,7 @@ class DataLoader:
         self.data_dir = Path(data_dir)
         self.seq_len = seq_len
         self.batch_size = batch_size
-        self.pad_token = 0
+        self.pad_token = -1
 
     def load_and_prepare_data(self):
         """Load tokenized data and prepare for training"""
@@ -45,9 +45,16 @@ class DataLoader:
         
         inputs = sequences[:, :-1]    
         targets = sequences[:, 1:]    
+        
+        mask = (targets != self.pad_token).astype(jnp.float32)
+
                 
         return NGCDataLoader(
-            design_matrices=[("inputs", inputs), ("targets", targets)],
+            design_matrices=[
+                ("inputs", inputs), 
+                ("targets", targets),
+                ("mask", mask)
+            ],
             batch_size=self.batch_size,
             disable_shuffle=not shuffle,
             ensure_equal_batches=True

@@ -172,7 +172,7 @@ class NGCTransformer:
                         self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
                     else:
                         block.mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
-
+                    block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
 
                     block.mlp.E_mlp.outputs  >> block.mlp.z_mlp2.j
                     block.mlp.E_mlp1.outputs >> block.mlp.z_mlp.j
@@ -191,8 +191,7 @@ class NGCTransformer:
                     block.attention.attn_block.dv >> block.attention.W_v.post
 
 
-                    block.attention.attn_block.outputs >> block.reshape_3d_to_2d_attnout.inputs
-                    block.reshape_3d_to_2d_attnout.outputs >> block.attention.W_attn_out.pre
+                    block.attention.z_attn.zF >> block.attention.W_attn_out.pre
                     block.attention.e_attn.dmu >> block.attention.W_attn_out.post
 
 
@@ -225,9 +224,7 @@ class NGCTransformer:
 
                         
                         
-                ## PROJECTION PHASE ##
-                
-                
+                ## PROJECTION PHASE ##                                
                 
                 self.projection.q_embed_Ratecell.zF >> self.projection.Q_embed.inputs
                 self.projection.Q_embed.outputs >> self.projection.reshape_3d_to_2d_proj.inputs

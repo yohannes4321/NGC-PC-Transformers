@@ -1,61 +1,84 @@
-import jax.numpy as jnp
-from pathlib import Path
-from ngclearn.utils.data_loader import DataLoader as NGCDataLoader
+# dataloader_benchmark.py
+
+import time
+import os
+import psutil
 import sys
+from pathlib import Path
+
+import numpy as np
+import jax.numpy as jnp
+from ngclearn.utils.data_loader import DataLoader as NGCDataLoader
 
 DIR = Path(__file__).parent
 sys.path.append(str(DIR.parent))
-
 class DataLoader:
-    def __init__(self, seq_len, batch_size, data_dir= DIR / "outputs" / "tokenized_data"):
+    def __init__(
+        self,
+        seq_len: int,
+        batch_size: int,
+        data_dir: Path = DIR / "outputs" / "tokenized_data",
+    ):
         self.data_dir = Path(data_dir)
         self.seq_len = seq_len
         self.batch_size = batch_size
-        self.pad_token = -1
+        self.pad_token = 0
 
-    def load_and_prepare_data(self):
-        """Load tokenized data and prepare for training"""
-        train_tokens = jnp.load(self.data_dir / "train_tokens.npy")
-        valid_tokens = jnp.load(self.data_dir / "valid_tokens.npy")
-        test_tokens = jnp.load(self.data_dir / "test_tokens.npy")
+    @property
+    def num_batches(self):
+        return getattr(self, '_num_batches', None)
 
+    # LOAD DATA (CPU ONLY)
+    def load_and_prepare_data(self, schedule_seq_len=None):
+        """
+        Load token arrays into CPU RAM.
+        Never load full datasets into GPU memory.
+        """
+        train_tokens = np.load(self.data_dir / "train_tokens.npy", mmap_mode="r")
+        valid_tokens = np.load(self.data_dir / "valid_tokens.npy", mmap_mode="r")
+        test_tokens  = np.load(self.data_dir / "test_tokens.npy", mmap_mode="r")
+        # Sequence length scheduling
+        seq_len = self.seq_len
+        if schedule_seq_len is not None:
+            seq_len = schedule_seq_len
+        self.seq_len = seq_len
         train_loader = self._create_data_loader(train_tokens, shuffle=True)
         valid_loader = self._create_data_loader(valid_tokens, shuffle=False)
-        test_loader = self._create_data_loader(test_tokens, shuffle=False)
-
+        test_loader  = self._create_data_loader(test_tokens, shuffle=False)
+        self.train_loader = train_loader
+        # Try to get number of batches from train_loader
+        try:
+            self._num_batches = len(train_loader)
+        except Exception:
+            self._num_batches = None
         return train_loader, valid_loader, test_loader
 
+    # WINDOW CREATION (ZERO-COPY)
     def _create_data_loader(self, tokens, shuffle):
-        """Create sequences and return NGC DataLoader"""
-        window_size = self.seq_len + 1 
-        num_sequences = (len(tokens) - window_size + 1) // 1  
-        
-        if num_sequences <= 0:
-            padded_tokens = jnp.concatenate([
-                tokens, 
-                jnp.full((window_size - len(tokens),), self.pad_token)
-            ])
-            sequences = padded_tokens.reshape(1, -1)  
-        else:
-            sequences = []
-            for i in range(num_sequences):
-                window = tokens[i:i + window_size]
-                sequences.append(window)
-            sequences = jnp.stack(sequences)  
-        
-        inputs = sequences[:, :-1]    
-        targets = sequences[:, 1:]    
-        
-        mask = (targets != self.pad_token).astype(jnp.float32)
-
-                
-        return NGCDataLoader(
+        """
+        O(1) window creation using NumPy stride tricks.
+        Zero-copy. No Python loops. No VRAM usage.
+        """
+        window_size = self.seq_len + 1
+        start = time.time()
+        # Pad only if required
+        if len(tokens) < window_size:
+            tokens = np.pad(
+                tokens,
+                (0, window_size - len(tokens)),
+                constant_values=self.pad_token,
+            )
+        # Efficient sliding window
+        sequences = np.lib.stride_tricks.sliding_window_view(tokens, window_size)
+        inputs  = sequences[:, :-1]
+        targets = sequences[:, 1:]
+        loader = NGCDataLoader(
             design_matrices=[
-                ("inputs", inputs), 
+                ("inputs", inputs),
                 ("targets", targets),
-                ("mask", mask)
             ],
             batch_size=self.batch_size,
             disable_shuffle=not shuffle,
-            ensure_equal_batches=True
+            ensure_equal_batches=True,
         )
+        return loader

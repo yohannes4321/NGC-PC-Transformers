@@ -72,7 +72,7 @@ def main():
             if batch_idx % 10 == 0 and batch_idx != 0:
                 print(
                     f"Total Time for last 10 batches: {ten_batch_time:.4f}s | "
-                    f"EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}"
+                    f" batch {batch_idx} ,EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}"
                 )
                 ten_batch_time = 0.0
             elif batch_idx % 10 == 0 and batch_idx == 0:

@@ -30,6 +30,7 @@ def main():
         model_name="ngc_transformer")
 
     def train_step(inputs, targets_flat):
+        # Only one process call per batch, returns yMu_inf, yMu, batch_efe
         return model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
 
     start_time = time.time()
@@ -40,16 +41,18 @@ def main():
         for batch_idx, batch in enumerate(train_loader):
             step_start = time.time()
 
+            # Move data to device and prepare batch
             inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
             targets = jax.device_put(batch[1][1])
-            # Ensure targets_flat is one-hot for learning
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
 
+            # Only one process call per batch
             yMu_inf, _, batch_efe = train_step(inputs, targets_flat)
 
             step_duration = time.time() - step_start
             ten_batch_time += step_duration
 
+            # Only extract metrics for logging every 10 batches
             if batch_idx % 10 == 0:
                 yMu_inf.block_until_ready()
                 y_pred = yMu_inf.reshape(-1, vocab_size)
@@ -61,11 +64,11 @@ def main():
                 batch_ce_loss = None
                 batch_ppl = None
 
-            # Light-weight cleanup only every few batches to avoid overhead
+            # Light-weight cleanup only every 50 batches
             if batch_idx % 50 == 0:
                 gc.collect()
 
-            # Only print/log every 10 batches
+            # Print/log every 10 batches
             if batch_idx % 10 == 0 and batch_idx != 0:
                 print(
                     f"Total Time for last 10 batches: {ten_batch_time:.4f}s | "
@@ -73,7 +76,6 @@ def main():
                 )
                 ten_batch_time = 0.0
             elif batch_idx % 10 == 0 and batch_idx == 0:
-                # For the very first batch, print as usual
                 print(
                     f"Step Time: {step_duration:.4f}s | "
                     f"EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}"

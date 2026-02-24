@@ -27,6 +27,7 @@ def main():
     data_loader = DataLoader(seq_len=seq_len, batch_size=batch_size)
     train_loader, valid_loader, _ = data_loader.load_and_prepare_data()
 
+    # Model must be initialized only once, outside the epoch loop
     model = NGCTransformer(dkey, batch_size=batch_size, seq_len=seq_len, n_embed=config.n_embed,
         vocab_size=vocab_size, n_layers=config.n_layers, n_heads=config.n_heads,
         T=config.n_iter, dt=1.0, tau_m=config.tau_m, act_fx=config.act_fx,
@@ -35,9 +36,7 @@ def main():
         optim_type=config.optim_type, wub=config.wub, wlb=config.wlb,
         model_name="ngc_transformer")
 
-    @jax.jit
     def train_step(inputs, targets_flat):
-        # All data is already on device, call process directly
         return model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
 
     start_time = time.time()
@@ -46,9 +45,9 @@ def main():
         for batch_idx, batch in enumerate(train_loader):
             step_start = time.time()
 
-            # Move data to device and cast
             inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
             targets = jax.device_put(batch[1][1])
+            # Ensure targets_flat is one-hot for learning
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
 
             yMu_inf, _, batch_efe = train_step(inputs, targets_flat)
@@ -56,7 +55,6 @@ def main():
             step_duration = time.time() - step_start
 
             if batch_idx % 10 == 0:
-                # Only block for logging batches
                 yMu_inf.block_until_ready()
                 y_pred = yMu_inf.reshape(-1, vocab_size)
                 y_true = targets_flat
@@ -67,7 +65,6 @@ def main():
                 batch_ce_loss = None
                 batch_ppl = None
 
-            # --- THE CLEANUP LOGIC ---
             del inputs, targets, targets_flat, yMu_inf
             gc.collect()
 

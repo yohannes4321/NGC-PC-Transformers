@@ -40,8 +40,10 @@ def main():
         return model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
 
     start_time = time.time()
+
     for i in range(config.epoch):
         print(f"\n>> Starting Epoch {i}")
+        ten_batch_time = 0.0
         for batch_idx, batch in enumerate(train_loader):
             step_start = time.time()
 
@@ -53,6 +55,7 @@ def main():
             yMu_inf, _, batch_efe = train_step(inputs, targets_flat)
 
             step_duration = time.time() - step_start
+            ten_batch_time += step_duration
 
             if batch_idx % 10 == 0:
                 yMu_inf.block_until_ready()
@@ -68,13 +71,22 @@ def main():
             del inputs, targets, targets_flat, yMu_inf
             gc.collect()
 
-            if batch_idx % 10 == 0:
+            # Only print/log every 10 batches
+            if batch_idx % 10 == 0 and batch_idx != 0:
+                log_mem(f"Epoch {i} Batch {batch_idx}")
+                print(
+                    f"Total Time for last 10 batches: {ten_batch_time:.4f}s | "
+                    f"EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}"
+                )
+                ten_batch_time = 0.0
+            elif batch_idx % 10 == 0 and batch_idx == 0:
+                # For the very first batch, print as usual
                 log_mem(f"Epoch {i} Batch {batch_idx}")
                 print(
                     f"Step Time: {step_duration:.4f}s | "
                     f"EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}"
                 )
-
+#
     print(f"Total Time: {time.time() - start_time:.2f}s")
 
 if __name__ == "__main__":

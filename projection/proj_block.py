@@ -1,6 +1,7 @@
 from config import Config as config
 from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, HebbianSynapse, StaticSynapse
 from utils.attention_utils import _compute_attention, AttentionBlock
+from utils.attn_ratecell import AttnRateCell
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from layers.mlp import MLP
 from jax import jit, random
@@ -16,6 +17,8 @@ class ProjBlock:
         prefix = f"block_proj{block_id}_"
      
         self.q_qkv_Ratecell = RateCell(f"{prefix}q_qkv_Ratecell", n_units=n_embed, tau_m=0., act_fx="identity",
+                          batch_size=batch_size * seq_len)
+        self.q_attn_Ratecell = AttnRateCell(f"{prefix}q_attn_Ratecell", n_units=n_embed, tau_m=0., act_fx="identity",
                           batch_size=batch_size * seq_len)
         self.q_mlp_Ratecell = RateCell(f"{prefix}q_mlp_Ratecell", n_units= n_embed, tau_m=0., act_fx="identity",
                            batch_size= batch_size * seq_len)

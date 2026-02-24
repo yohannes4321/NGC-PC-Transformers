@@ -537,11 +537,12 @@ class NGCTransformer:
         self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.get())
 
     @compilable
-    def run_inference_loop(self, obs, lab):
-        """Fuses the entire T-step loop (including clamps) into a single GPU graph."""
+    def run_inference_loop(self):
+        """
+        Runs the inference dynamics for T steps assuming inputs/targets are
+        already clamped. This avoids redundant .set() calls inside the loop.
+        """
         for ts in range(self.T):
-            self.clamp_input(obs)
-            self.clamp_target(lab)
             self.advance.run(t=float(ts), dt=1.)
 
     @compilable
@@ -563,9 +564,9 @@ class NGCTransformer:
         # 1. Run all pre-projection gets/sets at once on GPU
         self.sync_pre_projection()
         
+        # Clamp once for projection (P-step)
         self.clamp_input(obs)
         self.clamp_infer_target(lab)
-
         self.project.run(t=0., dt=1.)
         
         # 2. Run post-projection gets/sets at once on GPU
@@ -578,8 +579,10 @@ class NGCTransformer:
         y_mu = 0.
         
         if adapt_synapses:
-            # 3. Native JAX Loop: Clamps and advances T times without CPU interruption
-            self.run_inference_loop(obs, lab)
+            # 3. Clamp once for inference (E-step) then run T advances
+            self.clamp_input(obs)
+            self.clamp_target(lab)
+            self.run_inference_loop()
             
         y_mu = self.output.W_out.outputs.get() 
 

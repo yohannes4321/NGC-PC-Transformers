@@ -36,6 +36,8 @@ def main():
     start_time = time.time()
 
     for i in range(config.epoch):
+        if i == 0:
+            print(f"Time before starting Epoch 0: {time.time() - start_time:.4f}s")
         print(f"\n>> Starting Epoch {i}")
         ten_batch_time = 0.0
         for batch_idx, batch in enumerate(train_loader):

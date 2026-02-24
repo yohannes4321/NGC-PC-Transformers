@@ -3,8 +3,6 @@ import jax
 import jax.numpy as jnp
 from jax import random
 import gc
-import os
-import psutil
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
 from data_preprocess.data_loader import DataLoader
@@ -14,13 +12,8 @@ from eval import eval_model
 # --- OPTIMIZATION: Enable TensorFloat-32 ---
 jax.config.update("jax_default_matmul_precision", "tensorfloat32") 
 
-def log_mem(label):
-    process = psutil.Process(os.getpid())
-    mem = process.memory_info().rss / (1024 ** 2) 
-    print(f"--- [CLEANUP LOG] {label} | Resident Memory: {mem:.2f} MB ---")
-
 def main():
-    log_mem("INITIAL STARTUP")
+    print("--- TRAIN START ---")
 
     seq_len, batch_size, vocab_size = config.seq_len, config.batch_size, config.vocab_size
     dkey = random.PRNGKey(1234)
@@ -68,12 +61,12 @@ def main():
                 batch_ce_loss = None
                 batch_ppl = None
 
-            del inputs, targets, targets_flat, yMu_inf
-            gc.collect()
+            # Light-weight cleanup only every few batches to avoid overhead
+            if batch_idx % 50 == 0:
+                gc.collect()
 
             # Only print/log every 10 batches
             if batch_idx % 10 == 0 and batch_idx != 0:
-                log_mem(f"Epoch {i} Batch {batch_idx}")
                 print(
                     f"Total Time for last 10 batches: {ten_batch_time:.4f}s | "
                     f"EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}"
@@ -81,12 +74,12 @@ def main():
                 ten_batch_time = 0.0
             elif batch_idx % 10 == 0 and batch_idx == 0:
                 # For the very first batch, print as usual
-                log_mem(f"Epoch {i} Batch {batch_idx}")
                 print(
                     f"Step Time: {step_duration:.4f}s | "
                     f"EFE = {batch_efe:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}"
                 )
-#
+        # extra GC once per epoch
+        gc.collect()
     print(f"Total Time: {time.time() - start_time:.2f}s")
 
 if __name__ == "__main__":

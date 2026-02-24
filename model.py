@@ -579,8 +579,7 @@ class NGCTransformer:
         y_mu = 0.
         
         if adapt_synapses:
-            # 3. Clamp once for inference (E-step) then run T advances
-            self.clamp_input(obs)
+            # 3. Inputs already clamped; just clamp targets once and run T advances
             self.clamp_target(lab)
             self.run_inference_loop()
             

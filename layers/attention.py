@@ -4,7 +4,7 @@ from jax import numpy as jnp, random, jit
 import jax
 from config import Config as config
 from utils.attention_utils import AttentionBlock
-
+from utils.attn_ratecell import AttnRateCell
 
 
 class Attention:
@@ -32,9 +32,11 @@ class Attention:
     
         dkey, *subkeys = random.split(dkey, 10)
 
-        self.z_qkv = RateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=tau_m, 
+        self.z_qkv = AttnRateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=tau_m, 
                             act_fx="identity", batch_size=batch_size * seq_len )
-      
+        self.z_attn = RateCell(f"{prefix}z_attn", n_units=n_embed, tau_m=tau_m,
+                            act_fx="identity", batch_size=batch_size * seq_len )
+        
         self.W_q = HebbianSynapse(f"{prefix}W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.uniform(amin=wlb, amax=wub),
                                 bias_init=dist.constant(value=0.), w_bound=0., 
@@ -59,9 +61,15 @@ class Attention:
                             weight_init=dist.uniform(amin=wlb, amax=wub),
                             bias_init=dist.constant(value=0.), w_bound=0., 
                             optim_type=optim_type, sign_value= -1.0, key=subkeys[3])
-        
+        self.e_qkv = ErrorCell(f"{prefix}e_qkv", n_units=n_embed, batch_size=batch_size * seq_len) 
         self.e_attn = ErrorCell(f"{prefix}e_attn", n_units=n_embed, 
                                   batch_size=batch_size * seq_len) # shape=(seq_len, n_embed, 1),
         
-        self.E_attn = StaticSynapse(f"{prefix}E_attn", shape=(n_embed, n_embed),
+        self.E_q = StaticSynapse(f"{prefix}E_q", shape=(n_embed, n_embed),
                         weight_init=dist.uniform(low=wlb, high=wub),  key=subkeys[4])
+        self.E_k = StaticSynapse(f"{prefix}E_k", shape=(n_embed, n_embed),
+                        weight_init=dist.uniform(low=wlb, high=wub),  key=subkeys[5])
+        self.E_v = StaticSynapse(f"{prefix}E_v", shape=(n_embed, n_embed),
+                        weight_init=dist.uniform(low=wlb, high=wub),  key=subkeys[6])
+        self.E_attn = StaticSynapse(f"{prefix}E_attn", shape=(n_embed, n_embed),
+                        weight_init=dist.uniform(low=wlb, high=wub),  key=subkeys[7])

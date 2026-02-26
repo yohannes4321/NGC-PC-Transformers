@@ -171,7 +171,7 @@ class NGCTransformer:
                     if blocks == 0:
                         self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
                     else:
-                        block.mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
+                        blocks[blocks - 1].mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
                     block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
 
                     block.mlp.E_mlp.outputs  >> block.mlp.z_mlp2.j
@@ -305,7 +305,9 @@ class NGCTransformer:
                     advance_process >> block.attention.W_attn_out.advance_state
                     advance_process >> block.mlp.W_mlp1.advance_state
                     advance_process >> block.mlp.W_mlp2.advance_state
+                    advance_process >> block.attention.e_qkv.advance_state
                     advance_process >> block.attention.e_attn.advance_state
+                    advance_process >> block.mlp.e_mlp1.advance_state
                     advance_process >> block.mlp.e_mlp.advance_state
 
                     reset_process >> block.ln1.reset
@@ -591,5 +593,5 @@ class NGCTransformer:
         return y_mu_inf, y_mu, EFE 
 
     def get_latents(self):
-        return self.q_out_Ratecell.z.get()
+        return self.projection.q_out_Ratecell.z.get()
   

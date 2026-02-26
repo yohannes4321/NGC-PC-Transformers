@@ -289,6 +289,7 @@ class NGCTransformer:
                     advance_process >> block.attention.E_k.advance_state
                     advance_process >> block.attention.E_v.advance_state
                     advance_process >> block.mlp.E_mlp.advance_state
+                    advance_process >> block.mlp.E_mlp1.advance_state
                     advance_process >> block.attention.z_qkv.advance_state
                     advance_process >> block.attention.z_attn.advance_state
                     advance_process >> block.mlp.z_mlp.advance_state
@@ -417,20 +418,13 @@ class NGCTransformer:
         if params_only:
             model_dir = "{}/{}/component/custom".format(self.exp_dir, self.model_name)
             self.embedding.W_embed.save(model_dir)
-            self.blocks = []
-            for j in range(self.n_layers):
-                block = self.circuit.get_components(f"block{j}_W_q")
-                block.save(model_dir)
-                block = self.circuit.get_components(f"block{j}_W_k")
-                block.save(model_dir)
-                block = self.circuit.get_components(f"block{j}_W_v")
-                block.save(model_dir)
-                block = self.circuit.get_components(f"block{j}_W_attn_out")
-                block.save(model_dir)
-                block = self.circuit.get_components(f"block{j}_W_mlp1")
-                block.save(model_dir)
-                block = self.circuit.get_components(f"block{j}_W_mlp2")
-                block.save(model_dir)    
+            for block in self.blocks:
+                block.attention.W_q.save(model_dir)
+                block.attention.W_k.save(model_dir)
+                block.attention.W_v.save(model_dir)
+                block.attention.W_attn_out.save(model_dir)
+                block.mlp.W_mlp1.save(model_dir)
+                block.mlp.W_mlp2.save(model_dir)    
             self.output.W_out.save(model_dir)
         else:
             self.circuit.save_to_json(self.exp_dir, model_name=self.model_name, overwrite=True)

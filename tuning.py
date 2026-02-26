@@ -351,7 +351,7 @@ def case1_efe_to_ce_complete():
     direction="minimize",
     sampler=optuna.samplers.TPESampler(
         seed=42,
-        n_startup_trials=5,
+        n_startup_trials=10,
         multivariate=True,    
         group=True,          
         prior_weight=1.0,     

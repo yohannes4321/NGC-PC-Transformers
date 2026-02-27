@@ -27,10 +27,9 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
     # Scaled dot-product attention
     s_c = jnp.einsum("BHTE,BHSE->BHTS", q, k) / jnp.sqrt(d_head)
     
-    if mask is not None:
-        # mask shape: (B, S, S)
-        _mask = mask[:, None, :, :]  
-        s_c = jnp.where(_mask, s_c, -1e9)
+  
+    _mask = mask[None, None, :, :]  
+    s_c = jnp.where(_mask, s_c, -1e9)
         
     score = jax.nn.softmax(s_c, axis=-1)
     score = score.astype(q.dtype)
@@ -65,9 +64,8 @@ def compute_grads(Q, K, V, mask, s_c, e_qkv, n_heads, d_head, dropout_rate, seq_
     ds = jvp_fn(da)  
     ds = ds / jnp.sqrt(D)
     
-    if mask is not None:
-         _mask = mask[:, None, :, :]  # (B, 1, S, S)
-         ds = jnp.where(_mask, ds, 0.) 
+    _mask = mask[None, None, :, :]  # (1, 1, S, S)
+    ds = jnp.where(_mask, ds, 0.) 
     
     dQ = jnp.einsum("bhqk,bhkd->bhqd", ds, K)  # (B, H, S, D)
     dK = jnp.einsum("bhkq,bhqd->bhkd", ds, Q)  # (B, H, S, D)
@@ -90,9 +88,12 @@ class AttentionBlock(JaxComponent):
     | inputs_q - query inputs
     | inputs_k - key inputs  
     | inputs_v - value inputs
-    | mask - attention mask
     | outputs - attention outputs
     | key - JAX PRNG key
+    | dq - gradient w.r.t. query inputs
+    | dk - gradient w.r.t. key inputs
+    | dv - gradient w.r.t. value inputs
+    | e_qkv - error signal for QKV inputs
 
     Args:
         name: Component name
@@ -111,6 +112,7 @@ class AttentionBlock(JaxComponent):
         self.dropout_rate = dropout_rate
         self.batch_size = batch_size
         self.seq_len = seq_len
+        self.causal_mask = jnp.tril(jnp.ones((seq_len, seq_len), dtype=bool))
         
         if self.n_embed % self.n_heads != 0:
             raise ValueError(f"n_embed={n_embed} must be divisible by n_heads={n_heads}")
@@ -120,13 +122,10 @@ class AttentionBlock(JaxComponent):
         self.inputs_q = Compartment(jnp.zeros((batch_size, seq_len, n_embed)))
         self.inputs_k = Compartment(jnp.zeros((batch_size, seq_len, n_embed)))
         self.inputs_v = Compartment(jnp.zeros((batch_size, seq_len, n_embed)))
-        self.J = Compartment(jnp.zeros((batch_size, seq_len, n_embed)))
         self.dq = Compartment(jnp.zeros((batch_size*seq_len, n_embed)))
         self.dk = Compartment(jnp.zeros((batch_size*seq_len, n_embed)))
         self.dv = Compartment(jnp.zeros((batch_size*seq_len, n_embed)))
         self.e_qkv = Compartment(jnp.zeros((batch_size * seq_len, n_embed)))
-        self.mask = Compartment(jnp.zeros((batch_size, seq_len, seq_len), dtype=bool))
-        # self.S = Compartment(jnp.zeros((batch_size, n_heads, seq_len, seq_len)))
         
         self.key = Compartment(random.PRNGKey(0))
         # Output compartment
@@ -141,7 +140,7 @@ class AttentionBlock(JaxComponent):
         inputs_q=self.inputs_q.get()
         inputs_k=self.inputs_k.get()
         inputs_v=self.inputs_v.get()
-        mask=self.mask.get()
+        mask=self.causal_mask
         # S=self.S.get()
         e_qkv=self.e_qkv.get()
         n_heads=self.n_heads
@@ -173,27 +172,34 @@ class AttentionBlock(JaxComponent):
         batch_size=self.batch_size
         seq_len=self.seq_len
         n_embed=self.n_embed
+        zeros_2d = jnp.zeros((batch_size*seq_len, n_embed))
         zeros_3d = jnp.zeros((batch_size, seq_len, n_embed))
-        mask = jnp.zeros((batch_size, seq_len, seq_len), dtype=bool)
-        # return zeros_3d, zeros_3d, zeros_3d, mask, zeros_3d
+        # return zeros_3d, zeros_3d, zeros_3d, zeros_3d
         self.inputs_q.set(zeros_3d)
         self.inputs_k.set(zeros_3d)
         self.inputs_v.set(zeros_3d)
-        self.mask.set(mask)
         self.outputs.set(zeros_3d)
+        self.dq.set(zeros_2d)
+        self.dk.set(zeros_2d)
+        self.dv.set(zeros_2d)
+        self.e_qkv.set(zeros_2d)
 
     @classmethod
     def help(cls):
         """Component help function"""
         properties = {
-            "component_type": "AttentionBlock - multi-head self-attention mechanism"
+            "component_type": "AttentionBlock - multi-head self-attention with built-in causal mask"
         }
         compartment_props = {
             "inputs": 
                 {"inputs_q": "Query inputs (batch_size, seq_len, n_embed)",
-                 "inputs_k": "Key inputs (batch_size, seq_len, n_embed)", 
-                 "inputs_v": "Value inputs (batch_size, seq_len, n_embed)",
-                 "mask": "Attention mask (batch_size, seq_len, seq_len)"},
+                "inputs_k": "Key inputs (batch_size, seq_len, n_embed)", 
+                "inputs_v": "Value inputs (batch_size, seq_len, n_embed)"},
+            "gradients":
+                {"dq": "Gradient w.r.t Q (batch_size*seq_len, n_embed)",
+                "dk": "Gradient w.r.t K (batch_size*seq_len, n_embed)",
+                "dv": "Gradient w.r.t V (batch_size*seq_len, n_embed)",
+                "e_qkv": "Error signal (batch_size*seq_len, n_embed)"},
             "outputs":
                 {"outputs": "Attention outputs (batch_size, seq_len, n_embed)"},
         }
@@ -206,6 +212,6 @@ class AttentionBlock(JaxComponent):
         }
         info = {cls.__name__: properties,
                 "compartments": compartment_props,
-                "dynamics": "outputs = MultiHeadAttention(Q, K, V, mask)",
+                "dynamics": "outputs = MultiHeadAttention(Q, K, V) with built-in causal mask",
                 "hyperparameters": hyperparams}
         return info

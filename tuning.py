@@ -37,7 +37,7 @@ def define_search_space(trial):
     seq_len = trial.suggest_categorical("seq_len", [16,32,64])
     batch_size = trial.suggest_categorical(
         "batch_size",
-        [8,16,32, 64,]
+        [8,16,32, 64]
     )
     eta = trial.suggest_float("eta", 1e-5, 3e-4, log=True)
     tau_m = trial.suggest_int("tau_m", 10, 40)

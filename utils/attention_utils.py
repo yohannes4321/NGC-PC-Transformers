@@ -28,9 +28,9 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
     s_c = jnp.einsum("BHTE,BHSE->BHTS", q, k) / jnp.sqrt(d_head)
     
     if mask is not None:
-        Tq, Tk = q.shape[2], k.shape[2]
-        _mask = mask.reshape((B, 1, Tq, Tk))
-        s_c = jnp.where(_mask, s_c, -1e-9)
+        # mask shape: (B, S, S)
+        _mask = mask[:, None, :, :]  
+        s_c = jnp.where(_mask, s_c, -1e9)
         
     score = jax.nn.softmax(s_c, axis=-1)
     score = score.astype(q.dtype)
@@ -64,6 +64,11 @@ def compute_grads(Q, K, V, mask, s_c, e_qkv, n_heads, d_head, dropout_rate, seq_
     
     ds = jvp_fn(da)  
     ds = ds / jnp.sqrt(D)
+    
+    if mask is not None:
+         _mask = mask[:, None, :, :]  # (B, 1, S, S)
+         ds = jnp.where(_mask, ds, 0.) 
+    
     dQ = jnp.einsum("bhqk,bhkd->bhqd", ds, K)  # (B, H, S, D)
     dK = jnp.einsum("bhkq,bhqd->bhkd", ds, Q)  # (B, H, S, D)
     

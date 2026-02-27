@@ -280,10 +280,15 @@ class NGCTransformer:
                                            
                 evolve_process = MethodProcess(name="evolve_process")
                 project_process = MethodProcess(name="project_process")
-                embedding_evolve_process  >> self.embedding.W_embed.evolve
+                # Only connect MethodProcess to ngcsimlib-compatible methods/components
+                embedding_evolve_process >> self.embedding.W_embed.evolve
 
 
 
+                advance_process >> self.embedding.z_embed.advance_state
+                advance_process >> self.embedding.W_embed.advance_state
+                advance_process >> self.reshape_3d_to_2d_embed.advance_state
+                advance_process >> self.reshape_2d_to_3d_embed.advance_state
                 advance_process >> self.embedding.z_embed.advance_state
                 advance_process >> self.embedding.W_embed.advance_state
                 advance_process >> self.reshape_3d_to_2d_embed.advance_state
@@ -292,14 +297,9 @@ class NGCTransformer:
                 advance_process >> self.embedding.embed_scaler.advance_state
                 for i in range(n_layers):
                     block = self.blocks[i]
-                    
-                  
-                    
                     advance_process >> block.mlp_scaler.advance_state
                     advance_process >> self.output.output_scaler.advance_state
                     advance_process >> block.scaler_attn.advance_state
-                
-
                     advance_process >> block.attention.E_attn.advance_state
                     advance_process >> block.mlp.E_mlp.advance_state
                     advance_process >> block.attention.z_qkv.advance_state
@@ -318,6 +318,7 @@ class NGCTransformer:
                     advance_process >> block.mlp.W_mlp1.advance_state
                     advance_process >> block.mlp.W_mlp2.advance_state
                     advance_process >> block.attention.e_attn.advance_state
+                    advance_process >> block.mlp.e_mlp.advance_state
                     advance_process >> block.mlp.e_mlp.advance_state
 
                   

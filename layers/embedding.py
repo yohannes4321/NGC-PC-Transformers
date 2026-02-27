@@ -4,12 +4,13 @@ from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
 from utils.embed_utils import EmbeddingSynapse
 from jax import random
+from utils.unversalscaler import UniversalScaler
 
 class EMBEDDING:
     """
    embedding layer using the EmbeddingSynapse
     """
-    def __init__(self, dkey, vocab_size, seq_len, embed_dim, batch_size, pos_learnable, eta, optim_type, **kwargs):
+    def __init__(self, dkey, vocab_size, seq_len, embed_dim, batch_size, pos_learnable, eta, optim_type,**kwargs):
         
         dkey, *subkeys = random.split(dkey, 4)
     
@@ -32,4 +33,5 @@ class EMBEDDING:
                                   batch_size=batch_size * seq_len) # shape=(seq_len, embed_dim, 1),
     
             
-
+        self.embed_scaler = UniversalScaler(f"embed_scale", input_shape=(batch_size * seq_len, embed_dim),
+    output_shape=(batch_size, seq_len, embed_dim))

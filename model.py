@@ -99,20 +99,24 @@ class NGCTransformer:
             with Context("Circuit") as self.circuit:
             
                 
-                self.embedding.W_embed.inputs >> self.embedding.z_embed.zF  
-                self.reshape_3d_to_2d_embed.inputs >> self.embedding.W_embed.outputs   
-                self.embedding.e_embed.mu >> self.reshape_3d_to_2d_embed.outputs
+                self.embedding.z_embed.zF >> self.embedding.W_embed.inputs   
+                self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs
+                self.reshape_3d_to_2d_embed.outputs >> self.embedding.embed_scaler.inputs 
+                
+                
+                self.embedding.embed_scaler.outputs >> self.embedding.e_embed.mu 
+             
                 self.embedding.e_embed.target >> self.blocks[0].attention.z_qkv.z
                 
                 # self.reshape_4d_to_2d.inputs >> self.attention.z_qkv.zF
                 for blocks in range(n_layers):
                     block= self.blocks[blocks]
                     
-                    block.attention.z_qkv.zF >> block.ln1.inputs
                     
-                    block.ln1.outputs >> block.attention.W_q.inputs
-                    block.ln1.outputs >> block.attention.W_k.inputs 
-                    block.ln1.outputs >> block.attention.W_v.inputs
+                    
+                    block.attention.z_qkv.zF>> block.attention.W_q.inputs
+                    block.attention.z_qkv.zF>> block.attention.W_k.inputs 
+                    block.attention.z_qkv.zF>> block.attention.W_v.inputs
                     
                     block.attention.W_q.outputs >> block.reshape_2d_to_3d_q.inputs 
                     block.attention.W_k.outputs >> block.reshape_2d_to_3d_k.inputs 
@@ -124,22 +128,24 @@ class NGCTransformer:
                     block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
 
                     block.reshape_3d_to_2d.outputs >> block.attention.W_attn_out.inputs
-                    block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
+                    block.attention.W_attn_out.outputs >> block.scaler_attn.inputs
+                    block.scaler_attn.outputs >> block.attention.e_attn.mu
+                    
+                    
+                    
+                
                     block.mlp.z_mlp.z >> block.attention.e_attn.target
 
                     
-                    block.mlp.z_mlp.zF >> block.ln2.inputs
-                    
-                    block.ln2.outputs >> block.mlp.W_mlp1.inputs
+                    block.mlp.z_mlp.zF >> block.mlp.W_mlp1.inputs
 
                     block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu
                     block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
 
 
                     block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.inputs
-                    block.mlp.W_mlp2.outputs >> block.mlp.e_mlp.mu
-
-     
+                    block.mlp.W_mlp2.outputs >>block.mlp_scaler.inputs
+                    block.mlp_scaler.outputs >> block.mlp.e_mlp.mu
                     
                     if blocks == n_layers - 1:
                         self.output.z_out.z >> block.mlp.e_mlp.target
@@ -191,9 +197,14 @@ class NGCTransformer:
 
                         
                 self.output.z_out.zF >> self.output.W_out.inputs
-                self.output.W_out.outputs >> self.z_actfx.j
+                self.output.W_out.outputs >> self.z_actfx.j 
+                 
+                
 
-                self.z_actfx.zF >> self.output.e_out.mu
+
+                self.z_actfx.zF >>  self.output.output_scaler.inputs
+                self.output.output_scaler.outputs >> self.output.e_out.mu
+              
                 self.z_target.z >> self.output.e_out.target
 
                 self.output.e_out.dmu >> self.output.E_out.inputs
@@ -223,7 +234,9 @@ class NGCTransformer:
                     block_proj = self.projection.blocks[b]
 
                     if b == 0:
-                        self.projection.reshape_3d_to_2d_proj.outputs >> block_proj.q_qkv_Ratecell.j
+                        self.projection.reshape_3d_to_2d_proj.outputs >> self.projection.embed_scaler.inputs
+                        self.projection.embed_scaler.outputs >> block_proj.q_qkv_Ratecell.j
+
                     else:
                         self.projection.blocks[b - 1].Q_mlp2.outputs >> block_proj.q_qkv_Ratecell.j
 
@@ -237,15 +250,25 @@ class NGCTransformer:
 
                     block_proj.q_attn_block.outputs >> block_proj.reshape_3d_to_2d_proj1.inputs
                     block_proj.reshape_3d_to_2d_proj1.outputs >> block_proj.Q_attn_out.inputs
-                    block_proj.Q_attn_out.outputs >> block_proj.q_mlp_Ratecell.j
+                    block_proj.Q_attn_out.outputs >> block_proj.scaler_attn.inputs
+                    block_proj.scaler_attn.outputs >> block_proj.q_mlp_Ratecell.j
 
                     block_proj.q_mlp_Ratecell.zF >> block_proj.Q_mlp1.inputs
                     block_proj.Q_mlp1.outputs >> block_proj.q_mlp2_Ratecell.j
-                    block_proj.q_mlp2_Ratecell.zF >> block_proj.Q_mlp2.inputs
+                    block_proj.q_mlp2_Ratecell.zF >> block_proj.mlp_scaler.inputs
+                    block_proj.mlp_scaler.outputs >> block_proj.Q_mlp2.inputs
+                    
+                    
 
-                self.projection.blocks[n_layers - 1].Q_mlp2.outputs >> self.projection.q_out_Ratecell.j
+
+                self.projection.blocks[n_layers - 1].Q_mlp2.outputs>> self.projection.q_out_Ratecell.j
                 self.projection.q_out_Ratecell.zF >> self.projection.Q_out.inputs
-                self.projection.Q_out.outputs >> self.projection.q_target_Ratecell.j
+                self.projection.Q_out.outputs >>self.projection.output_scaler.inputs
+                self.projection.output_scaler.outputs >> self.projection.q_target_Ratecell.j
+                
+                
+                
+                
 
                 self.projection.q_target_Ratecell.z >> self.projection.eq_target.mu
 
@@ -266,12 +289,16 @@ class NGCTransformer:
                 advance_process >> self.reshape_3d_to_2d_embed.advance_state
                 advance_process >> self.reshape_2d_to_3d_embed.advance_state
                 advance_process >> self.embedding.e_embed.advance_state
-
+                advance_process >> self.embedding.embed_scaler.advance_state
                 for i in range(n_layers):
                     block = self.blocks[i]
                     
-                    advance_process >> block.ln1.advance_state
-                    advance_process >> block.ln2.advance_state
+                  
+                    
+                    advance_process >> block.mlp_scaler.advance_state
+                    advance_process >> self.output.output_scaler.advance_state
+                    advance_process >> block.scaler_attn.advance_state
+                
 
                     advance_process >> block.attention.E_attn.advance_state
                     advance_process >> block.mlp.E_mlp.advance_state
@@ -295,6 +322,10 @@ class NGCTransformer:
 
                     reset_process >> block.ln1.reset
                     reset_process >> block.ln2.reset
+
+                    reset_process  >> block.mlp_scaler.reset
+                    reset_process  >> self.output.output_scaler.reset
+                    reset_process  >> block.scaler_attn.reset
                     
                     reset_process >> block.attention.z_qkv.reset
                     reset_process >> block.mlp.z_mlp.reset
@@ -322,6 +353,7 @@ class NGCTransformer:
                 advance_process >> self.z_actfx.advance_state
                 advance_process >> self.z_target.advance_state
                 advance_process >> self.output.e_out.advance_state
+                reset_process >> self.embedding.embed_scaler.reset
 
                 reset_process >> self.projection.q_embed_Ratecell.reset
                 reset_process >> self.projection.q_out_Ratecell.reset
@@ -551,20 +583,26 @@ class NGCTransformer:
             self.advance.run(t=ts,dt=1.)
            
         y_mu = self.output.W_out.outputs.get() 
-        
-        L1 = self.embedding.e_embed.L.get()
+        def get_normalized_energy(component):
+            raw_sum = component.L.get()
+            # Divide by total elements in that specific tensor
+            return raw_sum / (self.batch_size * self.seq_len * self.n_embed)
+        L1 = get_normalized_energy(self.embedding.e_embed)
+        L4 = get_normalized_energy(self.output.e_out)
+        # L1 = self.embedding.e_embed.L.get()
         print("energy e_embed: ", L1)
-        L4 = self.output.e_out.L.get()
+        # L4 = self.output.e_out.L.get()
         print("energy e_out: ", L4)
 
         
         block_errors = 0.
         for i in range(self.n_layers):
                 block = self.blocks[i]
-                print("energy e_attn block {}: ".format(i), block.attention.e_attn.L.get())
-                print("energy e_mlp block {}: ".format(i), block.mlp.e_mlp.L.get())
-                print("energy e_mlp1 block {}: ".format(i), block.mlp.e_mlp1.L.get())
-                block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+                
+                print("energy e_attn block {}: ".format(i), get_normalized_energy(block.attention.e_attn))
+                print("energy e_mlp block {}: ".format(i), get_normalized_energy(block.mlp.e_mlp))
+                print("energy e_mlp1 block {}: ".format(i), get_normalized_energy(block.mlp.e_mlp1))
+                block_errors += get_normalized_energy(block.attention.e_attn) + get_normalized_energy(block.mlp.e_mlp) + get_normalized_energy(block.mlp.e_mlp1)
 
         EFE = L4 + block_errors + L1
 
@@ -577,4 +615,5 @@ class NGCTransformer:
 
     def get_latents(self):
         return self.q_out_Ratecell.z.get()
-  
+    
+    

@@ -4,6 +4,7 @@ from utils.embed_utils import EmbeddingSynapse
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from projection.proj_block import ProjBlock
 from jax import random
+from utils.unversalscaler import UniversalScaler
 class Projection():
     def __init__(self, dkey, n_embed, seq_len, batch_size, vocab_size, eta, optim_type, pos_learnable, wub, wlb, n_blocks, n_heads, dropout_rate,  **kwargs):
         dkey, *subkeys = random.split(dkey, 20)
@@ -44,4 +45,7 @@ class Projection():
         self.reshape_3d_to_2d_proj= ReshapeComponent("reshape_3d_to_2d_proj",
                                             input_shape=(batch_size, seq_len, n_embed),
                                             output_shape=(batch_size * seq_len, n_embed))        
-       
+        self.embed_scaler = UniversalScaler(f"embed_scale", input_shape=(batch_size * seq_len, n_embed),
+        output_shape=(batch_size, seq_len, n_embed))
+        self.output_scaler = UniversalScaler("output_scaler", input_shape=(batch_size * seq_len, n_embed),
+    output_shape=(batch_size, seq_len, n_embed))

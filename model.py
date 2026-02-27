@@ -320,8 +320,7 @@ class NGCTransformer:
                     advance_process >> block.attention.e_attn.advance_state
                     advance_process >> block.mlp.e_mlp.advance_state
 
-                    reset_process >> block.ln1.reset
-                    reset_process >> block.ln2.reset
+                  
 
                     reset_process  >> block.mlp_scaler.reset
                     reset_process  >> self.output.output_scaler.reset

@@ -28,32 +28,44 @@ EFE_STABILITY_THRESHOLD = 2e1
 
 
 def define_search_space(trial):
-    # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
-    n_embed =  n_heads * embed_mult
-    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
+
+    n_heads = trial.suggest_categorical("n_heads", [4, 8, 12])
+    embed_mult = trial.suggest_categorical("embed_mult", [32, 48, 64])
+    n_embed = n_heads * embed_mult   # ensures divisibility
+
+    n_layers = trial.suggest_int("n_layers", 4, 12)
+    seq_len = trial.suggest_categorical("seq_len", [64, 128, 256])
+    batch_size = trial.suggest_categorical(
+        "batch_size",
+        [32, 64, 128,256]
+    )
+    eta = trial.suggest_float("eta", 1e-5, 3e-4, log=True)
+    tau_m = trial.suggest_int("tau_m", 10, 40)
+    n_iter = trial.suggest_int("n_iter", 15, 50)
+    dropout_rate = trial.suggest_float("dropout_rate", 0.1, 0.3)
+    wub = trial.suggest_float("wub", 0.02, 0.08)
+    wlb = trial.suggest_float("wlb", -0.08, -0.02)  # symmetric init for stability
+    optim_type = trial.suggest_categorical("optim_type", ["adam", "sgd"])
+    act_fx=trial.suggest_categorical("act_fx", ["identity", "relu"])
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 8),
+        "n_layers": n_layers,
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
-        "wub": trial.suggest_float("wub", 0.01, 0.1),
-        "wlb": trial.suggest_float("wlb", -0.1, -0.01),
-        "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+        "eta": eta,
+        "tau_m": tau_m,
+        "n_iter": n_iter,
+        "dropout_rate": dropout_rate,
+        "wub": wub,
+        "wlb": wlb,
+        "optim_type": optim_type,
+        "act_fx": act_fx,
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
         "seq_len": seq_len,
         "embed_mult": embed_mult
     }
-
+#
 def define_search_space_phase2(trial, best_params):
     """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
     
@@ -351,7 +363,7 @@ def case1_efe_to_ce_complete():
     direction="minimize",
     sampler=optuna.samplers.TPESampler(
         seed=42,
-        n_startup_trials=5,
+        n_startup_trials=10,
         multivariate=True,    
         group=True,          
         prior_weight=1.0,     

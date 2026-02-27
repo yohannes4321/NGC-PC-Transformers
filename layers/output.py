@@ -34,5 +34,6 @@ class Output:
                                   batch_size=batch_size * seq_len) # shape=(seq_len, vocab_size, 1),
         self.E_out = StaticSynapse(
                     "E_out", shape=(vocab_size, n_embed), weight_init=dist.uniform(low=wlb, high=wub), key=subkeys[4])
-        self.output_scaler = UniversalScaler("output_scaler", input_shape=(batch_size * seq_len, n_embed),
-    output_shape=(batch_size, seq_len, n_embed))
+        self.output_scaler = UniversalScaler("output_scaler", n_embed=n_embed, 
+    batch_size=batch_size, 
+    seq_len=seq_len)

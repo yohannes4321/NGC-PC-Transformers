@@ -14,10 +14,12 @@ class Block:
         prefix = f"block{block_id}_"
 
         
-        self.scaler_attn = UniversalScaler(f"{prefix}_attn_scale", input_shape=(batch_size * seq_len, n_embed),
-                                            output_shape=(batch_size, seq_len, n_embed))
-        self.mlp_scaler = UniversalScaler(f"{prefix}_mlp_scale", input_shape=(batch_size * seq_len, n_embed),
-                                            output_shape=(batch_size, seq_len, n_embed))
+        self.scaler_attn = UniversalScaler(f"{prefix}_attn_scale", n_embed=n_embed, 
+    batch_size=batch_size, 
+    seq_len=seq_len)
+        self.mlp_scaler = UniversalScaler(f"{prefix}_mlp_scale", n_embed=n_embed, 
+    batch_size=batch_size, 
+    seq_len=seq_len)
         self.attention = Attention(dkey=attn_key, n_embed=n_embed, seq_len=seq_len,
                                  batch_size=batch_size, n_heads=n_heads,
                                  dropout_rate=dropout_rate, eta=eta, optim_type= optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m)

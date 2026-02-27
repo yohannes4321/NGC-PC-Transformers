@@ -1,48 +1,63 @@
 import jax.numpy as jnp
 from jax import jit
 from ngclearn.components.jaxComponent import JaxComponent
-from ngclearn import Compartment, compilable
+from ngclearn import Compartment
+from ngclearn import compilable
 
+@jit
+def universal_rms_normalize(x, gamma, eps=1e-6):
+    """
+    Broad RMS Normalization - Normalizes across all dimensions 
+    (Batch, Seq, Feature) to stabilize global energy.
+    """
+    x_float = x.astype(jnp.float32)
+    
+    # Calculate variance across all axes (global scaling)
+    # This prevents energy from scaling linearly with batch_size or seq_len
+    variance = jnp.mean(jnp.square(x_float), axis=None, keepdims=True)
+    
+    scale = 1.0 / jnp.sqrt(variance + eps)
+    
+    scale = scale.astype(x.dtype)
+    gamma_casted = gamma.astype(x.dtype)
 
-
+    return x * scale * gamma_casted
 
 class UniversalScaler(JaxComponent):
-        # Only wire advance_state and reset to MethodProcess, not universal_rms_scale
-    def __init__(self, name, input_shape, output_shape, **kwargs):
+    """
+    Scales inputs globally to ensure free energy remains stable regardless 
+    of batch size or sequence length.
+    
+    Parameters:
+    - name: Component name
+    - n_embed: number of features
+    - batch_size: The batch size
+    - seq_len: The sequence length (added to track energy across time)
+    """
+
+    def __init__(self, name, n_embed, batch_size, seq_len=1, **kwargs):
         super().__init__(name, **kwargs)
+        self.n_embed = n_embed
+        self.batch_size = batch_size
+        self.seq_len = seq_len
+        
+        # Learnable gain parameter
+        self.gamma = jnp.ones((1,)) # Global gain, or use (n_embed,) for feature-wise
 
-        self.input_shape = input_shape
-        self.output_shape = output_shape
-
-        # Infer dimensions
-        flat_tokens, self.n_embed = input_shape
-        self.batch_size, self.seq_len, out_embed = output_shape
-
-        assert self.n_embed == out_embed, \
-            "Embedding dimension must match between input and output"
-
-        # Pipe scaling factor (intensive scaling)
-        self.volume_scale = 1.0 / jnp.sqrt(self.batch_size * self.seq_len)
-
-        # Learnable scale parameter
-        self.gamma = jnp.ones((self.n_embed,))
-
-        # Compartments
-        self.inputs = Compartment(jnp.zeros(input_shape))
-        self.outputs = Compartment(jnp.zeros(output_shape))
+        # Shape updated to include seq_len (B, S, D)
+        self.inputs = Compartment(jnp.zeros((batch_size, seq_len, n_embed)))
+        self.outputs = Compartment(jnp.zeros((batch_size, seq_len, n_embed)))
 
     @compilable
     def advance_state(self):
-        x = self.inputs.get()  # (B*S, D)
-        # Inline scaling logic
-        x_float = x.astype(jnp.float32)
-        variance = jnp.mean(jnp.square(x_float), axis=-1, keepdims=True)
-        x_norm = x * (1.0 / jnp.sqrt(variance + 1e-6))
-        out = x_norm * self.volume_scale * self.gamma.astype(x.dtype)
-        out = jnp.reshape(out, self.output_shape)
+        x = self.inputs.get()
+        # Apply universal normalization
+        out = universal_rms_normalize(x, self.gamma)
         self.outputs.set(out)
 
     @compilable
     def reset(self):
-        self.inputs.set(jnp.zeros(self.input_shape))
-        self.outputs.set(jnp.zeros(self.output_shape))
+        # Reset to zero-filled tensors matching the (B, S, D) shape
+        x = jnp.zeros((self.batch_size, self.seq_len, self.n_embed))
+        self.inputs.set(x)
+        self.outputs.set(x)

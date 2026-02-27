@@ -45,7 +45,9 @@ class Projection():
         self.reshape_3d_to_2d_proj= ReshapeComponent("reshape_3d_to_2d_proj",
                                             input_shape=(batch_size, seq_len, n_embed),
                                             output_shape=(batch_size * seq_len, n_embed))        
-        self.embed_scaler = UniversalScaler(f"embed_scale", input_shape=(batch_size * seq_len, n_embed),
-        output_shape=(batch_size, seq_len, n_embed))
-        self.output_scaler = UniversalScaler("output_scaler", input_shape=(batch_size * seq_len, n_embed),
-    output_shape=(batch_size, seq_len, n_embed))
+        self.embed_scaler = UniversalScaler(f"embed_scale",n_embed=n_embed, 
+    batch_size=batch_size, 
+    seq_len=seq_len)
+        self.output_scaler = UniversalScaler("output_scaler", n_embed=n_embed, 
+    batch_size=batch_size, 
+    seq_len=seq_len)

@@ -46,12 +46,14 @@ class ProjBlock:
                 
         self.Q_mlp2 = StaticSynapse(f"{prefix}Q_mlp2", shape=(4* n_embed, n_embed),
                              bias_init=dist.constant(value=0.), key=subkeys[0])
-        self.scaler_attn = UniversalScaler(f"{prefix}_attn_scale", input_shape=(batch_size * seq_len, n_embed),
-                                            output_shape=(batch_size, seq_len, n_embed))
+        self.scaler_attn = UniversalScaler(f"{prefix}_attn_scale", n_embed=n_embed, 
+    batch_size=batch_size, 
+    seq_len=seq_len)
                                             
                     
-        self.mlp_scaler = UniversalScaler(f"{prefix}_mlp_scale", input_shape=(batch_size * seq_len, n_embed),
-                                            output_shape=(batch_size, seq_len, n_embed))           
+        self.mlp_scaler = UniversalScaler(f"{prefix}_mlp_scale", n_embed=n_embed, 
+    batch_size=batch_size, 
+    seq_len=seq_len)           
         
         self.reshape_3d_to_2d_proj1= ReshapeComponent(f"{prefix}reshape_3d_to_2d_proj1",
                                             input_shape=(batch_size, seq_len, n_embed),

@@ -33,5 +33,6 @@ class EMBEDDING:
                                   batch_size=batch_size * seq_len) # shape=(seq_len, embed_dim, 1),
     
             
-        self.embed_scaler = UniversalScaler(f"embed_scale", input_shape=(batch_size * seq_len, embed_dim),
-    output_shape=(batch_size, seq_len, embed_dim))
+        self.embed_scaler = UniversalScaler(f"embed_scale", n_embed=embed_dim, 
+    batch_size=batch_size, 
+    seq_len=seq_len)

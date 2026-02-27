@@ -5,7 +5,7 @@ from ngclearn import compilable
 import jax
 from functools import partial
 import jax.numpy as jnp
-from jax import vmap
+from utils.model_util import d_softmax_vjp
 
 @partial(jit, static_argnums=[4, 5, 6, 7, 8])
 def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, batch_size, key):
@@ -45,60 +45,34 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
     
     return attention, s_c, q, k, v
 
-@partial(jit, static_argnums=1)
-def d_softmax(x, tau=0.0):
-    """
-    Returns full Jacobian of softmax applied over last axis.
-
-    Input:
-        x: (B, H, T, T)
-
-    Output:
-        J: (B, H, T, T, T)
-           where last two dims are the (T x T) Jacobian
-           for each row.
-    """
-    if tau > 0.0:
-        x = x / tau
-
-    # Compute softmax over last axis
-    p = jax.nn.softmax(x, axis=-1)  # (B, H, T, T)
-
-    T = p.shape[-1]
-
-    # Identity matrix for Jacobian construction
-    I = jnp.eye(T)
-
-    def row_jacobian(p_row):
-        # p_row shape: (T,)
-        return jnp.diag(p_row) - jnp.outer(p_row, p_row)
-
-    # Vectorize over last 3 dimensions: (B, H, Tq)
-    jacobian = vmap(                      # over B
-                    vmap(                  # over H
-                        vmap(row_jacobian, # over Tq
-                             in_axes=0),
-                        in_axes=0),
-                    in_axes=0)(p)
-
-    return jacobian
 
 @partial(jit, static_argnums=[6, 7, 8, 9, 10])
 def compute_grads(Q, K, V, mask, s_c, e_qkv, n_heads, d_head, dropout_rate, seq_len, batch_size, key):
-        """Compute gradients for Q, K, V using d_softmax and attention scores
-        """
-        J=d_softmax(s_c, tau=0.0)  # Shape: (B, H, S, S, S)
-        e_qkv=e_qkv.reshape((batch_size, seq_len, n_heads, d_head)).transpose([0, 2, 1, 3])  # (B, H, S, d_head)
-        d_v = jnp.einsum("bhsss,bhsd->bhsd", J, e_qkv)
-        da = jnp.matmul(e_qkv, V.transpose([0, 1, 3, 2]))  # (B, H, S, S)
-        ds = jnp.einsum("bhqkv,bhqd->bhkv", J, da)        
-        d_q = jnp.einsum("bhqv,bhkd->bhqd", ds, K).reshape(batch_size, seq_len, n_heads * d_head)
-        d_k = jnp.einsum("bhqv,bhqd->bhqd", ds, Q).reshape(batch_size, seq_len, n_heads * d_head)
-        dq= d_q.reshape(batch_size * seq_len, n_heads * d_head)
-        dk= d_k.reshape(batch_size * seq_len, n_heads * d_head)
-        dv= d_v.reshape(batch_size * seq_len, n_heads * d_head)
-        #d_k = ((V.T @ e_qkv)* J).T @ Q
-        return dq, dk, dv
+    """Compute gradients for Q, K, V using d_softmax and attention scores
+    """
+    B = batch_size
+    S = seq_len
+    H = n_heads
+    D = d_head
+    
+    P, jvp_fn = d_softmax_vjp(s_c, tau=0.0)  # P: (B, H, S, S)
+    
+    # Reshape error
+    e_reshaped = e_qkv.reshape(B, S, H, D).transpose(0, 2, 1, 3)  # (B, H, S, D)
+    dV = jnp.einsum("bhkq,bhkd->bhqd", P, e_reshaped)  # (B, H, S, D)
+    da = jnp.einsum("bhkd,bhqd->bhqk", e_reshaped, V)  # (B, H, S, S)
+    
+    ds = jvp_fn(da)  
+    ds = ds / jnp.sqrt(D)
+    dQ = jnp.einsum("bhqk,bhkd->bhqd", ds, K)  # (B, H, S, D)
+    dK = jnp.einsum("bhkq,bhqd->bhkd", ds, Q)  # (B, H, S, D)
+    
+    # 6. Reshape to flattened format
+    dq = dQ.transpose(0, 2, 1, 3).reshape(B * S, H * D)
+    dk = dK.transpose(0, 2, 1, 3).reshape(B * S, H * D)
+    dv = dV.transpose(0, 2, 1, 3).reshape(B * S, H * D)
+    
+    return dq, dk, dv
     
 class AttentionBlock(JaxComponent):
     """

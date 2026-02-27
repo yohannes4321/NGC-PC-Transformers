@@ -4,12 +4,6 @@ from ngclearn.components.jaxComponent import JaxComponent
 from ngclearn import Compartment, compilable
 
 
-@jit
-def universal_rms_scale(x, gamma, volume_scale, eps=1e-6):
-    """Scales x by its local RMS and a global volume factor."""
-    variance = jnp.mean(jnp.square(x.astype(jnp.float32)), axis=-1, keepdims=True)
-    x_norm = x * (1.0 / jnp.sqrt(variance + eps))
-    return x_norm * volume_scale * gamma.astype(x.dtype)
 
 
 class UniversalScaler(JaxComponent):
@@ -40,13 +34,12 @@ class UniversalScaler(JaxComponent):
     @compilable
     def advance_state(self):
         x = self.inputs.get()  # (B*S, D)
-
-        # Apply scaling
-        out = universal_rms_scale(x, self.gamma, self.volume_scale)
-
-        # Reshape to (B, S, D)
+        # Inline scaling logic
+        x_float = x.astype(jnp.float32)
+        variance = jnp.mean(jnp.square(x_float), axis=-1, keepdims=True)
+        x_norm = x * (1.0 / jnp.sqrt(variance + 1e-6))
+        out = x_norm * self.volume_scale * self.gamma.astype(x.dtype)
         out = jnp.reshape(out, self.output_shape)
-
         self.outputs.set(out)
 
     @compilable

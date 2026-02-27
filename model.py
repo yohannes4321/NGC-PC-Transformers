@@ -280,7 +280,7 @@ class NGCTransformer:
                                            
                 evolve_process = MethodProcess(name="evolve_process")
                 project_process = MethodProcess(name="project_process")
-
+                
                 embedding_evolve_process  >> self.embedding.W_embed.evolve
 
 
@@ -290,15 +290,15 @@ class NGCTransformer:
                 advance_process >> self.reshape_3d_to_2d_embed.advance_state
                 advance_process >> self.reshape_2d_to_3d_embed.advance_state
                 advance_process >> self.embedding.e_embed.advance_state
-                # advance_process >> self.embedding.embed_scaler.advance_state
+                advance_process >> self.embedding.embed_scaler.advance_state
                 for i in range(n_layers):
                     block = self.blocks[i]
                     
                   
                     
-                    # advance_process >> block.mlp_scaler.advance_state
+                    advance_process >> block.mlp_scaler.advance_state
                     
-                    # advance_process >> block.scaler_attn.advance_state
+                    advance_process >> block.scaler_attn.advance_state
                 
 
                     advance_process >> block.attention.E_attn.advance_state
@@ -323,9 +323,9 @@ class NGCTransformer:
 
                   
 
-                    # reset_process  >> block.mlp_scaler.reset
+                    reset_process  >> block.mlp_scaler.reset
                     
-                    # reset_process  >> block.scaler_attn.reset
+                    reset_process  >> block.scaler_attn.reset
                     
                     reset_process >> block.attention.z_qkv.reset
                     reset_process >> block.mlp.z_mlp.reset
@@ -348,14 +348,14 @@ class NGCTransformer:
 
                 # Add non-block components to advance_process, reset_process, evolve_process
                 advance_process >> self.output.E_out.advance_state
-                # reset_process  >> self.output.output_scaler.reset
-                # advance_process >> self.output.output_scaler.advance_state
+                reset_process  >> self.output.output_scaler.reset
+                advance_process >> self.output.output_scaler.advance_state
                 advance_process >> self.output.z_out.advance_state
                 advance_process >> self.output.W_out.advance_state
                 advance_process >> self.z_actfx.advance_state
                 advance_process >> self.z_target.advance_state
                 advance_process >> self.output.e_out.advance_state
-                # reset_process >> self.embedding.embed_scaler.reset
+                reset_process >> self.embedding.embed_scaler.reset
 
                 reset_process >> self.projection.q_embed_Ratecell.reset
                 reset_process >> self.projection.q_out_Ratecell.reset

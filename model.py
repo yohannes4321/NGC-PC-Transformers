@@ -1,4 +1,3 @@
-#import
 import jax
 from ngclearn import Context, MethodProcess
 from ngclearn.utils.io_utils import makedir
@@ -100,18 +99,20 @@ class NGCTransformer:
             with Context("Circuit") as self.circuit:
             
                 
-                self.embedding.z_embed.zF   >> self.embedding.W_embed.inputs
-                self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs  
-                self.reshape_3d_to_2d_embed.outputs >> self.embedding.e_embed.mu
-                self.blocks[0].attention.z_qkv.z >> self.embedding.e_embed.target
+                self.embedding.W_embed.inputs >> self.embedding.z_embed.zF  
+                self.reshape_3d_to_2d_embed.inputs >> self.embedding.W_embed.outputs   
+                self.embedding.e_embed.mu >> self.reshape_3d_to_2d_embed.outputs
+                self.embedding.e_embed.target >> self.blocks[0].attention.z_qkv.z
                 
                 # self.reshape_4d_to_2d.inputs >> self.attention.z_qkv.zF
                 for blocks in range(n_layers):
                     block= self.blocks[blocks]
                     
-                    block.attention.z_qkv.zF >> block.attention.W_q.inputs
-                    block.attention.z_qkv.zF>> block.attention.W_k.inputs 
-                    block.attention.z_qkv.zF >> block.attention.W_v.inputs
+                    block.attention.z_qkv.zF >> block.ln1.inputs
+                    
+                    block.ln1.outputs >> block.attention.W_q.inputs
+                    block.ln1.outputs >> block.attention.W_k.inputs 
+                    block.ln1.outputs >> block.attention.W_v.inputs
                     
                     block.attention.W_q.outputs >> block.reshape_2d_to_3d_q.inputs 
                     block.attention.W_k.outputs >> block.reshape_2d_to_3d_k.inputs 
@@ -122,17 +123,14 @@ class NGCTransformer:
                     block.reshape_2d_to_3d_v.outputs >> block.attention.attn_block.inputs_v
                     block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
 
-                    block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
-                    block.attention.z_attn.z >> block.attention.e_qkv.target
-                    
-                    block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
+                    block.reshape_3d_to_2d.outputs >> block.attention.W_attn_out.inputs
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
                     block.mlp.z_mlp.z >> block.attention.e_attn.target
 
                     
-                    block.mlp.z_mlp.zF >> block.mlp.W_mlp1.inputs
+                    block.mlp.z_mlp.zF >> block.ln2.inputs
                     
-
+                    block.ln2.outputs >> block.mlp.W_mlp1.inputs
 
                     block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu
                     block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
@@ -149,48 +147,39 @@ class NGCTransformer:
                         self.blocks[blocks + 1].attention.z_qkv.z >> block.mlp.e_mlp.target
 
 
+                    block.attention.e_attn.dmu >> block.attention.E_attn.inputs
 
                     block.mlp.e_mlp1.dmu >> block.mlp.E_mlp1.inputs
                     block.mlp.e_mlp.dmu  >> block.mlp.E_mlp.inputs
 
-                    block.attention.e_qkv.dmu >> block.attention.attn_block.e_qkv
-                    
-                    block.attention.attn_block.dq >> block.attention.E_q.inputs
-                    block.attention.attn_block.dk >> block.attention.E_k.inputs
-                    block.attention.attn_block.dv >> block.attention.E_v.inputs
-                    block.attention.e_attn.dmu >> block.attention.E_attn.inputs
-                    
-                    
-                    block.attention.E_q.outputs >>block.attention.z_qkv.jq
-                    block.attention.E_k.outputs >>block.attention.z_qkv.jk
-                    block.attention.E_v.outputs >> block.attention.z_qkv.jv
-                    block.attention.E_attn.outputs >> block.attention.z_attn.j
+                    block.attention.E_attn.outputs >> block.attention.z_qkv.j
 
 
                     if blocks == 0:
                         self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
                     else:
-                        self.blocks[blocks - 1].mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
-                    block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
+                        block.mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
+
 
                     block.mlp.E_mlp.outputs  >> block.mlp.z_mlp2.j
                     block.mlp.E_mlp1.outputs >> block.mlp.z_mlp.j
 
                     block.attention.e_attn.dtarget >> block.mlp.z_mlp.j_td
-                    block.mlp.e_mlp1.dtarget >> block.mlp.z_mlp2.j_td
+                    block.mlp.e_mlp1.dtarget       >> block.mlp.z_mlp2.j_td
 
 
                     block.attention.z_qkv.zF >> block.attention.W_q.pre
-                    block.attention.attn_block.dq >> block.attention.W_q.post
+                    block.attention.e_attn.dmu >> block.attention.W_q.post
 
                     block.attention.z_qkv.zF >> block.attention.W_k.pre
-                    block.attention.attn_block.dk >> block.attention.W_k.post
+                    block.attention.e_attn.dmu >> block.attention.W_k.post
 
                     block.attention.z_qkv.zF >> block.attention.W_v.pre
-                    block.attention.attn_block.dv >> block.attention.W_v.post
+                    block.attention.e_attn.dmu >> block.attention.W_v.post
 
 
-                    block.attention.z_attn.zF >> block.attention.W_attn_out.pre
+                    block.attention.attn_block.outputs >> block.reshape_3d_to_2d_attnout.inputs
+                    block.reshape_3d_to_2d_attnout.outputs >> block.attention.W_attn_out.pre
                     block.attention.e_attn.dmu >> block.attention.W_attn_out.post
 
 
@@ -223,7 +212,9 @@ class NGCTransformer:
 
                         
                         
-                ## PROJECTION PHASE ##                                
+                ## PROJECTION PHASE ##
+                
+                
                 
                 self.projection.q_embed_Ratecell.zF >> self.projection.Q_embed.inputs
                 self.projection.Q_embed.outputs >> self.projection.reshape_3d_to_2d_proj.inputs
@@ -245,8 +236,7 @@ class NGCTransformer:
                     block_proj.Q_v.outputs >> block_proj.q_attn_block.inputs_v
 
                     block_proj.q_attn_block.outputs >> block_proj.reshape_3d_to_2d_proj1.inputs
-                    block_proj.reshape_3d_to_2d_proj1.outputs >> block_proj.q_attn_Ratecell.j
-                    block_proj.q_attn_Ratecell.zF >> block_proj.Q_attn_out.inputs
+                    block_proj.reshape_3d_to_2d_proj1.outputs >> block_proj.Q_attn_out.inputs
                     block_proj.Q_attn_out.outputs >> block_proj.q_mlp_Ratecell.j
 
                     block_proj.q_mlp_Ratecell.zF >> block_proj.Q_mlp1.inputs
@@ -280,15 +270,12 @@ class NGCTransformer:
                 for i in range(n_layers):
                     block = self.blocks[i]
                     
+                    advance_process >> block.ln1.advance_state
+                    advance_process >> block.ln2.advance_state
 
                     advance_process >> block.attention.E_attn.advance_state
-                    advance_process >> block.attention.E_q.advance_state
-                    advance_process >> block.attention.E_k.advance_state
-                    advance_process >> block.attention.E_v.advance_state
                     advance_process >> block.mlp.E_mlp.advance_state
-                    advance_process >> block.mlp.E_mlp1.advance_state
                     advance_process >> block.attention.z_qkv.advance_state
-                    advance_process >> block.attention.z_attn.advance_state
                     advance_process >> block.mlp.z_mlp.advance_state
                     advance_process >> block.mlp.z_mlp2.advance_state
                     advance_process >> block.attention.W_q.advance_state
@@ -303,16 +290,13 @@ class NGCTransformer:
                     advance_process >> block.attention.W_attn_out.advance_state
                     advance_process >> block.mlp.W_mlp1.advance_state
                     advance_process >> block.mlp.W_mlp2.advance_state
-                    advance_process >> block.attention.e_qkv.advance_state
                     advance_process >> block.attention.e_attn.advance_state
-                    advance_process >> block.mlp.e_mlp1.advance_state
                     advance_process >> block.mlp.e_mlp.advance_state
 
+                    reset_process >> block.ln1.reset
+                    reset_process >> block.ln2.reset
                     
                     reset_process >> block.attention.z_qkv.reset
-                    reset_process >> block.attention.z_attn.reset
-                    reset_process >> block.attention.e_qkv.reset
-                    reset_process >> block.attention.e_attn.reset
                     reset_process >> block.mlp.z_mlp.reset
                     reset_process >> block.mlp.z_mlp2.reset
                     reset_process >> block.attention.e_attn.reset
@@ -323,7 +307,7 @@ class NGCTransformer:
                     reset_process >> block.reshape_2d_to_3d_k.reset
                     reset_process >> block.reshape_2d_to_3d_v.reset
                     reset_process >> block.reshape_3d_to_2d_attnout.reset
-            
+                    
                     evolve_process >> block.attention.W_q.evolve
                     evolve_process >> block.attention.W_k.evolve
                     evolve_process >> block.attention.W_v.evolve
@@ -362,7 +346,6 @@ class NGCTransformer:
                     project_process >> block_proj.Q_q.advance_state
                     project_process >> block_proj.Q_k.advance_state
                     project_process >> block_proj.Q_v.advance_state
-                    project_process >> block_proj.q_attn_Ratecell.advance_state
                     project_process >> block_proj.q_attn_block.advance_state
                     project_process >> block_proj.reshape_3d_to_2d_proj1.advance_state
                     project_process >> block_proj.Q_attn_out.advance_state
@@ -372,7 +355,6 @@ class NGCTransformer:
                     project_process >> block_proj.Q_mlp2.advance_state
                     reset_process >> block_proj.q_qkv_Ratecell.reset
                     reset_process >> block_proj.q_attn_block.reset
-                    reset_process >> block_proj.q_attn_Ratecell.reset
                     reset_process >> block_proj.q_mlp_Ratecell.reset
                     reset_process >> block_proj.q_mlp2_Ratecell.reset 
                 project_process >> self.projection.q_out_Ratecell.advance_state
@@ -413,13 +395,20 @@ class NGCTransformer:
         if params_only:
             model_dir = "{}/{}/component/custom".format(self.exp_dir, self.model_name)
             self.embedding.W_embed.save(model_dir)
-            for block in self.blocks:
-                block.attention.W_q.save(model_dir)
-                block.attention.W_k.save(model_dir)
-                block.attention.W_v.save(model_dir)
-                block.attention.W_attn_out.save(model_dir)
-                block.mlp.W_mlp1.save(model_dir)
-                block.mlp.W_mlp2.save(model_dir)    
+            self.blocks = []
+            for j in range(self.n_layers):
+                block = self.circuit.get_components(f"block{j}_W_q")
+                block.save(model_dir)
+                block = self.circuit.get_components(f"block{j}_W_k")
+                block.save(model_dir)
+                block = self.circuit.get_components(f"block{j}_W_v")
+                block.save(model_dir)
+                block = self.circuit.get_components(f"block{j}_W_attn_out")
+                block.save(model_dir)
+                block = self.circuit.get_components(f"block{j}_W_mlp1")
+                block.save(model_dir)
+                block = self.circuit.get_components(f"block{j}_W_mlp2")
+                block.save(model_dir)    
             self.output.W_out.save(model_dir)
         else:
             self.circuit.save_to_json(self.exp_dir, model_name=self.model_name, overwrite=True)
@@ -488,7 +477,6 @@ class NGCTransformer:
 
             # --- Map Projection Block ---
             block_proj.q_qkv_Ratecell.z.set(  self.circuit.get_components(f"{p_prefix}_q_qkv_Ratecell").z.get())
-            block_proj.q_attn_Ratecell.z.set(  self.circuit.get_components(f"{p_prefix}_q_attn_Ratecell").z.get())
             block_proj.q_mlp_Ratecell.z.set(  self.circuit.get_components(f"{p_prefix}_q_mlp_Ratecell").z.get())
             block_proj.q_mlp2_Ratecell.z.set(  self.circuit.get_components(f"{p_prefix}_q_mlp2_Ratecell").z.get())
             block_proj.reshape_3d_to_2d_proj1.inputs.set(self.circuit.get_components(f"{p_prefix}_reshape_3d_to_2d_proj1").inputs.get())
@@ -563,18 +551,19 @@ class NGCTransformer:
             self.advance.run(t=ts,dt=1.)
            
         y_mu = self.output.W_out.outputs.get() 
-
+        
         L1 = self.embedding.e_embed.L.get()
-        print("efe embedding: ", L1)
+        print("energy e_embed: ", L1)
         L4 = self.output.e_out.L.get()
-        print("efe output: ", L4)
+        print("energy e_out: ", L4)
+
         
         block_errors = 0.
         for i in range(self.n_layers):
                 block = self.blocks[i]
-                print("efe e_attn", block.attention.e_attn.L.get())
-                print("efe e_mlp", block.mlp.e_mlp.L.get())
-                print("efe e_mlp1", block.mlp.e_mlp1.L.get())
+                print("energy e_attn block {}: ".format(i), block.attention.e_attn.L.get())
+                print("energy e_mlp block {}: ".format(i), block.mlp.e_mlp.L.get())
+                print("energy e_mlp1 block {}: ".format(i), block.mlp.e_mlp1.L.get())
                 block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
 
         EFE = L4 + block_errors + L1
@@ -587,5 +576,5 @@ class NGCTransformer:
         return y_mu_inf, y_mu, EFE 
 
     def get_latents(self):
-        return self.projection.q_out_Ratecell.z.get()
+        return self.q_out_Ratecell.z.get()
   

@@ -48,7 +48,7 @@ def define_search_space(trial):
     optim_type = trial.suggest_categorical("optim_type", ["adam", "sgd"])
     act_fx=trial.suggest_categorical("act_fx", ["identity", "relu"])
 
-    return {
+    return {#
         "n_layers": n_layers,
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
         "eta": eta,

@@ -13,6 +13,7 @@ def universal_rms_scale(x, gamma, volume_scale, eps=1e-6):
 
 
 class UniversalScaler(JaxComponent):
+        # Only wire advance_state and reset to MethodProcess, not universal_rms_scale
     def __init__(self, name, input_shape, output_shape, **kwargs):
         super().__init__(name, **kwargs)
 

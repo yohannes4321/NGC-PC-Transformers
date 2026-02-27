@@ -19,17 +19,14 @@ class ReshapeComponent(JaxComponent):
     
     @compilable
     def advance_state(self):
-        inputs=self.inputs.get()
-        output_shape=self.output_shape.get()
-        output=inputs.reshape(output_shape)
+        inputs = self.inputs.get()
+        output = inputs.reshape(self.output_shape)
         self.outputs.set(output)
     
     
     @compilable
     def reset(self):
-        input_shape=self.input_shape.get()
-        output_shape=self.output_shape.get()
-        input=jnp.zeros(input_shape)
-        output=jnp.zeros(output_shape)
+        input = jnp.zeros(self.input_shape)
+        output = jnp.zeros(self.output_shape)
         self.inputs.set(input)
         self.outputs.set(output)

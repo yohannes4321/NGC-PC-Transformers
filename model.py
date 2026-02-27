@@ -280,6 +280,7 @@ class NGCTransformer:
                                            
                 evolve_process = MethodProcess(name="evolve_process")
                 project_process = MethodProcess(name="project_process")
+                
                 embedding_evolve_process  >> self.embedding.W_embed.evolve
 
 

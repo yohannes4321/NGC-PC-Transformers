@@ -30,14 +30,14 @@ EFE_STABILITY_THRESHOLD = 2e1
 def define_search_space(trial):
 
     n_heads = trial.suggest_categorical("n_heads", [4, 8, 12])
-    embed_mult = trial.suggest_categorical("embed_mult", [32, 64, 96, 128])
+    embed_mult = trial.suggest_categorical("embed_mult", [4, 8, 16])
     n_embed = n_heads * embed_mult   # ensures divisibility
 
     n_layers = trial.suggest_int("n_layers", 4, 12)
-    seq_len = trial.suggest_categorical("seq_len", [16,32,64, 128, 256])
+    seq_len = trial.suggest_categorical("seq_len", [16,32,64])
     batch_size = trial.suggest_categorical(
         "batch_size",
-        [8,16,32, 64, 128,256]
+        [8,16,32, 64]
     )
     eta = trial.suggest_float("eta", 1e-5, 3e-4, log=True)
     tau_m = trial.suggest_int("tau_m", 10, 40)

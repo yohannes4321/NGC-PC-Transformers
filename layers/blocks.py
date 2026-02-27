@@ -15,9 +15,7 @@ class Block:
 
         
         self.scaler_attn = UniversalScaler(f"{prefix}_attn_scale", input_shape=(batch_size * seq_len, n_embed),
-                                            output_shape=(batch_size, seq_len, n_embed)
-                                            
-                                            n_embed, batch_size, seq_len)
+                                            output_shape=(batch_size, seq_len, n_embed))
         self.mlp_scaler = UniversalScaler(f"{prefix}_mlp_scale", input_shape=(batch_size * seq_len, n_embed),
                                             output_shape=(batch_size, seq_len, n_embed))
         self.attention = Attention(dkey=attn_key, n_embed=n_embed, seq_len=seq_len,

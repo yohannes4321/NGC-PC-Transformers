@@ -16,14 +16,14 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
     S = seq_len
     D = Q.shape[-1]
     
-    Q_3d = Q.reshape(B, S, D)
-    K_3d = K.reshape(B, S, D)
-    V_3d = V.reshape(B, S, D)
+    # Q_3d = Q.reshape(B, S, D)
+    # K_3d = K.reshape(B, S, D)
+    # V_3d = V.reshape(B, S, D)
     
     # Reshape for multi-head attention
-    q = Q_3d.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
-    k = K_3d.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3]) 
-    v = V_3d.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
+    q = Q.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
+    k = K.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3]) 
+    v = V.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
     # Scaled dot-product attention
     s_c = jnp.einsum("BHTE,BHSE->BHTS", q, k) / jnp.sqrt(d_head)
     
@@ -46,7 +46,7 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
 
 
 @partial(jit, static_argnums=[6, 7, 8, 9, 10])
-def compute_grads(Q, K, V, mask, s_c, e_qkv, n_heads, d_head, dropout_rate, seq_len, batch_size, key):
+def compute_grads(Q, K, V, mask, s_c, dmu, n_heads, d_head, dropout_rate, seq_len, batch_size, key):
     """Compute gradients for Q, K, V using d_softmax and attention scores
     """
     B = batch_size
@@ -57,10 +57,9 @@ def compute_grads(Q, K, V, mask, s_c, e_qkv, n_heads, d_head, dropout_rate, seq_
     P, jvp_fn = d_softmax_vjp(s_c, tau=0.0)  # P: (B, H, S, S)
     
     # Reshape error
-    e_reshaped = e_qkv.reshape(B, S, H, D).transpose(0, 2, 1, 3)  # (B, H, S, D)
-    dV = jnp.einsum("bhkq,bhkd->bhqd", P, e_reshaped)  # (B, H, S, D)
-    da = jnp.einsum("bhkd,bhqd->bhqk", e_reshaped, V)  # (B, H, S, S)
-    
+    dmu_reshaped =dmu.reshape(B, S, H, D).transpose(0, 2, 1, 3)  # (B, H, S, D)
+    dV = jnp.einsum("bhkq,bhkd->bhqd", P, dmu_reshaped)  # (B, H, S, D)
+    da = jnp.einsum("bhkd,bhqd->bhqk", dmu_reshaped, V)  # (B, H, S, S)
     ds = jvp_fn(da)  
     ds = ds / jnp.sqrt(D)
     
@@ -93,7 +92,7 @@ class AttentionBlock(JaxComponent):
     | dq - gradient w.r.t. query inputs
     | dk - gradient w.r.t. key inputs
     | dv - gradient w.r.t. value inputs
-    | e_qkv - error signal for QKV inputs
+    | dmu - = gradient w.r.t. mu inputs
 
     Args:
         name: Component name
@@ -125,7 +124,7 @@ class AttentionBlock(JaxComponent):
         self.dq = Compartment(jnp.zeros((batch_size*seq_len, n_embed)))
         self.dk = Compartment(jnp.zeros((batch_size*seq_len, n_embed)))
         self.dv = Compartment(jnp.zeros((batch_size*seq_len, n_embed)))
-        self.e_qkv = Compartment(jnp.zeros((batch_size * seq_len, n_embed)))
+        self.dmu = Compartment(jnp.zeros((batch_size * seq_len, n_embed)))
         
         self.key = Compartment(random.PRNGKey(0))
         # Output compartment
@@ -142,7 +141,7 @@ class AttentionBlock(JaxComponent):
         inputs_v=self.inputs_v.get()
         mask=self.causal_mask
         # S=self.S.get()
-        e_qkv=self.e_qkv.get()
+        dmu=self.dmu.get()
         n_heads=self.n_heads
         d_head=self.d_head
         dropout_rate=self.dropout_rate
@@ -157,7 +156,7 @@ class AttentionBlock(JaxComponent):
             key                  
         )
         # self.S.set(S)
-        dq, dk, dv = compute_grads(q, k, v, mask, s_c, e_qkv, n_heads, d_head, dropout_rate, self.seq_len, self.batch_size, key)
+        dq, dk, dv = compute_grads(q, k, v, mask, s_c, dmu, n_heads, d_head, dropout_rate, self.seq_len, self.batch_size, key)
         self.dq.set(dq)
         self.dk.set(dk)
         self.dv.set(dv)
@@ -182,7 +181,7 @@ class AttentionBlock(JaxComponent):
         self.dq.set(zeros_2d)
         self.dk.set(zeros_2d)
         self.dv.set(zeros_2d)
-        self.e_qkv.set(zeros_2d)
+        self.dmu.set(zeros_2d)
 
     @classmethod
     def help(cls):
@@ -199,7 +198,7 @@ class AttentionBlock(JaxComponent):
                 {"dq": "Gradient w.r.t Q (batch_size*seq_len, n_embed)",
                 "dk": "Gradient w.r.t K (batch_size*seq_len, n_embed)",
                 "dv": "Gradient w.r.t V (batch_size*seq_len, n_embed)",
-                "e_qkv": "Error signal (batch_size*seq_len, n_embed)"},
+                "dmu": "Gradient w.r.t mu (batch_size*seq_len, n_embed)"},
             "outputs":
                 {"outputs": "Attention outputs (batch_size, seq_len, n_embed)"},
         }

@@ -99,13 +99,10 @@ class NGCTransformer:
             with Context("Circuit") as self.circuit:
             
                 
-                self.embedding.z_embed.zF >> self.block.ln1.inputs
+                self.embedding.z_embed.zF >> self.embedding.ln1.inputs
                 self.blocks.ln1.outputs >> self.embedding.W_embed.inputs   
                 self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs
-                self.reshape_3d_to_2d_embed.outputs >> self.embedding.embed_scaler.inputs 
-                
-                
-                self.embedding.embed_scaler.outputs >> self.embedding.e_embed.mu 
+                self.reshape_3d_to_2d_embed.outputs  >> self.embedding.e_embed.mu 
              
                 self.embedding.e_embed.target >> self.blocks[0].attention.z_qkv.z
                 

@@ -100,7 +100,7 @@ class NGCTransformer:
             
                 
                 self.embedding.z_embed.zF >> self.embedding.ln1.inputs
-                self.blocks.ln1.outputs >> self.embedding.W_embed.inputs   
+                self.embedding.ln1.outputs >> self.embedding.W_embed.inputs   
                 self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs
                 self.reshape_3d_to_2d_embed.outputs  >> self.embedding.e_embed.mu 
              

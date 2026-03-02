@@ -15,8 +15,8 @@ from layers.output import Output
 from utils.model_util import ReshapeComponent
 from projection.projection import Projection
 import numpy as np
-
-
+from ngclearn.utils.model_utils import drop_out, softmax, gelu, layer_normalize
+from ngcsimlib.operations import Summation, Product
 
 class NGCTransformer:
     """
@@ -99,7 +99,7 @@ class NGCTransformer:
             with Context("Circuit") as self.circuit:
             
                 
-                self.embedding.z_embed.zF >> self.embedding.W_embed.inputs   
+                layer_normalize(self.embedding.z_embed.zF) >> self.embedding.W_embed.inputs   
                 self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs
                 self.reshape_3d_to_2d_embed.outputs >> self.embedding.embed_scaler.inputs 
                 
@@ -127,8 +127,8 @@ class NGCTransformer:
                     block.reshape_2d_to_3d_v.outputs >> block.attention.attn_block.inputs_v
                     block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
 
-                    block.reshape_3d_to_2d.outputs >> block.attention.W_attn_out.inputs
-                    block.attention.W_attn_out.outputs >> block.scaler_attn.inputs
+                    layer_normalize(block.reshape_3d_to_2d.outputs) >> block.attention.W_attn_out.inputs
+                    block.attention.W_attn_out.outputs >> Summation(block.attention.W_attn_out.outputs,block.attention.z_qkv.zF)block.scaler_attn.inputs
                     block.scaler_attn.outputs >> block.attention.e_attn.mu
                     
                     
@@ -137,16 +137,16 @@ class NGCTransformer:
                     block.mlp.z_mlp.z >> block.attention.e_attn.target
 
                     
-                    block.mlp.z_mlp.zF >> block.mlp.W_mlp1.inputs
+                    layer_normalize(block.mlp.z_mlp.zF) >> block.mlp.W_mlp1.inputs
 
                     block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu
                     block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
 
 
-                    block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.inputs
+                    layer_normalize(block.mlp.z_mlp2.zF) >> block.mlp.W_mlp2.inputs
                     block.mlp.W_mlp2.outputs >>block.mlp_scaler.inputs
-                    block.mlp_scaler.outputs >> block.mlp.e_mlp.mu
-                    
+                    Summation(block.mlp_scaler.outputs, block.mlp.z_mlp.z) >> block.mlp.e_mlp.mu
+                   
                     if blocks == n_layers - 1:
                         self.output.z_out.z >> block.mlp.e_mlp.target
                     else:

@@ -139,8 +139,8 @@ class NGCTransformer:
                     block.mlp.z_mlp.z >> block.attention.e_attn.target
 
                     
-                    block.mlp.z_mlp.zF >> self.blocks.ln2.inputs
-                    self.blocks.ln2.outputs >> block.mlp.W_mlp1.inputs
+                    block.mlp.z_mlp.zF >> block.ln2.inputs
+                    block.ln2.outputs >> block.mlp.W_mlp1.inputs
                    
 
                     block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu

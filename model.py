@@ -128,7 +128,7 @@ class NGCTransformer:
                     block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
 
                     layer_normalize(block.reshape_3d_to_2d.outputs) >> block.attention.W_attn_out.inputs
-                    block.attention.W_attn_out.outputs >> Summation(block.attention.W_attn_out.outputs,block.attention.z_qkv.zF)block.scaler_attn.inputs
+                    block.attention.W_attn_out.outputs >> Summation(block.attention.W_attn_out.outputs,block.attention.z_qkv.zF)
                     block.scaler_attn.outputs >> block.attention.e_attn.mu
                     
                     

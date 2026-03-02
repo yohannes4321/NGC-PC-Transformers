@@ -559,18 +559,18 @@ class NGCTransformer:
         L1 = get_normalized_energy(self.embedding.e_embed)
         L4 = get_normalized_energy(self.output.e_out)
         # L1 = self.embedding.e_embed.L.get()
-        print("energy e_embed: ", L1)
+        # print("energy e_embed: ", L1)
         # L4 = self.output.e_out.L.get()
-        print("energy e_out: ", L4)
+        # print("energy e_out: ", L4)
 
         
         block_errors = 0.
         for i in range(self.n_layers):
                 block = self.blocks[i]
                 
-                print("energy e_attn block {}: ".format(i), get_normalized_energy(block.attention.e_attn))
-                print("energy e_mlp block {}: ".format(i), get_normalized_energy(block.mlp.e_mlp))
-                print("energy e_mlp1 block {}: ".format(i), get_normalized_energy(block.mlp.e_mlp1))
+                # print("energy e_attn block {}: ".format(i), get_normalized_energy(block.attention.e_attn))
+                # print("energy e_mlp block {}: ".format(i), get_normalized_energy(block.mlp.e_mlp))
+                # print("energy e_mlp1 block {}: ".format(i), get_normalized_energy(block.mlp.e_mlp1))
                 block_errors += get_normalized_energy(block.attention.e_attn) + get_normalized_energy(block.mlp.e_mlp) + get_normalized_energy(block.mlp.e_mlp1)
 
         EFE = L4 + block_errors + L1

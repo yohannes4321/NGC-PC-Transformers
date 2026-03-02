@@ -4,7 +4,7 @@ from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
 from utils.embed_utils import EmbeddingSynapse
 from jax import random
-from utils.unversalscaler import UniversalScaler
+from utils.rms_norm_util import RMSNorm
 
 class EMBEDDING:
     """
@@ -33,6 +33,4 @@ class EMBEDDING:
                                   batch_size=batch_size * seq_len) # shape=(seq_len, embed_dim, 1),
     
             
-        self.embed_scaler = UniversalScaler(f"embed_scale", n_embed=embed_dim, 
-    batch_size=batch_size, 
-    seq_len=seq_len)
+        self.ln1 = RMSNorm(f"embedding ln1", n_embed=embed_dim, batch_size= batch_size * seq_len)

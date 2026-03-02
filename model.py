@@ -125,7 +125,7 @@ class NGCTransformer:
                     block.reshape_2d_to_3d_v.outputs >> block.attention.attn_block.inputs_v
                     block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
 
-                    block.reshape_3d_to_2d.outputs >> self.blocks.ln1.inputs
+                    block.reshape_3d_to_2d.outputs >> self.block.ln1.inputs
                     self.blocks.ln1.outputs >> block.attention.W_attn_out.inputs
                    
                     block.attention.W_attn_out.outputs >> Summation(block.attention.W_attn_out.outputs,block.attention.z_qkv.zF)

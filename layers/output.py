@@ -2,7 +2,7 @@ from jax import numpy as jnp, random
 from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, HebbianSynapse, StaticSynapse
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
-from utils.unversalscaler import UniversalScaler
+from utils.rms_norm_util import RMSNorm
 
 class Output:
      """
@@ -34,6 +34,4 @@ class Output:
                                   batch_size=batch_size * seq_len) # shape=(seq_len, vocab_size, 1),
         self.E_out = StaticSynapse(
                     "E_out", shape=(vocab_size, n_embed), weight_init=dist.uniform(low=wlb, high=wub), key=subkeys[4])
-        self.output_scaler = UniversalScaler("output_scaler", n_embed=n_embed, 
-    batch_size=batch_size, 
-    seq_len=seq_len)
+        self.ln1 = RMSNorm(f"output ln1", n_embed=n_embed, batch_size= batch_size * seq_len)

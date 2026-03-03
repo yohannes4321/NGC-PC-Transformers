@@ -34,12 +34,13 @@ jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
+    # Slightly reduced upper bounds to avoid OOM, but not too small
+    n_heads = trial.suggest_int("n_heads", 2, 5)  # was 2-6
+    embed_mult = trial.suggest_int("embed_mult", 8, 12, step=4)  # was 8-16
     n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 16, 128, step=16)
-    seq_len = trial.suggest_int("seq_len", 32, 128, step=16)
+    batch_size = trial.suggest_int("batch_size", 16, 96, step=16)  # was 16-128
+    seq_len = trial.suggest_int("seq_len", 32, 96, step=16)  # was 32-128
 
     return {
         "n_layers": trial.suggest_int("n_layers", 2, 6),
@@ -143,7 +144,7 @@ def run_single_trial_efe(trial):
             if 'RESOURCE_EXHAUSTED' in str(e) or 'out of memory' in str(e).lower():
                 reason = f"OOM: {e}"
                 trial.set_user_attr("prune_reason", reason)
-                print(reason)
+                print(f"[OOM] Trial {trial.number} pruned due to OOM. Params: {params}\nError: {e}")
                 import gc
                 gc.collect()
                 try:
@@ -154,7 +155,7 @@ def run_single_trial_efe(trial):
             else:
                 reason = f"Failed to create model: {e}"
                 trial.set_user_attr("prune_reason", reason)
-                print(reason)
+                print(f"[FAIL] Trial {trial.number} pruned due to model creation failure. Params: {params}\nError: {e}")
                 raise optuna.TrialPruned()
 
         total_EFE = 0.0
@@ -176,7 +177,7 @@ def run_single_trial_efe(trial):
                 if 'RESOURCE_EXHAUSTED' in str(e) or 'out of memory' in str(e).lower():
                     reason = f"OOM during process: {e}"
                     trial.set_user_attr("prune_reason", reason)
-                    print(reason)
+                    print(f"[OOM] Trial {trial.number} pruned during process. Params: {params}\nError: {e}")
                     import gc
                     gc.collect()
                     try:
@@ -187,7 +188,7 @@ def run_single_trial_efe(trial):
                 else:
                     reason = f"model.process failed: {e}"
                     trial.set_user_attr("prune_reason", reason)
-                    print(reason)
+                    print(f"[FAIL] Trial {trial.number} pruned during process. Params: {params}\nError: {e}")
                     raise optuna.TrialPruned()
 
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:

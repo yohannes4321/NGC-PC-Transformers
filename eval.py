@@ -27,7 +27,7 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
         targets_onehot = jax.nn.one_hot(targets, vocab_size)  
         targets_flat = targets_onehot.reshape(-1, vocab_size)
 
-        yMu_inf, _, _ = model.process(
+        yMu, _ = model.process(
             obs=inputs,
             lab=targets_flat,
             adapt_synapses=False
@@ -36,7 +36,7 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
         # #  sync for correct timing & memory accounting
         # jax.block_until_ready(yMu_inf)
 
-        y_pred = yMu_inf.reshape(-1, vocab_size)
+        y_pred = yMu.reshape(-1, vocab_size)
 
         nll = measure_CatNLL(y_pred, targets_flat)
         total_nll += nll * targets_flat.shape[0]

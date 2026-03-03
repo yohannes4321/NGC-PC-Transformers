@@ -550,7 +550,7 @@ class NGCTransformer:
         
         
         ## get projected prediction (from the P-step)
-        y_mu_inf = self.projection.q_target_Ratecell.z.get()
+        # y_mu_inf = self.projection.q_target_Ratecell.z.get()
     
         EFE = 0. 
         y_mu = 0.
@@ -583,7 +583,7 @@ class NGCTransformer:
                 self.evolve.run(t=self.T,dt=1.)
                 
         ## skip E/M steps if just doing test-time inference
-        return y_mu_inf, y_mu, EFE 
+        return y_mu, EFE 
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()

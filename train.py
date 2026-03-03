@@ -48,13 +48,13 @@ def main():
             targets_onehot = jax.nn.one_hot(targets, vocab_size)   # (B, S, V)
             targets_flat = targets_onehot.reshape(-1, vocab_size)
             
-            yMu_inf, _, batch_efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            yMu_inf.block_until_ready() 
+            yMu, batch_efe = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+           
             
             step_duration = time.time() - step_start
 
             if batch_idx % 10 == 0:
-                y_pred = yMu_inf.reshape(-1, vocab_size)
+                y_pred = yMu.reshape(-1, vocab_size)
                 y_true = targets_flat
 
                 batch_nll = measure_CatNLL(y_pred, y_true)

@@ -171,7 +171,7 @@ def run_single_trial_efe(trial):
             targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
 
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _,  EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
             except RuntimeError as e:
                 if 'RESOURCE_EXHAUSTED' in str(e) or 'out of memory' in str(e).lower():
@@ -300,10 +300,10 @@ def run_phase2_trial(trial, best_params):
         targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
 
         try:
-            yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             EFE = abs(float(EFE))
             
-            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
+            y_pred = yMu.reshape(-1, cfg.vocab_size)
             batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
             batch_train_ce = batch_nll / targets_flat.shape[0]
             

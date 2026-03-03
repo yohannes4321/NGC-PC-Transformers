@@ -147,7 +147,6 @@ def run_single_trial_efe(trial):
                 import gc
                 gc.collect()
                 try:
-                    import jax
                     jax.clear_caches()
                 except Exception:
                     pass
@@ -181,7 +180,6 @@ def run_single_trial_efe(trial):
                     import gc
                     gc.collect()
                     try:
-                        import jax
                         jax.clear_caches()
                     except Exception:
                         pass
@@ -277,7 +275,6 @@ def run_phase2_trial(trial, best_params):
             import gc
             gc.collect()
             try:
-                import jax
                 jax.clear_caches()
             except Exception:
                 pass
@@ -322,7 +319,6 @@ def run_phase2_trial(trial, best_params):
                 import gc
                 gc.collect()
                 try:
-                    import jax
                     jax.clear_caches()
                 except Exception:
                     pass

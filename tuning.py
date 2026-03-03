@@ -165,11 +165,10 @@ def run_single_trial_efe(trial):
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
-            inputs = batch[0][1]
+            inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
             targets = batch[1][1]
-                inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
-                targets_onehot = jax.nn.one_hot(targets, cfg.vocab_size)   # (B, S, V)
-                targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
+            targets_onehot = jax.nn.one_hot(targets, cfg.vocab_size)   # (B, S, V)
+            targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
 
             try:
                 _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)

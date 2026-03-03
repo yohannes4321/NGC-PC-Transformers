@@ -569,18 +569,13 @@ class NGCTransformer:
             return raw_sum / (self.batch_size * self.seq_len * self.n_embed)
         L1 = get_normalized_energy(self.embedding.e_embed)
         L4 = get_normalized_energy(self.output.e_out)
-        # L1 = self.embedding.e_embed.L.get()
-        print("L1 embed: ", L1)
-        # L4 = self.output.e_out.L.get()
-        print("L4 output: ", L4)
+        
         
         block_errors = 0.
         for i in range(self.n_layers):
                 block = self.blocks[i]
                 block_errors += get_normalized_energy(block.attention.e_attn) + get_normalized_energy(block.mlp.e_mlp) + get_normalized_energy(block.mlp.e_mlp1)
-                print(f"Block {i} - e_attn_L: {block.attention.e_attn.L.get()}, e_mlp_L: {block.mlp.e_mlp.L.get()}, e_mlp1_L: {block.mlp.e_mlp1.L.get()}")
-                # block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
-
+                
         EFE = L4 + block_errors + L1
 
         if adapt_synapses == True:

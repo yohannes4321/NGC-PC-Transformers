@@ -208,7 +208,7 @@ def run_single_trial_efe(trial):
                 print(reason)
                 raise optuna.TrialPruned()
 
-            if batch_idx % 2 == 0:
+            if batch_idx % 10 == 0:
                 elapsed = time.time() - start_time
                 print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
@@ -342,7 +342,7 @@ def run_phase2_trial(trial, best_params):
             raise optuna.TrialPruned()
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
-        if batch_idx % 2 == 0:
+        if batch_idx % 10 == 0:
             elapsed = time.time() - start_time
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 

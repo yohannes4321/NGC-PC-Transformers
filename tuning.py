@@ -9,8 +9,10 @@ warnings.filterwarnings('ignore')
 logging.getLogger().setLevel(logging.ERROR)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 logging.getLogger('optuna').setLevel(logging.WARNING)
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3' 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+
+# Set CUDA memory allocator to async to reduce fragmentation and OOM
+os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
 
 
 import time
@@ -25,6 +27,9 @@ from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 
 EFE_STABILITY_THRESHOLD = 2e1
+
+# --- OPTIMIZATION: Enable TensorFloat-32 ---
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 
 def define_search_space(trial):
@@ -118,6 +123,10 @@ def run_single_trial_efe(trial):
     try:
         params = define_search_space(trial)
         print(f"[EFE Phase] Trial {trial.number} | params: {params}")
+        # Optionally, enable mixed precision (float16) globally if supported in your model/layers
+        # import jax
+        # jax.config.update('jax_enable_x64', False)
+        # jax.config.update('jax_default_dtype_bits', 16)
 
         cfg = type('Config', (), {})()
         for key, value in base_config.__dict__.items():
@@ -130,11 +139,24 @@ def run_single_trial_efe(trial):
 
         try:
             model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
-        except Exception as e:
-            reason = f"Failed to create model: {e}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
+        except RuntimeError as e:
+            if 'RESOURCE_EXHAUSTED' in str(e) or 'out of memory' in str(e).lower():
+                reason = f"OOM: {e}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                import gc
+                gc.collect()
+                try:
+                    import jax
+                    jax.clear_caches()
+                except Exception:
+                    pass
+                raise optuna.TrialPruned()
+            else:
+                reason = f"Failed to create model: {e}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
 
         total_EFE = 0.0
         batches_processed = 0
@@ -145,16 +167,31 @@ def run_single_trial_efe(trial):
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
-            targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
+                inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
+                targets_onehot = jax.nn.one_hot(targets, cfg.vocab_size)   # (B, S, V)
+                targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
 
             try:
                 _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
-            except Exception as e:
-                reason = f"model.process failed: {e}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+            except RuntimeError as e:
+                if 'RESOURCE_EXHAUSTED' in str(e) or 'out of memory' in str(e).lower():
+                    reason = f"OOM during process: {e}"
+                    trial.set_user_attr("prune_reason", reason)
+                    print(reason)
+                    import gc
+                    gc.collect()
+                    try:
+                        import jax
+                        jax.clear_caches()
+                    except Exception:
+                        pass
+                    raise optuna.TrialPruned()
+                else:
+                    reason = f"model.process failed: {e}"
+                    trial.set_user_attr("prune_reason", reason)
+                    print(reason)
+                    raise optuna.TrialPruned()
 
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
                 reason = f"Unstable EFE: {EFE}"
@@ -233,11 +270,24 @@ def run_phase2_trial(trial, best_params):
 
     try:
         model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
-    except Exception as e:
-        reason = f"Failed to create model: {e}"
-        trial.set_user_attr("prune_reason", reason)
-        print(reason)
-        raise optuna.TrialPruned()
+    except RuntimeError as e:
+        if 'RESOURCE_EXHAUSTED' in str(e) or 'out of memory' in str(e).lower():
+            reason = f"OOM: {e}"
+            trial.set_user_attr("prune_reason", reason)
+            print(reason)
+            import gc
+            gc.collect()
+            try:
+                import jax
+                jax.clear_caches()
+            except Exception:
+                pass
+            raise optuna.TrialPruned()
+        else:
+            reason = f"Failed to create model: {e}"
+            trial.set_user_attr("prune_reason", reason)
+            print(reason)
+            raise optuna.TrialPruned()
 
     total_train_ce = 0.0  
     batches_processed = 0
@@ -249,7 +299,9 @@ def run_phase2_trial(trial, best_params):
             break
         inputs = batch[0][1]
         targets = batch[1][1]
-        targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
+            inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
+            targets_onehot = jax.nn.one_hot(targets, cfg.vocab_size)   # (B, S, V)
+            targets_flat = targets_onehot.reshape(-1, cfg.vocab_size)
 
         try:
             yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
@@ -264,11 +316,24 @@ def run_phase2_trial(trial, best_params):
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
-        except Exception as e:
-            reason = f"model.process failed during CE: {e}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
+        except RuntimeError as e:
+            if 'RESOURCE_EXHAUSTED' in str(e) or 'out of memory' in str(e).lower():
+                reason = f"OOM during process: {e}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                import gc
+                gc.collect()
+                try:
+                    import jax
+                    jax.clear_caches()
+                except Exception:
+                    pass
+                raise optuna.TrialPruned()
+            else:
+                reason = f"model.process failed during CE: {e}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
 
         total_train_ce += float(batch_train_ce)
         batches_processed += 1

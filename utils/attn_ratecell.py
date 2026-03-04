@@ -307,9 +307,4 @@ class AttnRateCell(JaxComponent): ## Rate-coded/real-valued cell
                 "hyperparameters": hyperparams}
         return info
 
-if __name__ == '__main__':
-    from ngcsimlib.context import Context
-    with Context("Bar") as bar:
-        X = MIRateCell("X", 9, 0.03)
-    print(X)
 

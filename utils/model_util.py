@@ -70,3 +70,41 @@ class ReshapeComponent(JaxComponent):
     def reset(self):
         self.inputs.set(jnp.zeros(self.input_shape))
         self.outputs.set(jnp.zeros(self.output_shape))
+
+class Outgrad(JaxComponent):
+    """Compute the Jacobian matrix multiplication for the logits gradients
+    This computes: dL/dmu = J_softmax(mu) @ dL/dP
+    where mu are the logits (pre-softmax)
+    """
+    
+    def __init__(self, name, batch_size, seq_len, vocab_size, **kwargs):
+        super().__init__(name, **kwargs)
+
+        self.vocab_size = vocab_size
+        self.batch_size = batch_size
+        self.seq_len = seq_len
+        
+        self.mu = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
+        self.dmu = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
+        self.dmu_ = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
+   
+    @compilable   
+    def advance_state(self):
+        """Compute the output gradients: dL/dmu = J_softmax(mu) @ dL/dP"""
+        
+        mu = self.mu.get()        
+        dmu = self.dmu.get()      
+        
+        P, jvp_fn = d_softmax_vjp(mu, tau=0.0)
+        
+        dmu_out = jvp_fn(dmu)
+        
+        self.dmu_.set(dmu_out)
+        
+    @compilable
+    def reset(self):
+        """Reset compartments to zeros"""
+        zeros = jnp.zeros((self.batch_size * self.seq_len, self.vocab_size))
+        self.mu.set(zeros)
+        self.dmu.set(zeros)
+        self.dmu_.set(zeros)

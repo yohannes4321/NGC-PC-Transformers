@@ -13,7 +13,7 @@ from utils.attention_utils import AttentionBlock
 from utils.embed_utils import EmbeddingSynapse
 from layers.mlp import MLP
 from layers.output import Output
-from utils.model_util import ReshapeComponent
+from utils.model_util import ReshapeComponent, Outgrad
 from projection.projection import Projection
 import numpy as np
 
@@ -90,7 +90,7 @@ class NGCTransformer:
             self.reshape_2d_to_3d_embed= ReshapeComponent("reshape_2d_to_3d_embed",
                                             input_shape=(self.batch_size * self.seq_len, self.n_embed),
                                             output_shape=(self.batch_size, self.seq_len, self.n_embed))
-                
+            self.Outgrad = Outgrad("Outgrad", batch_size=self.batch_size, seq_len=self.seq_len, vocab_size=self.vocab_size)    
                 
         if loadDir is not None:
    
@@ -203,11 +203,13 @@ class NGCTransformer:
                         
                 self.output.z_out.zF >> self.output.W_out.inputs
                 self.output.W_out.outputs >> self.z_actfx.j
+                self.output.W_out.outputs >> self.Outgrad.mu
 
                 self.z_actfx.zF >> self.output.e_out.mu
                 self.z_target.z >> self.output.e_out.target
 
-                self.output.e_out.dmu >> self.output.E_out.inputs
+                self.output.e_out.dmu >> self.Outgrad.dmu
+                self.Outgrad.dmu_ >> self.output.E_out.inputs
 
 
                 self.output.E_out.outputs >> self.output.z_out.j
@@ -338,6 +340,7 @@ class NGCTransformer:
                 advance_process >> self.z_actfx.advance_state
                 advance_process >> self.z_target.advance_state
                 advance_process >> self.output.e_out.advance_state
+                advance_process >> self.Outgrad.advance_state
 
                 reset_process >> self.projection.q_embed_Ratecell.reset
                 reset_process >> self.projection.q_out_Ratecell.reset
@@ -349,6 +352,7 @@ class NGCTransformer:
                 reset_process >> self.z_actfx.reset
                 reset_process >> self.embedding.e_embed.reset
                 reset_process >> self.output.e_out.reset
+                reset_process >> self.output.W_out.reset
                 reset_process >> self.reshape_3d_to_2d_embed.reset
                 reset_process >> self.reshape_2d_to_3d_embed.reset
 

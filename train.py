@@ -7,6 +7,9 @@ from config import Config as config
 from eval import eval_model
 import time
 
+# Use TF32 matmul precision on supported hardware for better throughput.
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
+
 def main():
     seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.n_iter, config.optim_type
     pos_learnable= config.pos_learnable
@@ -31,7 +34,7 @@ def main():
         total_nll, total_tokens = 0., 0
         
         for batch in data_loader:
-            inputs = batch[0][1]
+            inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
             targets = batch[1][1]
             
             targets_flat = jax.nn.one_hot(targets.flatten(), vocab_size)
@@ -55,7 +58,7 @@ def main():
         print(f"\n iter {i}:")
         
         for batch_idx, batch in enumerate(train_loader):
-            inputs = batch[0][1]
+            inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
             targets = batch[1][1]
             
             #Convert targets to one-hot and flatten

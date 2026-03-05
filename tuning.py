@@ -25,6 +25,9 @@ from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
+# Use TF32 matmul precision on supported hardware for better throughput.
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
+
 EFE_STABILITY_THRESHOLD = 2e1
 
 
@@ -144,7 +147,7 @@ def run_single_trial_efe(trial):
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
-            inputs = batch[0][1]
+            inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
             targets = batch[1][1]
             targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
 
@@ -248,7 +251,7 @@ def run_phase2_trial(trial, best_params):
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
             break
-        inputs = batch[0][1]
+        inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
         targets = batch[1][1]
         targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
 

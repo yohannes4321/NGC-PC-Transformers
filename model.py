@@ -554,7 +554,7 @@ class NGCTransformer:
         
         
         ## get projected prediction (from the P-step)
-        y_mu_inf = self.projection.q_target_Ratecell.z.get()
+        # y_mu_inf = self.projection.q_target_Ratecell.z.get()
     
         EFE = 0. 
         y_mu = 0.
@@ -567,14 +567,18 @@ class NGCTransformer:
             self.advance.run(t=ts,dt=1.)
            
         y_mu = self.output.W_out.outputs.get() 
+        def get_normalized_energy(component):
+            raw_sum = component.L.get()
+            # Divide by total elements in that specific tensor
+            return raw_sum / (self.batch_size * self.seq_len * self.n_embed)
 
-        L1 = self.embedding.e_embed.L.get()
-        L4 = self.output.e_out.L.get()
+        L1 = get_normalized_energy(self.embedding.e_embed)
+        L4 = get_normalized_energy(self.output.e_out)
         
         block_errors = 0.
         for i in range(self.n_layers):
                 block = self.blocks[i]
-                block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+                block_errors += get_normalized_energy(block.attention.e_attn) + get_normalized_energy(block.mlp.e_mlp) + get_normalized_energy(block.mlp.e_mlp1)
 
         EFE = L4 + block_errors + L1
 
@@ -583,7 +587,7 @@ class NGCTransformer:
                 self.evolve.run(t=self.T,dt=1.)
                 
         ## skip E/M steps if just doing test-time inference
-        return y_mu_inf, y_mu, EFE 
+        return y_mu, EFE 
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()

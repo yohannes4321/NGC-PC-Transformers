@@ -487,89 +487,94 @@ class NGCTransformer:
           
 
     def process(self, obs, lab, adapt_synapses=True):
-        
-        self.reset.run()
-        self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
-        if self.embedding.W_embed.pos_learnable:
-           self.projection.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.get())
-        for i in range(self.n_layers):
-            block_proj= self.projection.blocks[i]
-            block= self.blocks[i] 
-            block_proj.Q_q.weights.set(block.attention.W_q.weights.get())
-            block_proj.Q_q.biases.set(block.attention.W_q.biases.get())
-            block_proj.Q_k.weights.set(block.attention.W_k.weights.get())
-            block_proj.Q_k.biases.set(block.attention.W_k.biases.get())
-            block_proj.Q_v.weights.set(block.attention.W_v.weights.get())
-            block_proj.Q_v.biases.set(block.attention.W_v.biases.get())
-            block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get())
-            block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
-            block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
-            block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
-            block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get())
-            block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get())
-            block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get())
-            block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get())
-            block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get())
-
-        self.projection.Q_out.weights.set(self.output.W_out.weights.get())
-        self.projection.Q_out.biases.set(self.output.W_out.biases.get())
-        self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
-        
        
+
+        # --- Step 1: Reset and copy weights ---
+        self.reset.run()
+
+        # Embed layer (BF16)
+        self.projection.Q_embed.word_weights.set(
+            self.embedding.W_embed.word_weights.get().astype(jnp.bfloat16)
+        )
+        if self.embedding.W_embed.pos_learnable:
+            self.projection.Q_embed.pos_weights.set(
+                self.embedding.W_embed.pos_weights.get().astype(jnp.bfloat16)
+            )
+
+        # Project layers (BF16)
+        for i in range(self.n_layers):
+            block_proj = self.projection.blocks[i]
+            block = self.blocks[i]
+
+            # Attention weights
+            block_proj.Q_q.weights.set(block.attention.W_q.weights.get().astype(jnp.bfloat16))
+            block_proj.Q_q.biases.set(block.attention.W_q.biases.get().astype(jnp.bfloat16))
+            block_proj.Q_k.weights.set(block.attention.W_k.weights.get().astype(jnp.bfloat16))
+            block_proj.Q_k.biases.set(block.attention.W_k.biases.get().astype(jnp.bfloat16))
+            block_proj.Q_v.weights.set(block.attention.W_v.weights.get().astype(jnp.bfloat16))
+            block_proj.Q_v.biases.set(block.attention.W_v.biases.get().astype(jnp.bfloat16))
+            block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get().astype(jnp.bfloat16))
+            block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get().astype(jnp.bfloat16))
+
+            # Attention block inputs
+            block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get().astype(jnp.bfloat16))
+            block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get().astype(jnp.bfloat16))
+            block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get().astype(jnp.bfloat16))
+
+            # MLP weights
+            block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get().astype(jnp.bfloat16))
+            block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get().astype(jnp.bfloat16))
+            block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get().astype(jnp.bfloat16))
+            block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get().astype(jnp.bfloat16))
+
+        # Output projection
+        self.projection.Q_out.weights.set(self.output.W_out.weights.get().astype(jnp.bfloat16))
+        self.projection.Q_out.biases.set(self.output.W_out.biases.get().astype(jnp.bfloat16))
+        self.projection.q_target_Ratecell.j_td.set(
+            jnp.zeros((self.batch_size * self.seq_len, self.vocab_size), dtype=jnp.bfloat16)
+        )
+
+        # --- Step 2: Clamp input / targets ---
         self.clamp_input(obs)
         self.clamp_infer_target(lab)
-        
+
+        # --- Step 3: Run projection once ---
         self.project.run(t=0., dt=1.)
 
-
-        # for i in range(self.n_layers):
-        #     block_proj= self.projection.blocks[i]   
-        #     b= self.blocks[i]
-        #     b.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
-        #     b.mlp.z_mlp.z.set(block_proj.q_mlp_Ratecell.z.get())
-        #     b.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
-        #     b.attention.E_attn.weights.set(jnp.transpose(b.attention.W_attn_out.weights.get()))
-        #     b.mlp.E_mlp.weights.set(jnp.transpose(b.mlp.W_mlp2.weights.get()))  
-        #     b.mlp.E_mlp1.weights.set(jnp.transpose(b.mlp.W_mlp1.weights.get()))
-       
-        # self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
-        # self.output.z_out.z.set(self.projection.q_out_Ratecell.z.get())
-        # self.output.e_out.dmu.set(self.projection.eq_target.dmu.get())
-        # self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.get())
-        
-        
-        ## get projected prediction (from the P-step)
-        y_mu_inf = self.projection.q_target_Ratecell.z.get()
-    
-        EFE = 0. 
-        y_mu = 0.
-        #if adapt_synapses:
-        for ts in range(0, self.T):
-        
+        # --- Step 4: JIT timestep loop ---
+        def timestep_loop(ts, _):
             self.clamp_input(obs)
             self.clamp_target(lab)
-             
-            self.advance.run(t=ts,dt=1.)
-           
-        y_mu = self.output.W_out.outputs.get() 
+            self.advance.run(t=ts, dt=1.)
+            return None
 
-        L1 = self.embedding.e_embed.L.get()
-        L4 = self.output.e_out.L.get()
-        
-        block_errors = 0.
-        for i in range(self.n_layers):
-                block = self.blocks[i]
-                block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+        # JIT the timestep loop using lax.fori_loop
+        jax.lax.fori_loop(0, self.T, timestep_loop, None)
+
+        # --- Step 5: Collect outputs ---
+        y_mu_inf = self.projection.q_target_Ratecell.z.get().astype(jnp.float32)
+        y_mu = self.output.W_out.outputs.get().astype(jnp.float32)
+
+        # Compute EFE
+        L1 = self.embedding.e_embed.L.get().astype(jnp.float32)
+        L4 = self.output.e_out.L.get().astype(jnp.float32)
+
+        block_errors = sum(
+            block.attention.e_attn.L.get().astype(jnp.float32)
+            + block.mlp.e_mlp.L.get().astype(jnp.float32)
+            + block.mlp.e_mlp1.L.get().astype(jnp.float32)
+            for block in self.blocks
+        )
 
         EFE = L4 + block_errors + L1
 
-        if adapt_synapses == True:
-                self.embedding_evolve.run()
-                self.evolve.run(t=self.T,dt=1.)
-                
-        ## skip E/M steps if just doing test-time inference
-        return y_mu_inf, y_mu, EFE 
+        # --- Step 6: Optional synapse adaptation ---
+        if adapt_synapses:
+            self.embedding_evolve.run()
+            self.evolve.run(t=self.T, dt=1.)
+
+        return y_mu_inf, y_mu, EFE
+
 
     def get_latents(self):
-        return self.q_out_Ratecell.z.get()
-  
+        return self.q_out_Ratecell.z.get().astype(jnp.float32)

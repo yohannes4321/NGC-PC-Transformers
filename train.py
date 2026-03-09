@@ -1,3 +1,5 @@
+import gc
+import jax
 from jax import numpy as jnp, random
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
@@ -5,6 +7,9 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 from eval import eval_model
 import time
+
+# Enable TensorFloat-32 matmul precision where supported.
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 def main():
     seq_len, batch_size, n_embed, vocab_size, n_layers, n_heads, n_iter, optim_type = config.seq_len, config.batch_size, config.n_embed, config.vocab_size, config.n_layers, config.n_heads, config.n_iter, config.optim_type
@@ -30,10 +35,10 @@ def main():
         total_nll, total_tokens = 0., 0
         
         for batch in data_loader:
-            inputs = batch[0][1]
-            targets = batch[1][1]
-            
-            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
+            inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
+            targets = jax.device_put(batch[1][1])
+
+            targets_onehot = jax.nn.one_hot(targets, vocab_size)  # (B, S, V)
             targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
 
             yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=False)
@@ -43,6 +48,9 @@ def main():
             
             total_nll += measure_CatNLL(y_pred, y_true) * y_true.shape[0]
             total_tokens += y_true.shape[0]
+
+            del inputs, targets, targets_flat, targets_onehot, yMu_inf, y_mu, _EFE, y_pred, y_true
+            gc.collect()
         
         ce_loss = total_nll / total_tokens
         return ce_loss, jnp.exp(ce_loss)
@@ -56,11 +64,11 @@ def main():
         print(f"\n iter {i}:")
         
         for batch_idx, batch in enumerate(train_loader):
-            inputs = batch[0][1]
-            targets = batch[1][1]
+            inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
+            targets = jax.device_put(batch[1][1])
             
             #Convert targets to one-hot and flatten
-            targets_onehot = jnp.eye(vocab_size)[targets]  # (B, S, V)
+            targets_onehot = jax.nn.one_hot(targets, vocab_size)  # (B, S, V)
             targets_flat = targets_onehot.reshape(-1, vocab_size)  # (B*S, V)
 
             
@@ -70,13 +78,18 @@ def main():
 
             if batch_idx % 10 == 0:
                 y_pred = y_mu.reshape(-1, vocab_size)
-                y_true = jnp.eye(vocab_size)[targets.flatten()]
+                y_true = jax.nn.one_hot(targets.flatten(), vocab_size)
                 
                 batch_nll = measure_CatNLL(y_pred, y_true)
                 batch_ce_loss = batch_nll.mean()  
                 batch_ppl = jnp.exp(batch_ce_loss)
                 
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+
+                del y_pred, y_true, batch_nll, batch_ce_loss, batch_ppl
+
+            del inputs, targets, targets_flat, targets_onehot, yMu_inf, y_mu, _EFE
+            gc.collect()
         
         avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
         

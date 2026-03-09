@@ -1,5 +1,7 @@
 
+import gc
 import os
+import jax
 import jax.numpy as jnp
 from model import NGCTransformer
 from ngclearn.utils.metric_utils import measure_CatNLL
@@ -7,6 +9,9 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 import jax.random as random
 import time
+
+# Enable TensorFloat-32 matmul precision where supported.
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     """
@@ -19,11 +24,11 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     batch_idx = 0
 
     for batch in data_loader:
-        inputs = batch[0][1]         
-        targets = batch[1][1]        
+        inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
+        targets = jax.device_put(batch[1][1])
 
        
-        targets_onehot = jnp.eye(vocab_size)[targets]             
+        targets_onehot = jax.nn.one_hot(targets, vocab_size)
         targets_flat = targets_onehot.reshape(-1, vocab_size)      
 
         yMu_inf, y_mu, _ = model.process(obs=inputs,
@@ -37,14 +42,19 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
         
         if batch_idx % 10 == 0:
             y_pred = yMu_inf.reshape(-1, vocab_size)
-            y_true = jnp.eye(vocab_size)[targets.flatten()]
+            y_true = jax.nn.one_hot(targets.flatten(), vocab_size)
             
             batch_nll = measure_CatNLL(y_pred, y_true)
             batch_ce_loss = batch_nll.mean()  
             batch_ppl = jnp.exp(batch_ce_loss)
             print(f" Eval Batch {batch_idx}: | CE = {batch_ce_loss:.4f} | PPL = {batch_ppl:.4f}")
 
+            del y_true, batch_nll, batch_ce_loss, batch_ppl
+
         batch_idx += 1
+
+        del inputs, targets, targets_flat, targets_onehot, yMu_inf, y_mu, y_pred
+        gc.collect()
 
     ce = total_nll / total_tokens
     ppl = jnp.exp(ce)

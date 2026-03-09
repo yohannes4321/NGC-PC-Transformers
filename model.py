@@ -549,19 +549,19 @@ class NGCTransformer:
             self.advance.run(t=ts, dt=1.)
 
         # --- Step 5: Collect outputs ---
-        y_mu_inf = self.projection.q_target_Ratecell.z.get().astype(jnp.float32)
-        y_mu = self.output.W_out.outputs.get().astype(jnp.float32)
+        to_f32 = lambda x: jnp.asarray(x, dtype=jnp.float32)
+        y_mu_inf = to_f32(self.projection.q_target_Ratecell.z.get())
+        y_mu = to_f32(self.output.W_out.outputs.get())
 
         # Compute EFE
-        L1 = self.embedding.e_embed.L.get().astype(jnp.float32)
-        L4 = self.output.e_out.L.get().astype(jnp.float32)
+        L1 = to_f32(self.embedding.e_embed.L.get())
+        L4 = to_f32(self.output.e_out.L.get())
 
-        block_errors = sum(
-            block.attention.e_attn.L.get().astype(jnp.float32)
-            + block.mlp.e_mlp.L.get().astype(jnp.float32)
-            + block.mlp.e_mlp1.L.get().astype(jnp.float32)
-            for block in self.blocks
-        )
+        block_errors = jnp.asarray(0.0, dtype=jnp.float32)
+        for block in self.blocks:
+            block_errors = block_errors + to_f32(block.attention.e_attn.L.get())
+            block_errors = block_errors + to_f32(block.mlp.e_mlp.L.get())
+            block_errors = block_errors + to_f32(block.mlp.e_mlp1.L.get())
 
         EFE = L4 + block_errors + L1
 
@@ -574,4 +574,4 @@ class NGCTransformer:
 
 
     def get_latents(self):
-        return self.q_out_Ratecell.z.get().astype(jnp.float32)
+        return jnp.asarray(self.q_out_Ratecell.z.get(), dtype=jnp.float32)

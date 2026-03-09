@@ -541,15 +541,12 @@ class NGCTransformer:
         # --- Step 3: Run projection once ---
         self.project.run(t=0., dt=1.)
 
-        # --- Step 4: JIT timestep loop ---
-        def timestep_loop(ts, _):
+        # --- Step 4: Iterative inference loop ---
+        # ngclearn process execution is stateful; do not wrap this in jax.lax loops.
+        for ts in range(self.T):
             self.clamp_input(obs)
             self.clamp_target(lab)
             self.advance.run(t=ts, dt=1.)
-            return None
-
-        # JIT the timestep loop using lax.fori_loop
-        jax.lax.fori_loop(0, self.T, timestep_loop, None)
 
         # --- Step 5: Collect outputs ---
         y_mu_inf = self.projection.q_target_Ratecell.z.get().astype(jnp.float32)

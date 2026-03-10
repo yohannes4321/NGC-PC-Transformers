@@ -181,14 +181,13 @@ class NGCTransformer:
 
 
                     block.attention.z_qkv.zF >> block.attention.W_q.pre
-                    block.attention.attn_block.dq >> block.attention.W_q.post
+                    block.attention.attn_block.dtarget_q >> block.attention.W_q.post
 
                     block.attention.z_qkv.zF >> block.attention.W_k.pre
-                    block.attention.attn_block.dk >> block.attention.W_k.post
+                    block.attention.attn_block.dtarget_k >> block.attention.W_k.post
 
                     block.attention.z_qkv.zF >> block.attention.W_v.pre
-                    block.attention.attn_block.dv >> block.attention.W_v.post
-
+                    block.attention.attn_block.dtarget_v >> block.attention.W_v.post
 
                     block.attention.z_attn.zF >> block.attention.W_attn_out.pre
                     block.attention.e_attn.dmu >> block.attention.W_attn_out.post
@@ -221,7 +220,7 @@ class NGCTransformer:
 
 
                 self.output.z_out.zF >> self.output.W_out.pre
-                self.output.e_out.dmu >> self.output.W_out.post
+                self.Outgrad.dmu_ >> self.output.W_out.post
 
                         
                         
@@ -337,6 +336,7 @@ class NGCTransformer:
                 advance_process >> self.output.E_out.advance_state
                 advance_process >> self.output.z_out.advance_state
                 advance_process >> self.output.W_out.advance_state
+                advance_process >> self.Outgrad.advance_state
                 advance_process >> self.z_actfx.advance_state
                 advance_process >> self.z_target.advance_state
                 advance_process >> self.output.e_out.advance_state
@@ -355,6 +355,7 @@ class NGCTransformer:
                 reset_process >> self.output.W_out.reset
                 reset_process >> self.reshape_3d_to_2d_embed.reset
                 reset_process >> self.reshape_2d_to_3d_embed.reset
+                reset_process >> self.Outgrad.reset
 
                 evolve_process >> self.output.W_out.evolve
                 project_process >> self.projection.q_embed_Ratecell.advance_state

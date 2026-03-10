@@ -1,5 +1,6 @@
 #import
 import jax
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 from ngclearn import Context, MethodProcess
 from ngclearn.utils.io_utils import makedir
 from jax import numpy as jnp, random, jit
@@ -56,6 +57,7 @@ class NGCTransformer:
         self.seq_len= seq_len
         self.vocab_size= vocab_size
         self.n_embed= n_embed
+        self.compute_dtype = jnp.bfloat16
         
         if exp_dir is not None:
             makedir(exp_dir)
@@ -401,11 +403,11 @@ class NGCTransformer:
         
     
     def clamp_target(self,y):
-        self.z_target.j.set(y)
+        self.z_target.j.set(y.astype(self.compute_dtype))
 
     
     def clamp_infer_target(self,y):
-        self.projection.eq_target.target.set(y)
+        self.projection.eq_target.target.set(y.astype(self.compute_dtype))
         
     def save_to_disk(self, params_only=False):
         """
@@ -501,7 +503,7 @@ class NGCTransformer:
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
           
 
-    def process(self, obs, lab, adapt_synapses=True):
+    def process(self, obs, lab, adapt_synapses=True, use_normalized_efe=False, return_raw_efe=False):
         
         self.reset.run()
         # self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
@@ -568,21 +570,37 @@ class NGCTransformer:
            
         y_mu = self.output.W_out.outputs.get() 
 
+        def get_normalized_energy(component):
+            raw_sum = component.L.get()
+            return raw_sum / (self.batch_size * self.seq_len * self.n_embed)
+
         L1 = self.embedding.e_embed.L.get()
         L4 = self.output.e_out.L.get()
+        L1_norm = get_normalized_energy(self.embedding.e_embed)
+        L4_norm = get_normalized_energy(self.output.e_out)
         
         block_errors = 0.
+        block_errors_norm = 0.
         for i in range(self.n_layers):
-                block = self.blocks[i]
-                block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+            block = self.blocks[i]
+            block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+            block_errors_norm += (
+                get_normalized_energy(block.attention.e_attn)
+                + get_normalized_energy(block.mlp.e_mlp)
+                + get_normalized_energy(block.mlp.e_mlp1)
+            )
 
-        EFE = L4 + block_errors + L1
+        raw_EFE = L4 + block_errors + L1
+        normalized_EFE = L4_norm + block_errors_norm + L1_norm
+        EFE = normalized_EFE if use_normalized_efe else raw_EFE
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()
                 self.evolve.run(t=self.T,dt=1.)
                 
         ## skip E/M steps if just doing test-time inference
+        if return_raw_efe:
+            return y_mu_inf, y_mu, EFE, raw_EFE
         return y_mu_inf, y_mu, EFE 
 
     def get_latents(self):

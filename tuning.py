@@ -27,6 +27,33 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 EFE_STABILITY_THRESHOLD = 2e1
 
 
+def _is_oom_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "resource_exhausted" in msg
+        or "out of memory" in msg
+        or "oom" in msg
+    )
+
+
+def _to_one_hot_targets(targets, vocab_size):
+    # Avoid building a full [vocab_size, vocab_size] matrix via jnp.eye.
+    return jax.nn.one_hot(targets.reshape(-1), vocab_size, dtype=jnp.float32)
+
+
+def _extract_process_outputs(process_result):
+    """Normalize model.process outputs across return signatures."""
+    if isinstance(process_result, (tuple, list)):
+        if len(process_result) == 2:
+            y_mu, efe = process_result
+            return y_mu, efe
+        if len(process_result) >= 3:
+            return process_result[0], process_result[2]
+    raise ValueError(
+        f"Unexpected model.process return format: {type(process_result)}"
+    )
+
+
 def define_search_space(trial):
     # number of heads
     n_heads = trial.suggest_int("n_heads", 2, 12)
@@ -46,7 +73,7 @@ def define_search_space(trial):
     # larger sequence length
     seq_len = trial.suggest_categorical(
         "seq_len",
-        [32, 64, 96, 128]
+        [16, 32, 48, 64]
     )
 
     return {
@@ -173,10 +200,18 @@ def run_single_trial_efe(trial):
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
-            targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
+            try:
+                targets_flat = _to_one_hot_targets(targets, cfg.vocab_size)
+            except Exception as e:
+                reason = f"target encoding failed: {e}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
 
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _, EFE = _extract_process_outputs(
+                    model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                )
                 EFE = abs(float(EFE))
             except Exception as e:
                 reason = f"model.process failed: {e}"
@@ -223,6 +258,15 @@ def run_single_trial_efe(trial):
 
         print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
         return float(final_efe)
+    except optuna.TrialPruned:
+        raise
+    except Exception as e:
+        reason = f"Trial failed unexpectedly: {e}"
+        trial.set_user_attr("prune_reason", reason)
+        print(reason)
+        if _is_oom_error(e):
+            raise optuna.TrialPruned()
+        raise
     finally:
         
         # Delete Python objects
@@ -250,86 +294,114 @@ def run_phase2_trial(trial, best_params):
     print(f"[CE Phase - Fixed] Architecture: n_layers={params['n_layers']}, n_heads={params['n_heads']}, "
           f"tau_m={params['tau_m']}, n_iter={params['n_iter']}")
 
-    cfg = type('Config', (), {})()
-    for key, value in base_config.__dict__.items():
-        if not key.startswith('_'):
-            setattr(cfg, key, value)
-    for key, value in params.items():
-        setattr(cfg, key, value)
-    if not hasattr(cfg, 'vocab_size'):
-        cfg.vocab_size = base_config.vocab_size
-
     try:
-        model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
-    except Exception as e:
-        reason = f"Failed to create model: {e}"
-        trial.set_user_attr("prune_reason", reason)
-        print(reason)
-        raise optuna.TrialPruned()
-
-    total_train_ce = 0.0  
-    batches_processed = 0
-    start_time = time.time()
-    max_batches = 20
-    best_train_ce = float('inf')
-    for batch_idx, batch in enumerate(train_loader):
-        if batch_idx >= max_batches:
-            break
-        inputs = batch[0][1]
-        targets = batch[1][1]
-        targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
+        cfg = type('Config', (), {})()
+        for key, value in base_config.__dict__.items():
+            if not key.startswith('_'):
+                setattr(cfg, key, value)
+        for key, value in params.items():
+            setattr(cfg, key, value)
+        if not hasattr(cfg, 'vocab_size'):
+            cfg.vocab_size = base_config.vocab_size
 
         try:
-            yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            EFE = abs(float(EFE))
-            
-            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
-            batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
-            batch_train_ce = batch_nll / targets_flat.shape[0]
-            
-            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-                reason = f"Unstable EFE during CE: {EFE}"
+            model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
+        except Exception as e:
+            reason = f"Failed to create model: {e}"
+            trial.set_user_attr("prune_reason", reason)
+            print(reason)
+            raise optuna.TrialPruned()
+
+        total_train_ce = 0.0
+        batches_processed = 0
+        start_time = time.time()
+        max_batches = 20
+        best_train_ce = float('inf')
+
+        for batch_idx, batch in enumerate(train_loader):
+            if batch_idx >= max_batches:
+                break
+            inputs = batch[0][1]
+            targets = batch[1][1]
+
+            try:
+                targets_flat = _to_one_hot_targets(targets, cfg.vocab_size)
+                yMu_inf, EFE = _extract_process_outputs(
+                    model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                )
+                EFE = abs(float(EFE))
+
+                y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
+                batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
+                batch_train_ce = batch_nll / targets_flat.shape[0]
+
+                if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
+                    reason = f"Unstable EFE during CE: {EFE}"
+                    trial.set_user_attr("prune_reason", reason)
+                    print(reason)
+                    raise optuna.TrialPruned()
+            except optuna.TrialPruned:
+                raise
+            except Exception as e:
+                reason = f"model.process failed during CE: {e}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
-        except Exception as e:
-            reason = f"model.process failed during CE: {e}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
+
+            total_train_ce += float(batch_train_ce)
+            batches_processed += 1
+            avg_train_ce = total_train_ce / batches_processed
+
+            trial.report(avg_train_ce, batch_idx)
+            if trial.should_prune():
+                reason = f"TPE pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
+            if float(batch_train_ce) < best_train_ce:
+                best_train_ce = float(batch_train_ce)
+            if batch_idx % 2 == 0:
+                elapsed = time.time() - start_time
+                print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
+
+        try:
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+            final_ce = float(final_ce)
+        except Exception:
+            final_ce = avg_train_ce if batches_processed > 0 else 100.0
+            final_ppl = float('inf')
+
+        total_time = time.time() - start_time
+        trial.set_user_attr("ppl", float(final_ppl))
+        trial.set_user_attr("time", total_time)
+
+        for key, value in params.items():
+            trial.set_user_attr(f"param_{key}", value)
+
+        print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
+        return float(final_ce)
+    except optuna.TrialPruned:
+        raise
+    except Exception as e:
+        reason = f"Phase 2 trial failed unexpectedly: {e}"
+        trial.set_user_attr("prune_reason", reason)
+        print(reason)
+        if _is_oom_error(e):
             raise optuna.TrialPruned()
+        raise
+    finally:
+        for obj_name in ['model', 'train_loader', 'valid_loader']:
+            if obj_name in locals() and locals()[obj_name] is not None:
+                del locals()[obj_name]
 
-        total_train_ce += float(batch_train_ce)
-        batches_processed += 1
-        avg_train_ce = total_train_ce / batches_processed
+        import gc
+        for _ in range(2):
+            gc.collect()
 
-        trial.report(avg_train_ce, batch_idx)
-        if trial.should_prune():
-            reason = f"TPE pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
-        if float(batch_train_ce) < best_train_ce:
-            best_train_ce = float(batch_train_ce)
-        if batch_idx % 2 == 0:
-            elapsed = time.time() - start_time
-            print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
-
-    try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        final_ce = float(final_ce)
-    except:
-        final_ce = avg_train_ce if batches_processed > 0 else 100.0
-        final_ppl = float('inf')
-
-    total_time = time.time() - start_time
-    trial.set_user_attr("ppl", float(final_ppl))
-    trial.set_user_attr("time", total_time)
-
-    for key, value in params.items():
-        trial.set_user_attr(f"param_{key}", value)
-
-    print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
-    return float(final_ce)  
+        try:
+            jax.clear_caches()
+        except Exception:
+            pass
 
 def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)

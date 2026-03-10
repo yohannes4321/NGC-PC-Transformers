@@ -83,7 +83,7 @@ def define_search_space(trial):
     )
 
     # larger sequence length
-    seq_len = trial.suggest_int("seq_len", 8, 24, step=8)
+    seq_len = trial.suggest_int("seq_len", 8, 32, step=8)
 
     return {
         "n_layers": trial.suggest_int("n_layers", 2, 6),

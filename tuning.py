@@ -39,11 +39,8 @@ def define_search_space(trial):
     # embedding size (must be divisible by heads)
     n_embed = n_heads * embed_mult
 
-    # larger batch size but safe
-    batch_size = trial.suggest_categorical(
-        "batch_size",
-        [16, 32, 48]
-    )
+    # Keep IntDistribution so existing Optuna storage remains compatible.
+    batch_size = trial.suggest_int("batch_size", 16, 48, step=16)
 
     # larger sequence length
     seq_len = trial.suggest_int("seq_len", 8, 32, step=8)

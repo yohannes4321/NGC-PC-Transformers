@@ -56,10 +56,10 @@ def _extract_process_outputs(process_result):
 
 def define_search_space(trial):
     # number of heads
-    n_heads = trial.suggest_int("n_heads", 2, 12)
+    n_heads = trial.suggest_int("n_heads", 2, 8)
 
     # embedding multiplier (bigger embeddings)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
+    embed_mult = trial.suggest_int("embed_mult", 8, 12, step=4)
 
     # embedding size (must be divisible by heads)
     n_embed = n_heads * embed_mult
@@ -67,29 +67,29 @@ def define_search_space(trial):
     # larger batch size but safe
     batch_size = trial.suggest_categorical(
         "batch_size",
-        [16, 32, 48, 64, 96]
+        [16, 32, 48]
     )
 
     # larger sequence length
-    seq_len = trial.suggest_int("seq_len", 8, 32, step=8)
+    seq_len = trial.suggest_int("seq_len", 8, 24, step=8)
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 2, 12),
+        "n_layers": trial.suggest_int("n_layers", 2, 6),
 
         "pos_learnable": trial.suggest_categorical(
             "pos_learnable", [True, False]
         ),
 
-        "eta": trial.suggest_float("eta", 1e-6, 5e-4, log=True),
+        "eta": trial.suggest_float("eta", 1e-6, 5e-5, log=True),
 
         "tau_m": trial.suggest_int("tau_m", 10, 30),
 
-        "n_iter": trial.suggest_int("n_iter", 5, 40),
+        "n_iter": trial.suggest_int("n_iter", 5, 24),
 
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.3),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.2),
 
-        "wub": trial.suggest_float("wub", 0.01, 0.2),
-        "wlb": trial.suggest_float("wlb", -0.2, -0.01),
+        "wub": trial.suggest_float("wub", 0.01, 0.1),
+        "wlb": trial.suggest_float("wlb", -0.1, -0.01),
 
         "optim_type": trial.suggest_categorical(
             "optim_type", ["adam", "sgd"]
@@ -405,7 +405,7 @@ def case1_efe_to_ce_complete():
 
     print("PHASE 1: TPE optimizing EFE (all parameters)")
     study_efe = optuna.create_study(
-        study_name="case1_complete_phase1_efe",
+        study_name="case1_complete_phase1_efe_v2",
         storage="sqlite:///tuning/case1_complete_phase1_efe.db",
         load_if_exists=True,
         direction="minimize",
@@ -442,7 +442,7 @@ def case1_efe_to_ce_complete():
     print("Only fine-tune: eta, dropout_rate, wub, wlb")
     
     study_ce = optuna.create_study(
-    study_name="case1_complete_phase2_ce",
+    study_name="case1_complete_phase2_ce_v2",
     storage="sqlite:///tuning/case1_complete_phase2_ce.db",
     load_if_exists=True,
     direction="minimize",

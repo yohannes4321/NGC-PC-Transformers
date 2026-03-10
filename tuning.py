@@ -59,7 +59,7 @@ def define_search_space(trial):
     n_heads = trial.suggest_int("n_heads", 2, 12)
 
     # embedding multiplier (bigger embeddings)
-    embed_mult = trial.suggest_int("embed_mult", 16, 64, step=8)
+    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
 
     # embedding size (must be divisible by heads)
     n_embed = n_heads * embed_mult
@@ -71,10 +71,7 @@ def define_search_space(trial):
     )
 
     # larger sequence length
-    seq_len = trial.suggest_categorical(
-        "seq_len",
-        [16, 32, 48, 64, 128]
-    )
+    seq_len = trial.suggest_int("seq_len", 8, 32, step=8)
 
     return {
         "n_layers": trial.suggest_int("n_layers", 2, 12),

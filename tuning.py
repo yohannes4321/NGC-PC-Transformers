@@ -73,7 +73,7 @@ def define_search_space(trial):
     # larger sequence length
     seq_len = trial.suggest_categorical(
         "seq_len",
-        [16, 32, 48, 64]
+        [16, 32, 48, 64, 128]
     )
 
     return {

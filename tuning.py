@@ -23,35 +23,58 @@ from data_preprocess.data_loader import DataLoader
 from eval import eval_model
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
-import gc
-
-# Use TF32 matmul precision on supported hardware for better throughput.
-jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 EFE_STABILITY_THRESHOLD = 2e1
 
 
 def define_search_space(trial):
-    # Heads and embedding: ensure n_embed divisible by n_heads
-    # Slightly reduced upper bounds to avoid OOM, but not too small
-    n_heads = trial.suggest_int("n_heads", 2, 5)  # was 2-6
-    embed_mult = trial.suggest_int("embed_mult", 8, 12, step=4)  # was 8-16
-    n_embed =  n_heads * embed_mult
-    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 16, 96, step=16)  # was 16-128
-    seq_len = trial.suggest_int("seq_len", 32, 96, step=16)  # was 32-128
+    # number of heads
+    n_heads = trial.suggest_int("n_heads", 2, 12)
+
+    # embedding multiplier (bigger embeddings)
+    embed_mult = trial.suggest_int("embed_mult", 16, 64, step=8)
+
+    # embedding size (must be divisible by heads)
+    n_embed = n_heads * embed_mult
+
+    # larger batch size but safe
+    batch_size = trial.suggest_categorical(
+        "batch_size",
+        [16, 32, 48, 64, 96]
+    )
+
+    # larger sequence length
+    seq_len = trial.suggest_categorical(
+        "seq_len",
+        [32, 64, 96, 128]
+    )
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 2, 6),
-        "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
+        "n_layers": trial.suggest_int("n_layers", 2, 12),
+
+        "pos_learnable": trial.suggest_categorical(
+            "pos_learnable", [True, False]
+        ),
+
+        "eta": trial.suggest_float("eta", 1e-6, 5e-4, log=True),
+
+        "tau_m": trial.suggest_int("tau_m", 10, 30),
+
+        "n_iter": trial.suggest_int("n_iter", 5, 40),
+
         "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.3),
-        "wub": trial.suggest_float("wub", 0.01, 0.5),    # Upper bound weight for positive error
-        "wlb": trial.suggest_float("wlb", 0.01, 0.5),    # Lower bound weight for negative error
-        "eta": trial.suggest_float("eta", 1e-4, 1e-2, log=True),  # Learning rate (log scale)
-        "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+
+        "wub": trial.suggest_float("wub", 0.01, 0.2),
+        "wlb": trial.suggest_float("wlb", -0.2, -0.01),
+
+        "optim_type": trial.suggest_categorical(
+            "optim_type", ["adam", "sgd"]
+        ),
+
+        "act_fx": trial.suggest_categorical(
+            "act_fx", ["identity", "relu"]
+        ),
+
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
@@ -148,13 +171,12 @@ def run_single_trial_efe(trial):
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
-            inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
+            inputs = batch[0][1]
             targets = batch[1][1]
-            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
-
+            targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
             try:
-                _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
             except Exception as e:
                 reason = f"model.process failed: {e}"
@@ -209,6 +231,7 @@ def run_single_trial_efe(trial):
                 del locals()[obj_name]
         
         # Force garbage collection
+        import gc
         for _ in range(2):
             gc.collect()
         
@@ -252,15 +275,15 @@ def run_phase2_trial(trial, best_params):
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
             break
-        inputs = jax.device_put(batch[0][1]).astype(jnp.bfloat16)
+        inputs = batch[0][1]
         targets = batch[1][1]
-        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+        targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
         try:
-            yMu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             EFE = abs(float(EFE))
             
-            y_pred = yMu.reshape(-1, cfg.vocab_size)
+            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
             batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
             batch_train_ce = batch_nll / targets_flat.shape[0]
             

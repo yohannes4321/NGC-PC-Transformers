@@ -25,6 +25,13 @@ from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 
 EFE_STABILITY_THRESHOLD = 2e1
+USE_BFLOAT16 = os.environ.get("PC_USE_BFLOAT16", "1") == "1"
+
+try:
+    # Faster/lower-memory matmuls on NVIDIA Tensor Cores when available.
+    jax.config.update("jax_default_matmul_precision", "tensorfloat32")
+except Exception:
+    pass
 
 
 def _is_oom_error(exc: Exception) -> bool:
@@ -38,7 +45,12 @@ def _is_oom_error(exc: Exception) -> bool:
 
 def _to_one_hot_targets(targets, vocab_size):
     # Avoid building a full [vocab_size, vocab_size] matrix via jnp.eye.
-    return jax.nn.one_hot(targets.reshape(-1), vocab_size, dtype=jnp.float32)
+    dtype = jnp.bfloat16 if USE_BFLOAT16 else jnp.float32
+    return jax.nn.one_hot(targets.reshape(-1), vocab_size, dtype=dtype)
+
+
+def _mp_cast(x):
+    return x.astype(jnp.bfloat16) if USE_BFLOAT16 else x
 
 
 def _extract_process_outputs(process_result):
@@ -195,7 +207,7 @@ def run_single_trial_efe(trial):
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
-            inputs = batch[0][1]
+            inputs = _mp_cast(batch[0][1])
             targets = batch[1][1]
             try:
                 targets_flat = _to_one_hot_targets(targets, cfg.vocab_size)
@@ -318,7 +330,7 @@ def run_phase2_trial(trial, best_params):
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
-            inputs = batch[0][1]
+            inputs = _mp_cast(batch[0][1])
             targets = batch[1][1]
 
             try:

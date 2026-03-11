@@ -579,7 +579,9 @@ class NGCTransformer:
             block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
 
         raw_EFE = L4 + block_errors + L1
-        EFE = raw_EFE
+        architecture_scale = jnp.sqrt(2.0 + 3.0 * self.n_layers)
+        normalized_EFE = raw_EFE / architecture_scale
+        EFE = normalized_EFE if use_normalized_efe else raw_EFE
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()

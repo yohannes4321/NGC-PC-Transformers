@@ -33,7 +33,7 @@ class Attention:
         dkey, *subkeys = random.split(dkey, 10)
         batch_tokens = float(batch_size * seq_len)
         hebb_scale = 1.0 / (batch_tokens ** 0.5)
-        sigma_norm = float(batch_tokens * n_embed)
+        sigma_norm = float((batch_tokens * n_embed) ** 0.5)
 
         self.z_qkv = AttnRateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=tau_m, 
                             act_fx="identity", batch_size=batch_size * seq_len )

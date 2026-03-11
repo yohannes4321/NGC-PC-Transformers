@@ -161,6 +161,8 @@ def run_single_trial_efe(trial):
             raise optuna.TrialPruned()
 
         total_EFE = 0.0
+        total_raw_EFE = 0.0
+        last_raw_efe = 0.0
         batches_processed = 0
         start_time = time.time()
         max_batches = 20
@@ -173,12 +175,16 @@ def run_single_trial_efe(trial):
 
 
             try:
-                _, _, EFE = model.process(
+                _, _, EFE, raw_EFE = model.process(
                     obs=inputs,
                     lab=targets_flat,
                     adapt_synapses=True,
+                    use_normalized_efe=True,
+                    return_raw_efe=True,
                 )
                 EFE = abs(float(EFE))
+                raw_EFE = abs(float(raw_EFE))
+                last_raw_efe = raw_EFE
             except Exception as e:
                 reason = f"model.process failed: {e}"
                 trial.set_user_attr("prune_reason", reason)
@@ -192,6 +198,7 @@ def run_single_trial_efe(trial):
                 raise optuna.TrialPruned()
 
             total_EFE += EFE
+            total_raw_EFE += raw_EFE
             batches_processed += 1
             current_efe = total_EFE / batches_processed
 
@@ -213,17 +220,20 @@ def run_single_trial_efe(trial):
             final_ppl = float('inf')
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
+        final_raw_efe = total_raw_EFE / batches_processed if batches_processed > 0 else 1000.0
         total_time = time.time() - start_time
 
         trial.set_user_attr("ce", float(final_ce))
         trial.set_user_attr("ppl", float(final_ppl))
         trial.set_user_attr("time", total_time)
-        trial.set_user_attr("raw_efe", float(final_efe))
+        trial.set_user_attr("raw_efe", float(final_raw_efe))
+        trial.set_user_attr("normalized_efe", float(final_efe))
+        trial.set_user_attr("last_raw_efe", float(last_raw_efe))
 
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
+        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Raw EFE={last_raw_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
         return float(final_efe)
     finally:
         
@@ -281,10 +291,12 @@ def run_phase2_trial(trial, best_params):
         targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size, dtype=jnp.bfloat16)
 
         try:
-            yMu_inf, yMu, EFE = model.process(
+            yMu_inf, yMu, EFE, _ = model.process(
                 obs=inputs,
                 lab=targets_flat,
                 adapt_synapses=True,
+                use_normalized_efe=True,
+                return_raw_efe=True,
             )
             EFE = abs(float(EFE))
             
@@ -353,6 +365,7 @@ def case1_efe_to_ce_complete():
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
+        best_normalized_efe = study_efe.best_trial.user_attrs.get("normalized_efe", best_efe)
         best_raw_efe = study_efe.best_trial.user_attrs.get("raw_efe", best_efe)
         best_efe_ce = study_efe.best_trial.user_attrs.get("ce", "N/A")
         best_params = study_efe.best_trial.params
@@ -360,7 +373,8 @@ def case1_efe_to_ce_complete():
         print(f"\n{'='*60}")
         print("PHASE 1 COMPLETE")
         print(f"{'='*60}")
-        print(f"Best EFE: {best_raw_efe:.4f}")
+        print(f"Best Normalized EFE: {best_normalized_efe:.4f}")
+        print(f"Raw EFE for Best Trial: {best_raw_efe:.4f}")
         print(f"Corresponding CE: {best_efe_ce}")
         print(f"\nBest Architecture Parameters (FIXED for Phase 2):")
         for key in ['n_layers', 'n_heads', 'n_embed', 'tau_m', 'n_iter', 
@@ -424,7 +438,8 @@ def case1_efe_to_ce_complete():
             
             f.write("PHASE 1 - BEST FOR EFE:\n")
             f.write("-"*40 + "\n")
-            f.write(f"Best EFE: {best_raw_efe:.6f}\n")
+            f.write(f"Best Normalized EFE: {best_normalized_efe:.6f}\n")
+            f.write(f"Raw EFE for Best Trial: {best_raw_efe:.6f}\n")
             f.write(f"Corresponding CE: {best_efe_ce:.6f}\n")
             f.write("-"*40 + "\n")
             
@@ -444,7 +459,8 @@ def case1_efe_to_ce_complete():
         print(f"\n✓ Best hyperparameters saved to: tuning/best_hyperparameters.txt")
         
         return {
-            "phase1_best_efe": best_raw_efe,
+            "phase1_best_efe": best_normalized_efe,
+            "phase1_best_raw_efe": best_raw_efe,
             "phase1_best_ce": best_efe_ce,
             "phase2_best_ce": best_ce,
             "phase1_parameters": best_params,
@@ -467,7 +483,8 @@ def main():
             print("TUNING COMPLETED SUCCESSFULLY")
             print(f"{'='*60}")
             print(f"Final Results:")
-            print(f"- Phase 1 Best EFE: {results['phase1_best_efe']:.4f}")
+            print(f"- Phase 1 Best Normalized EFE: {results['phase1_best_efe']:.4f}")
+            print(f"- Phase 1 Raw EFE for Best Trial: {results['phase1_best_raw_efe']:.4f}")
             print(f"- Phase 1 Corresponding CE: {results['phase1_best_ce']:.4f}")
             print(f"- Phase 2 Best CE: {results['phase2_best_ce']:.4f}")
             if 'improvement_pct' in results:

@@ -26,7 +26,7 @@ class Output:
         dkey, *subkeys = random.split(dkey, 10)
         batch_tokens = float(batch_size * seq_len)
         hebb_scale = 1.0 / (batch_tokens ** 0.5)
-        sigma_norm = float(batch_tokens * vocab_size)
+        sigma_norm = float((batch_tokens * vocab_size) ** 0.5)
 
         self.z_out = RateCell(
             "z_out",

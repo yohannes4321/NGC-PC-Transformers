@@ -12,7 +12,7 @@ class EMBEDDING:
     def __init__(self, dkey, vocab_size, seq_len, embed_dim, batch_size, pos_learnable, eta, optim_type, **kwargs):
         
         dkey, *subkeys = random.split(dkey, 4)
-        sigma_norm = float(batch_size * seq_len * embed_dim)
+        sigma_norm = float((batch_size * seq_len * embed_dim) ** 0.5)
     
         # RateCell expects a 3D shape tuple for image components (seq_len, embed_dim, channels)so here we use the third dim as a placeholder
         self.z_embed = RateCell("z_embed", n_units=seq_len, tau_m=0., 

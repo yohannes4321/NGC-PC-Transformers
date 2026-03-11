@@ -34,7 +34,7 @@ def main():
             inputs = batch[0][1]
             targets = batch[1][1]
             
-            targets_flat = jax.nn.one_hot(targets.flatten(), vocab_size)
+            targets_flat = jax.nn.one_hot(targets.flatten(), vocab_size, dtype=jnp.bfloat16)
             yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=False)
             
             y_pred = yMu_inf.reshape(-1, vocab_size)
@@ -59,7 +59,7 @@ def main():
             targets = batch[1][1]
             
             #Convert targets to one-hot and flatten
-            targets_flat = jax.nn.one_hot(targets.flatten(), vocab_size)
+            targets_flat = jax.nn.one_hot(targets.flatten(), vocab_size, dtype=jnp.bfloat16)
             
             yMu_inf, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE

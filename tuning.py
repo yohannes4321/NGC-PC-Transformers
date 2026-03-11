@@ -167,7 +167,7 @@ def run_single_trial_efe(trial):
         last_raw_efe = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 20
+        max_batches = 5
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
@@ -287,7 +287,7 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 20
+    max_batches = 5
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
@@ -367,7 +367,7 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=15, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_objective_efe = study_efe.best_value
@@ -420,7 +420,7 @@ def case1_efe_to_ce_complete():
     def phase2_trial_wrapper(trial):
         return run_phase2_trial(trial, best_params)
 
-    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs= 1, show_progress_bar=False)
+    study_ce.optimize(phase2_trial_wrapper, n_trials=15, n_jobs= 1, show_progress_bar=False)
 
     if study_ce.best_trial:
         best_ce = study_ce.best_value

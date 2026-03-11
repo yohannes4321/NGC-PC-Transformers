@@ -27,9 +27,9 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
 EFE_STABILITY_THRESHOLD = 2e1
-TRAIN_EPOCHS = 4
+TRAIN_EPOCHS = 1
 MAX_TRAIN_BATCHES = 5  # batches 0..4
-EVAL_MAX_BATCHES = 10
+EVAL_MAX_BATCHES = 4
 
 
 def define_search_space(trial):

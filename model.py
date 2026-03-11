@@ -1,5 +1,6 @@
 #import
 import jax
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 from ngclearn import Context, MethodProcess
 from ngclearn.utils.io_utils import makedir
 from jax import numpy as jnp, random, jit
@@ -56,6 +57,7 @@ class NGCTransformer:
         self.seq_len= seq_len
         self.vocab_size= vocab_size
         self.n_embed= n_embed
+        self.compute_dtype = jnp.bfloat16
         
         if exp_dir is not None:
             makedir(exp_dir)
@@ -181,13 +183,14 @@ class NGCTransformer:
 
 
                     block.attention.z_qkv.zF >> block.attention.W_q.pre
-                    block.attention.attn_block.dtarget_q >> block.attention.W_q.post
+                    block.attention.attn_block.dq >> block.attention.W_q.post
 
                     block.attention.z_qkv.zF >> block.attention.W_k.pre
-                    block.attention.attn_block.dtarget_k >> block.attention.W_k.post
+                    block.attention.attn_block.dk >> block.attention.W_k.post
 
                     block.attention.z_qkv.zF >> block.attention.W_v.pre
-                    block.attention.attn_block.dtarget_v >> block.attention.W_v.post
+                    block.attention.attn_block.dv >> block.attention.W_v.post
+
 
                     block.attention.z_attn.zF >> block.attention.W_attn_out.pre
                     block.attention.e_attn.dmu >> block.attention.W_attn_out.post
@@ -220,7 +223,7 @@ class NGCTransformer:
 
 
                 self.output.z_out.zF >> self.output.W_out.pre
-                self.Outgrad.dmu_ >> self.output.W_out.post
+                self.output.e_out.dmu >> self.output.W_out.post
 
                         
                         
@@ -336,7 +339,6 @@ class NGCTransformer:
                 advance_process >> self.output.E_out.advance_state
                 advance_process >> self.output.z_out.advance_state
                 advance_process >> self.output.W_out.advance_state
-                advance_process >> self.Outgrad.advance_state
                 advance_process >> self.z_actfx.advance_state
                 advance_process >> self.z_target.advance_state
                 advance_process >> self.output.e_out.advance_state
@@ -355,7 +357,6 @@ class NGCTransformer:
                 reset_process >> self.output.W_out.reset
                 reset_process >> self.reshape_3d_to_2d_embed.reset
                 reset_process >> self.reshape_2d_to_3d_embed.reset
-                reset_process >> self.Outgrad.reset
 
                 evolve_process >> self.output.W_out.evolve
                 project_process >> self.projection.q_embed_Ratecell.advance_state
@@ -402,11 +403,11 @@ class NGCTransformer:
         
     
     def clamp_target(self,y):
-        self.z_target.j.set(y)
+        self.z_target.j.set(y.astype(self.compute_dtype))
 
     
     def clamp_infer_target(self,y):
-        self.projection.eq_target.target.set(y)
+        self.projection.eq_target.target.set(y.astype(self.compute_dtype))
         
     def save_to_disk(self, params_only=False):
         """
@@ -502,7 +503,7 @@ class NGCTransformer:
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
           
 
-    def process(self, obs, lab, adapt_synapses=True):
+    def process(self, obs, lab, adapt_synapses=True, use_normalized_efe=False, return_raw_efe=False):
         
         self.reset.run()
         # self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
@@ -574,16 +575,21 @@ class NGCTransformer:
         
         block_errors = 0.
         for i in range(self.n_layers):
-                block = self.blocks[i]
-                block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+            block = self.blocks[i]
+            block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
 
-        EFE = L4 + block_errors + L1
+        raw_EFE = L4 + block_errors + L1
+        architecture_scale = jnp.sqrt(2.0 + 3.0 * self.n_layers)
+        normalized_EFE = raw_EFE / architecture_scale
+        EFE = normalized_EFE if use_normalized_efe else raw_EFE
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()
                 self.evolve.run(t=self.T,dt=1.)
                 
         ## skip E/M steps if just doing test-time inference
+        if return_raw_efe:
+            return y_mu_inf, y_mu, EFE, raw_EFE
         return y_mu_inf, y_mu, EFE 
 
     def get_latents(self):

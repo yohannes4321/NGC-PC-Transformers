@@ -15,6 +15,7 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
 import time
 import jax
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 import jax.numpy as jnp
 import jax.random as random
 from pathlib import Path
@@ -29,25 +30,47 @@ EFE_STABILITY_THRESHOLD = 2e1
 
 
 def define_search_space(trial):
-    # Heads and embedding: ensure n_embed divisible by n_heads
+    # number of heads
     n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
-    n_embed =  n_heads * embed_mult
-    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
+
+    # embedding multiplier (bigger embeddings)
+    embed_mult = trial.suggest_int("embed_mult", 8, 12, step=4)
+
+    # embedding size (must be divisible by heads)
+    n_embed = n_heads * embed_mult
+
+    # Keep IntDistribution so existing Optuna storage remains compatible.
+    batch_size = trial.suggest_int("batch_size", 16, 48, step=16)
+
+    # larger sequence length
+    seq_len = trial.suggest_int("seq_len", 8, 32, step=8)
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 8),
-        "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
+        "n_layers": trial.suggest_int("n_layers", 2, 6),
+
+        "pos_learnable": trial.suggest_categorical(
+            "pos_learnable", [True, False]
+        ),
+
+        "eta": trial.suggest_float("eta", 1e-6, 5e-5, log=True),
+
+        "tau_m": trial.suggest_int("tau_m", 10, 30),
+
+        "n_iter": trial.suggest_int("n_iter", 5, 24),
+
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.2),
+
         "wub": trial.suggest_float("wub", 0.01, 0.1),
         "wlb": trial.suggest_float("wlb", -0.1, -0.01),
-        "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+
+        "optim_type": trial.suggest_categorical(
+            "optim_type", ["adam", "sgd"]
+        ),
+
+        "act_fx": trial.suggest_categorical(
+            "act_fx", ["identity", "relu"]
+        ),
+
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
@@ -146,11 +169,15 @@ def run_single_trial_efe(trial):
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
-            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size, dtype=jnp.bfloat16)
 
 
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _, _, EFE = model.process(
+                    obs=inputs,
+                    lab=targets_flat,
+                    adapt_synapses=True,
+                )
                 EFE = abs(float(EFE))
             except Exception as e:
                 reason = f"model.process failed: {e}"
@@ -191,6 +218,7 @@ def run_single_trial_efe(trial):
         trial.set_user_attr("ce", float(final_ce))
         trial.set_user_attr("ppl", float(final_ppl))
         trial.set_user_attr("time", total_time)
+        trial.set_user_attr("raw_efe", float(final_efe))
 
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
@@ -250,13 +278,17 @@ def run_phase2_trial(trial, best_params):
             break
         inputs = batch[0][1]
         targets = batch[1][1]
-        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size, dtype=jnp.bfloat16)
 
         try:
-            yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, yMu, EFE = model.process(
+                obs=inputs,
+                lab=targets_flat,
+                adapt_synapses=True,
+            )
             EFE = abs(float(EFE))
             
-            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
+            y_pred = yMu.reshape(-1, cfg.vocab_size)
             batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
             batch_train_ce = batch_nll / targets_flat.shape[0]
             
@@ -321,13 +353,14 @@ def case1_efe_to_ce_complete():
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
+        best_raw_efe = study_efe.best_trial.user_attrs.get("raw_efe", best_efe)
         best_efe_ce = study_efe.best_trial.user_attrs.get("ce", "N/A")
         best_params = study_efe.best_trial.params
         
         print(f"\n{'='*60}")
         print("PHASE 1 COMPLETE")
         print(f"{'='*60}")
-        print(f"Best EFE: {best_efe:.4f}")
+        print(f"Best EFE: {best_raw_efe:.4f}")
         print(f"Corresponding CE: {best_efe_ce}")
         print(f"\nBest Architecture Parameters (FIXED for Phase 2):")
         for key in ['n_layers', 'n_heads', 'n_embed', 'tau_m', 'n_iter', 
@@ -391,7 +424,7 @@ def case1_efe_to_ce_complete():
             
             f.write("PHASE 1 - BEST FOR EFE:\n")
             f.write("-"*40 + "\n")
-            f.write(f"Best EFE: {best_efe:.6f}\n")
+            f.write(f"Best EFE: {best_raw_efe:.6f}\n")
             f.write(f"Corresponding CE: {best_efe_ce:.6f}\n")
             f.write("-"*40 + "\n")
             
@@ -411,7 +444,7 @@ def case1_efe_to_ce_complete():
         print(f"\n✓ Best hyperparameters saved to: tuning/best_hyperparameters.txt")
         
         return {
-            "phase1_best_efe": best_efe,
+            "phase1_best_efe": best_raw_efe,
             "phase1_best_ce": best_efe_ce,
             "phase2_best_ce": best_ce,
             "phase1_parameters": best_params,

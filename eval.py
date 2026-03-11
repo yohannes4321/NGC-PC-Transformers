@@ -20,7 +20,7 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int, max_batches:
     batch_idx = 0
 
     for batch in data_loader:
-        if max_batches is not None and batch_idx >= max_batches:
+        if max_batches is not None and batch_idx > max_batches:
             break
         inputs = batch[0][1]         
         targets = batch[1][1]        
@@ -36,7 +36,7 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int, max_batches:
         total_nll += measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
         total_tokens += targets_flat.shape[0]
         
-        if batch_idx % 10 == 0:
+        if batch_idx % 2 == 0:
             y_pred = yMu_inf.reshape(-1, vocab_size)
             y_true = targets_flat
             

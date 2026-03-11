@@ -27,7 +27,9 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
 EFE_STABILITY_THRESHOLD = 2e1
-EFE_OBJECTIVE_SCALE = 1000.0
+TRAIN_EPOCHS = 4
+MAX_TRAIN_BATCHES = 5  # batches 0..4
+EVAL_MAX_BATCHES = 10
 
 
 def define_search_space(trial):
@@ -162,76 +164,77 @@ def run_single_trial_efe(trial):
             raise optuna.TrialPruned()
 
         total_EFE = 0.0
-        total_objective_EFE = 0.0
         total_raw_EFE = 0.0
         last_raw_efe = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 5
-        for batch_idx, batch in enumerate(train_loader):
-            if batch_idx >= max_batches:
-                break
-            inputs = batch[0][1]
-            targets = batch[1][1]
-            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size, dtype=jnp.bfloat16)
+        global_step = 0
+        for epoch in range(TRAIN_EPOCHS):
+            for batch_idx, batch in enumerate(train_loader):
+                if batch_idx >= MAX_TRAIN_BATCHES:
+                    break
+                inputs = batch[0][1]
+                targets = batch[1][1]
+                targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size, dtype=jnp.bfloat16)
 
 
-            try:
-                _, _, EFE, raw_EFE = model.process(
-                    obs=inputs,
-                    lab=targets_flat,
-                    adapt_synapses=True,
-                    use_normalized_efe=True,
-                    return_raw_efe=True,
-                )
-                EFE = abs(float(EFE))
-                raw_EFE = abs(float(raw_EFE))
-                last_raw_efe = raw_EFE
-            except Exception as e:
-                reason = f"model.process failed: {e}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+                try:
+                    _, y_mu, EFE, raw_EFE = model.process(
+                        obs=inputs,
+                        lab=targets_flat,
+                        adapt_synapses=True,
+                        use_normalized_efe=True,
+                        return_raw_efe=True,
+                    )
+                    EFE = abs(float(EFE))
+                    raw_EFE = abs(float(raw_EFE))
+                    last_raw_efe = raw_EFE
+                    y_pred = y_mu.reshape(-1, cfg.vocab_size)
+                    batch_ce = float(measure_CatNLL(y_pred, targets_flat).mean())
+                    batch_ppl = float(jnp.exp(batch_ce))
+                except Exception as e:
+                    reason = f"model.process failed: {e}"
+                    trial.set_user_attr("prune_reason", reason)
+                    print(reason)
+                    raise optuna.TrialPruned()
 
-            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-                reason = f"Unstable EFE: {EFE}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+                if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
+                    reason = f"Unstable EFE: {EFE}"
+                    trial.set_user_attr("prune_reason", reason)
+                    print(reason)
+                    raise optuna.TrialPruned()
 
-            total_EFE += EFE
-            total_objective_EFE += EFE * EFE_OBJECTIVE_SCALE
-            total_raw_EFE += raw_EFE
-            batches_processed += 1
-            current_efe = total_EFE / batches_processed
-            current_objective_efe = total_objective_EFE / batches_processed
+                total_EFE += EFE
+                total_raw_EFE += raw_EFE
+                batches_processed += 1
+                current_efe = total_EFE / batches_processed
 
-            trial.report(current_objective_efe, batch_idx)
-            if trial.should_prune():
-                reason = f"TPE pruned at batch {batch_idx} | objective EFE={current_objective_efe:.4f}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+                trial.report(current_efe, global_step)
+                if trial.should_prune():
+                    reason = f"TPE pruned at epoch {epoch} batch {batch_idx} | Norm EFE={current_efe:.4f}"
+                    trial.set_user_attr("prune_reason", reason)
+                    print(reason)
+                    raise optuna.TrialPruned()
 
-            if batch_idx % 2 == 0:
-                elapsed = time.time() - start_time
-                print(f"Batch {batch_idx} | Obj EFE={current_objective_efe:.4f} | Norm EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+                if batch_idx % 2 == 0:
+                    elapsed = time.time() - start_time
+                    print(f"Epoch {epoch} Batch {batch_idx} | Norm EFE={current_efe:.4f} | CE={batch_ce:.4f} | PPL={batch_ppl:.4f} | Time={elapsed:.1f}s")
+
+                global_step += 1
 
         try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=EVAL_MAX_BATCHES)
         except:
             final_ce = 1000.0
             final_ppl = float('inf')
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
-        final_objective_efe = total_objective_EFE / batches_processed if batches_processed > 0 else 1000.0
         final_raw_efe = total_raw_EFE / batches_processed if batches_processed > 0 else 1000.0
         total_time = time.time() - start_time
 
         trial.set_user_attr("ce", float(final_ce))
         trial.set_user_attr("ppl", float(final_ppl))
         trial.set_user_attr("time", total_time)
-        trial.set_user_attr("objective_efe", float(final_objective_efe))
         trial.set_user_attr("raw_efe", float(final_raw_efe))
         trial.set_user_attr("normalized_efe", float(final_efe))
         trial.set_user_attr("last_raw_efe", float(last_raw_efe))
@@ -239,8 +242,8 @@ def run_single_trial_efe(trial):
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | Obj EFE={final_objective_efe:.4f} | Norm EFE={final_efe:.4f} | Raw EFE={last_raw_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
-        return float(final_objective_efe)
+        print(f"Trial {trial.number} Complete | Norm EFE={final_efe:.4f} | Raw EFE={last_raw_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
+        return float(final_efe)
     finally:
         
         # Delete Python objects
@@ -287,7 +290,7 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 5
+    max_batches = MAX_TRAIN_BATCHES
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
@@ -338,7 +341,7 @@ def run_phase2_trial(trial, best_params):
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
     try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=EVAL_MAX_BATCHES)
         final_ce = float(final_ce)
     except:
         final_ce = avg_train_ce if batches_processed > 0 else 100.0
@@ -370,16 +373,14 @@ def case1_efe_to_ce_complete():
     study_efe.optimize(run_single_trial_efe, n_trials=15, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
-        best_objective_efe = study_efe.best_value
-        best_normalized_efe = study_efe.best_trial.user_attrs.get("normalized_efe", best_objective_efe / EFE_OBJECTIVE_SCALE)
-        best_raw_efe = study_efe.best_trial.user_attrs.get("raw_efe", best_objective_efe)
+        best_normalized_efe = study_efe.best_value
+        best_raw_efe = study_efe.best_trial.user_attrs.get("raw_efe", best_normalized_efe)
         best_efe_ce = study_efe.best_trial.user_attrs.get("ce", "N/A")
         best_params = study_efe.best_trial.params
         
         print(f"\n{'='*60}")
         print("PHASE 1 COMPLETE")
         print(f"{'='*60}")
-        print(f"Best Objective EFE: {best_objective_efe:.4f}")
         print(f"Best Normalized EFE: {best_normalized_efe:.4f}")
         print(f"Raw EFE for Best Trial: {best_raw_efe:.4f}")
         print(f"Corresponding CE: {best_efe_ce}")
@@ -445,7 +446,6 @@ def case1_efe_to_ce_complete():
             
             f.write("PHASE 1 - BEST FOR EFE:\n")
             f.write("-"*40 + "\n")
-            f.write(f"Best Objective EFE: {best_objective_efe:.6f}\n")
             f.write(f"Best Normalized EFE: {best_normalized_efe:.6f}\n")
             f.write(f"Raw EFE for Best Trial: {best_raw_efe:.6f}\n")
             f.write(f"Corresponding CE: {best_efe_ce:.6f}\n")
@@ -467,7 +467,7 @@ def case1_efe_to_ce_complete():
         print(f"\n✓ Best hyperparameters saved to: tuning/best_hyperparameters.txt")
         
         return {
-            "phase1_best_efe": best_objective_efe,
+            "phase1_best_efe": best_normalized_efe,
             "phase1_best_normalized_efe": best_normalized_efe,
             "phase1_best_raw_efe": best_raw_efe,
             "phase1_best_ce": best_efe_ce,
@@ -492,7 +492,6 @@ def main():
             print("TUNING COMPLETED SUCCESSFULLY")
             print(f"{'='*60}")
             print(f"Final Results:")
-            print(f"- Phase 1 Best Objective EFE: {results['phase1_best_efe']:.4f}")
             print(f"- Phase 1 Best Normalized EFE: {results['phase1_best_normalized_efe']:.4f}")
             print(f"- Phase 1 Raw EFE for Best Trial: {results['phase1_best_raw_efe']:.4f}")
             print(f"- Phase 1 Corresponding CE: {results['phase1_best_ce']:.4f}")

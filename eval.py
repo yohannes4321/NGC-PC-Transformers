@@ -9,7 +9,7 @@ from config import Config as config
 import jax.random as random
 import time
 
-def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
+def eval_model(model: NGCTransformer, data_loader, vocab_size: int, max_batches: int = None):
     """
     Runs inference-only forward pass on a data loader and returns
     cross-entropy and perplexity.
@@ -20,6 +20,8 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     batch_idx = 0
 
     for batch in data_loader:
+        if max_batches is not None and batch_idx >= max_batches:
+            break
         inputs = batch[0][1]         
         targets = batch[1][1]        
 

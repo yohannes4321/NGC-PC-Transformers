@@ -22,7 +22,9 @@ class Config:
     tokenizer = "BPE"
     # When tokenizer == "tiktoken", tokenizer_name is used (e.g. "gpt2" or "cl100k_base")
     tokenizer_name = "gpt2"
-
+    hebb_scale = 1.0 / ((batch_size * seq_len) ** 0.5)
+    sigma_norm = (n_embed * batch_size * seq_len) ** 0.5
+    sigma_norm_mlp1 = float((batch_size * seq_len * (4 * n_embed)) ** 0.5)
     # When tokenizer == "BPE", tokenizer_vocab_file may point to a vocab json or a newline token list.
     # Optional: set to None to use a simple fallback whitespace tokenizer.
     tokenizer_vocab_file = None

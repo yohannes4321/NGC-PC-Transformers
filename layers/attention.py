@@ -31,9 +31,7 @@ class Attention:
     def __init__(self, dkey, n_embed, seq_len, batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, prefix, tau_m, **kwargs):
     
         dkey, *subkeys = random.split(dkey, 10)
-        batch_tokens = float(batch_size * seq_len)
-        hebb_scale = 1.0 / (batch_tokens ** 0.5)
-        sigma_norm = float((batch_tokens * n_embed) ** 0.5)
+        
 
         self.z_qkv = AttnRateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=tau_m, 
                             act_fx="identity", batch_size=batch_size * seq_len )
@@ -43,17 +41,17 @@ class Attention:
         self.W_q = HebbianSynapse(f"{prefix}W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.uniform(amin=wlb, amax=wub),
                                 bias_init=dist.constant(value=0.), w_bound=0., 
-                                optim_type=optim_type, sign_value= -1.0, key=subkeys[0],prior=("l1l2", (0.001, 0.001)), pre_wght=hebb_scale, post_wght=hebb_scale)
+                                optim_type=optim_type, sign_value= -1.0, key=subkeys[0],prior=("l1l2", (0.001, 0.001)), pre_wght=config.hebb_scale, post_wght=config.hebb_scale)
         
         self.W_k = HebbianSynapse(f"{prefix}W_k", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.uniform(amin=wlb, amax=wub),
                                 bias_init=dist.constant(value=0.), w_bound=0., 
-                                optim_type=optim_type, sign_value= -1.0, key=subkeys[1],prior=("l1l2", (0.001, 0.001)), pre_wght=hebb_scale, post_wght=hebb_scale)
+                                optim_type=optim_type, sign_value= -1.0, key=subkeys[1],prior=("l1l2", (0.001, 0.001)), pre_wght=config.hebb_scale, post_wght=config.hebb_scale)
         
         self.W_v = HebbianSynapse(f"{prefix}W_v", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.uniform(amin=wlb, amax=wub),
                                 bias_init=dist.constant(value=0.), w_bound=0., 
-                                optim_type=optim_type, sign_value= -1.0, key=subkeys[2],prior=("l1l2", (0.001, 0.001)),pre_wght=hebb_scale, post_wght=hebb_scale)
+                                optim_type=optim_type, sign_value= -1.0, key=subkeys[2],prior=("l1l2", (0.001, 0.001)),pre_wght=config.hebb_scale, post_wght=config.hebb_scale)
        
         self.attn_block = AttentionBlock(f"{prefix}attn_block", n_heads=n_heads, 
                                        n_embed=n_embed, seq_len=seq_len,

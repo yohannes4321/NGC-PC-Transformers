@@ -514,7 +514,6 @@ class NGCTransformer:
        
        
         self.clamp_input(obs)
-        self.clamp_infer_target(lab)
         
      
 

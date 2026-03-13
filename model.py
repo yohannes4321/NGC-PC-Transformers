@@ -14,7 +14,7 @@ from utils.embed_utils import EmbeddingSynapse
 from layers.mlp import MLP
 from layers.output import Output
 from utils.model_util import ReshapeComponent, Outgrad
-from utils.random_init import RandomInitState
+from utils.random_init import RandomInit
 from projection.projection import Projection
 import numpy as np
 
@@ -63,7 +63,6 @@ class NGCTransformer:
             makedir(exp_dir + "/filters")
 
         dkey, *subkeys = random.split(dkey, 50)
-        self.random_init = RandomInitState(key=subkeys[28], scale=1e-3)
        
         with Context("Circuit") as self.circuit:
                 
@@ -93,6 +92,11 @@ class NGCTransformer:
                                             input_shape=(self.batch_size * self.seq_len, self.n_embed),
                                             output_shape=(self.batch_size, self.seq_len, self.n_embed))
             self.Outgrad = Outgrad("Outgrad", batch_size=self.batch_size, seq_len=self.seq_len, vocab_size=self.vocab_size)    
+            self.random_init = RandomInit(
+                "random_init",
+                batch_size=self.batch_size * self.seq_len,
+                n_embed=self.n_embed,
+            )
                 
         if loadDir is not None:
    
@@ -279,6 +283,7 @@ class NGCTransformer:
                 advance_process >> self.reshape_3d_to_2d_embed.advance_state
                 advance_process >> self.reshape_2d_to_3d_embed.advance_state
                 advance_process >> self.embedding.e_embed.advance_state
+                advance_process >> self.random_init.advance_state
 
                 for i in range(n_layers):
                     block = self.blocks[i]
@@ -515,19 +520,19 @@ class NGCTransformer:
 
 
         for i in range(self.n_layers):
-        
+            self.random_init.advance_state()
             b= self.blocks[i]
-            b.attention.z_qkv.z.set(self.random_init.advance_state(b.attention.z_qkv.z.get()))
-            b.mlp.z_mlp.z.set(self.random_init.advance_state(b.mlp.z_mlp.z.get()))
-            b.mlp.z_mlp2.z.set(self.random_init.advance_state(b.mlp.z_mlp2.z.get()))
+            b.attention.z_qkv.z.set(self.random_init.get("normal_ratecell"))
+            b.attention.z_attn.z.set(self.random_init.get("normal_ratecell"))
+            b.mlp.z_mlp.z.set(self.random_init.get("normal_ratecell"))
+            b.mlp.z_mlp2.z.set(self.random_init.get("projection_4x"))
             b.attention.E_attn.weights.set(jnp.transpose(b.attention.W_attn_out.weights.get()))
             b.mlp.E_mlp.weights.set(jnp.transpose(b.mlp.W_mlp2.weights.get()))  
             b.mlp.E_mlp1.weights.set(jnp.transpose(b.mlp.W_mlp1.weights.get()))
        
         self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
-        self.output.z_out.z.set(self.random_init.advance_state(self.output.z_out.z.get()))
-        self.output.e_out.dmu.set(self.random_init.advance_state(self.output.e_out.dmu.get()))
-        self.output.e_out.dtarget.set(self.random_init.advance_state(self.output.e_out.dtarget.get()))
+        self.random_init.advance_state()
+        self.output.z_out.z.set(self.random_init.get("normal_ratecell"))
         
         
    

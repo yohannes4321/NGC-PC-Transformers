@@ -14,6 +14,7 @@ from utils.embed_utils import EmbeddingSynapse
 from layers.mlp import MLP
 from layers.output import Output
 from utils.model_util import ReshapeComponent, Outgrad
+from utils.random_init import RandomInit
 from projection.projection import Projection
 import numpy as np
 
@@ -91,6 +92,11 @@ class NGCTransformer:
                                             input_shape=(self.batch_size * self.seq_len, self.n_embed),
                                             output_shape=(self.batch_size, self.seq_len, self.n_embed))
             self.Outgrad = Outgrad("Outgrad", batch_size=self.batch_size, seq_len=self.seq_len, vocab_size=self.vocab_size)    
+            self.random_init = RandomInit(
+                "random_init",
+                batch_size=self.batch_size * self.seq_len,
+                n_embed=self.n_embed,
+            )
                 
         if loadDir is not None:
    
@@ -277,6 +283,7 @@ class NGCTransformer:
                 advance_process >> self.reshape_3d_to_2d_embed.advance_state
                 advance_process >> self.reshape_2d_to_3d_embed.advance_state
                 advance_process >> self.embedding.e_embed.advance_state
+                advance_process >> self.random_init.advance_state
 
                 for i in range(n_layers):
                     block = self.blocks[i]
@@ -398,15 +405,14 @@ class NGCTransformer:
     
     def clamp_input(self,x):
         self.embedding.z_embed.j.set(x)
-        self.projection.q_embed_Ratecell.j.set(x) 
+        
         
     
     def clamp_target(self,y):
         self.z_target.j.set(y)
 
     
-    def clamp_infer_target(self,y):
-        self.projection.eq_target.target.set(y)
+    
         
     def save_to_disk(self, params_only=False):
         """
@@ -505,57 +511,30 @@ class NGCTransformer:
     def process(self, obs, lab, adapt_synapses=True):
         
         self.reset.run()
-        # self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
-        # if self.embedding.W_embed.pos_learnable:
-        #    self.projection.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.get())
-        # for i in range(self.n_layers):
-        #     block_proj= self.projection.blocks[i]
-        #     block= self.blocks[i] 
-        #     block_proj.Q_q.weights.set(block.attention.W_q.weights.get())
-        #     block_proj.Q_q.biases.set(block.attention.W_q.biases.get())
-        #     block_proj.Q_k.weights.set(block.attention.W_k.weights.get())
-        #     block_proj.Q_k.biases.set(block.attention.W_k.biases.get())
-        #     block_proj.Q_v.weights.set(block.attention.W_v.weights.get())
-        #     block_proj.Q_v.biases.set(block.attention.W_v.biases.get())
-        #     block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get())
-        #     block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
-        #     block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
-        #     block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
-        #     block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get())
-        #     block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get())
-        #     block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get())
-        #     block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get())
-        #     block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get())
-
-        # self.projection.Q_out.weights.set(self.output.W_out.weights.get())
-        # self.projection.Q_out.biases.set(self.output.W_out.biases.get())
-        # self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
-        
+       
        
         self.clamp_input(obs)
-        self.clamp_infer_target(lab)
         
-        # self.project.run(t=0., dt=1.)
+     
 
 
-        # for i in range(self.n_layers):
-        #     block_proj= self.projection.blocks[i]   
-        #     b= self.blocks[i]
-        #     b.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
-        #     b.mlp.z_mlp.z.set(block_proj.q_mlp_Ratecell.z.get())
-        #     b.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
-        #     b.attention.E_attn.weights.set(jnp.transpose(b.attention.W_attn_out.weights.get()))
-        #     b.mlp.E_mlp.weights.set(jnp.transpose(b.mlp.W_mlp2.weights.get()))  
-        #     b.mlp.E_mlp1.weights.set(jnp.transpose(b.mlp.W_mlp1.weights.get()))
+        for i in range(self.n_layers):
+            self.random_init.advance_state()
+            b= self.blocks[i]
+            b.attention.z_qkv.z.set(self.random_init.get("normal_ratecell"))
+            b.attention.z_attn.z.set(self.random_init.get("normal_ratecell"))
+            b.mlp.z_mlp.z.set(self.random_init.get("normal_ratecell"))
+            b.mlp.z_mlp2.z.set(self.random_init.get("projection_4x"))
+            b.attention.E_attn.weights.set(jnp.transpose(b.attention.W_attn_out.weights.get()))
+            b.mlp.E_mlp.weights.set(jnp.transpose(b.mlp.W_mlp2.weights.get()))  
+            b.mlp.E_mlp1.weights.set(jnp.transpose(b.mlp.W_mlp1.weights.get()))
        
-        # self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
-        # self.output.z_out.z.set(self.projection.q_out_Ratecell.z.get())
-        # self.output.e_out.dmu.set(self.projection.eq_target.dmu.get())
-        # self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.get())
+        self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
+        self.random_init.advance_state()
+        self.output.z_out.z.set(self.random_init.get("normal_ratecell"))
         
         
-        ## get projected prediction (from the P-step)
-        y_mu_inf = self.projection.q_target_Ratecell.z.get()
+   
     
         EFE = 0. 
         y_mu = 0.
@@ -584,7 +563,7 @@ class NGCTransformer:
                 self.evolve.run(t=self.T,dt=1.)
                 
         ## skip E/M steps if just doing test-time inference
-        return y_mu_inf, y_mu, EFE 
+        return  y_mu, EFE 
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()

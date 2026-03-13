@@ -179,6 +179,9 @@ def run_single_trial_efe(trial):
                 elapsed = time.time() - start_time
                 print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
+            if batch_idx == 4:
+                break
+
         try:
             final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
         except:
@@ -286,6 +289,9 @@ def run_phase2_trial(trial, best_params):
         if batch_idx % 2 == 0:
             elapsed = time.time() - start_time
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
+
+        if batch_idx == 4:
+            break
 
     try:
         final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)

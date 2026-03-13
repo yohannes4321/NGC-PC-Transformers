@@ -65,7 +65,7 @@ def main():
             train_EFE += _EFE
             total_batches += 1
 
-            if batch_idx % 10 == 0:
+            if batch_idx % 2 == 0:
                 y_pred = y_mu.reshape(-1, vocab_size)
                 y_true = targets_flat
                 
@@ -74,6 +74,9 @@ def main():
                 batch_ppl = jnp.exp(batch_ce_loss)
                 
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+
+            if batch_idx == 4:
+                break
         
         avg_train_EFE = train_EFE / total_batches if total_batches > 0 else 0
         

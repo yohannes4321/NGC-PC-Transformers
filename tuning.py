@@ -31,19 +31,19 @@ EFE_STABILITY_THRESHOLD = 2e1
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
     n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
+    embed_mult = trial.suggest_int("embed_mult", 8, 12, step=4)
     n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
+    batch_size = trial.suggest_int("batch_size", 16, 48, step=16)
+    seq_len = trial.suggest_int("seq_len", 8, 32, step=8)
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 8),
+        "n_layers": trial.suggest_int("n_layers", 2, 6),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
+        "eta": trial.suggest_float("eta", 1e-6, 5e-5, log=True),
+        "tau_m": trial.suggest_int("tau_m", 10, 30),
+        "n_iter": trial.suggest_int("n_iter", 5, 24),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.2),
         "wub": trial.suggest_float("wub", 0.01, 0.1),
         "wlb": trial.suggest_float("wlb", -0.1, -0.01),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),

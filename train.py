@@ -61,7 +61,13 @@ def main():
             #Convert targets to one-hot and flatten
             targets_flat = jax.nn.one_hot(targets.flatten(), vocab_size)
             
-            y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            debug_L = (batch_idx % 10 == 0)
+            y_mu, _EFE = model.process(
+                obs=inputs,
+                lab=targets_flat,
+                adapt_synapses=True,
+                debug_L=debug_L,
+            )
             train_EFE += _EFE
             total_batches += 1
 

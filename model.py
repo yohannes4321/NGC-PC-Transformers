@@ -508,7 +508,7 @@ class NGCTransformer:
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
           
 
-    def process(self, obs, lab, adapt_synapses=True):
+    def process(self, obs, lab, adapt_synapses=True, debug_L=False):
         
         self.reset.run()
        
@@ -552,11 +552,24 @@ class NGCTransformer:
         L4 = self.output.e_out.L.get()
         
         block_errors = 0.
+        layer_L = []
         for i in range(self.n_layers):
-                block = self.blocks[i]
-                block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+            block = self.blocks[i]
+            e_attn_L = block.attention.e_attn.L.get()
+            e_mlp_L = block.mlp.e_mlp.L.get()
+            e_mlp1_L = block.mlp.e_mlp1.L.get()
+            block_errors += e_attn_L + e_mlp_L + e_mlp1_L
+            layer_L.append((i, e_attn_L, e_mlp_L, e_mlp1_L))
 
         EFE = L4 + block_errors + L1
+
+        if debug_L:
+            print(f"L_embed={float(L1):.6f} | L_e_out={float(L4):.6f}")
+            for i, e_attn_L, e_mlp_L, e_mlp1_L in layer_L:
+                print(
+                    f"  Layer {i}: L_e_attn={float(e_attn_L):.6f} | "
+                    f"L_e_mlp={float(e_mlp_L):.6f} | L_e_mlp1={float(e_mlp1_L):.6f}"
+                )
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()

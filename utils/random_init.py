@@ -34,7 +34,8 @@ class RandomInit(JaxComponent):
         """Generate new random latent states."""
 
         # Split key
-        self.key, k1, k2 = random.split(self.key, 3)
+        k0, k1, k2 = random.split(self.key, 3)
+        self.key = k0
 
         # Small random noise
         z_normal = random.normal(k1, (self.batch_size, self.n_embed)) * self.scale

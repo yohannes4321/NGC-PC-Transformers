@@ -519,19 +519,21 @@ class NGCTransformer:
 
 
         for i in range(self.n_layers):
+            b = self.blocks[i]
+            # Generate fresh random values for this layer
             self.random_init.advance_state()
-            b= self.blocks[i]
-            b.attention.z_qkv.z.set(self.random_init.get("normal_ratecell"))
-            b.attention.z_attn.z.set(self.random_init.get("normal_ratecell"))
-            b.mlp.z_mlp.z.set(self.random_init.get("normal_ratecell"))
-            b.mlp.z_mlp2.z.set(self.random_init.get("projection_4x"))
+            # Access compartment values with .get()
+            b.attention.z_qkv.z.set(self.random_init.z_normal.get())
+            b.attention.z_attn.z.set(self.random_init.z_normal.get())
+            b.mlp.z_mlp.z.set(self.random_init.z_normal.get())
+            b.mlp.z_mlp2.z.set(self.random_init.z_4x_projection.get())
             b.attention.E_attn.weights.set(jnp.transpose(b.attention.W_attn_out.weights.get()))
             b.mlp.E_mlp.weights.set(jnp.transpose(b.mlp.W_mlp2.weights.get()))  
             b.mlp.E_mlp1.weights.set(jnp.transpose(b.mlp.W_mlp1.weights.get()))
-       
+
         self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
         self.random_init.advance_state()
-        self.output.z_out.z.set(self.random_init.get("normal_ratecell"))
+        self.output.z_out.z.set(self.random_init.z_normal.get())
         
         
    

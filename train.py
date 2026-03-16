@@ -65,7 +65,7 @@ def main():
             train_EFE += _EFE
             total_batches += 1
 
-            if batch_idx % 2 == 0:
+            if batch_idx % 10 == 0:
                 y_pred = y_mu.reshape(-1, vocab_size)
                 y_true = targets_flat
                 

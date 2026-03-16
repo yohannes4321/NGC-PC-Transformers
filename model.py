@@ -532,11 +532,11 @@ class NGCTransformer:
             b.mlp.E_mlp1.weights.set(jnp.transpose(b.mlp.W_mlp1.weights.get()))
 
         self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
-        self.random_init.advance_state()
         self.output.z_out.z.set(self.random_init.z_normal.get())
         
         
    
+
     
         EFE = 0. 
         y_mu = 0.

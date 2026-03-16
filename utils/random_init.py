@@ -19,8 +19,8 @@ class RandomInit(JaxComponent):
         self.n_embed = n_embed
         self.scale = scale
 
-        # Store key as a regular attribute
-        self.key = random.PRNGKey(0) if key is None else key
+        # Store key in a Compartment for NGC compatibility
+        self.key = Compartment(random.PRNGKey(0) if key is None else key)
         
         # Initialize compartments - these will be accessed directly
         self.z_normal = Compartment(jnp.zeros((batch_size, n_embed)))
@@ -29,16 +29,15 @@ class RandomInit(JaxComponent):
     @compilable
     def advance_state(self):
         """Generate fresh random values for both compartments."""
+        # Get current key from compartment
+        key = self.key.get()
         # Split key for independent random streams
-        k1, k2 = random.split(self.key, 2)
-        
+        k1, k2 = random.split(key, 2)
         # Generate new random values
         z_normal = random.normal(k1, (self.batch_size, self.n_embed)) * self.scale
         z_4x_projection = random.normal(k2, (self.batch_size, 4 * self.n_embed)) * self.scale
-        
         # Update the key for next time
-        self.key = k2
-        
+        self.key.set(k2)
         # Update compartments
         self.z_normal.set(z_normal)
         self.z_4x_projection.set(z_4x_projection)

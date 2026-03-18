@@ -26,10 +26,10 @@ class EMBEDDING:
                 pos_learnable=pos_learnable,
                 eta=eta,
                 optim_type=optim_type,
-                key=subkeys[0])
+                key=subkeys[0],pre_wght=config.hebb_scale, post_wght=config.hebb_scale)
             
         self.e_embed = ErrorCell("e_embed", n_units=embed_dim, 
-                                  batch_size=batch_size * seq_len) # shape=(seq_len, embed_dim, 1),
+                                  batch_size=batch_size * seq_len,sigma=config.sigma_norm) # shape=(seq_len, embed_dim, 1),
     
             
 

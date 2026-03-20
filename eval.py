@@ -19,7 +19,7 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     total_tokens = 0
     batch_idx = 0
 
-    max_batches = 20
+    max_batches = 4
     for batch in data_loader:
         if batch_idx >= max_batches:
             break

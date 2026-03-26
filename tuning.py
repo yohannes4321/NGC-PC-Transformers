@@ -31,11 +31,11 @@ EFE_STABILITY_THRESHOLD = 300
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
     n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
+    embed_mult = trial.suggest_int("embed_mult", 8, 12, step=4)
     n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
+    batch_size = trial.suggest_int("batch_size", 16, 48, step=16)
+    seq_len = trial.suggest_int("seq_len", 8, 32, step=8)
 
     return {
         "n_layers": trial.suggest_int("n_layers", 1, 8),

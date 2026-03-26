@@ -25,7 +25,7 @@ from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
-EFE_STABILITY_THRESHOLD = 100
+EFE_STABILITY_THRESHOLD = 300
 
 
 def define_search_space(trial):
@@ -47,7 +47,7 @@ def define_search_space(trial):
         "wub": trial.suggest_float("wub", 0.01, 0.1),
         "wlb": trial.suggest_float("wlb", -0.1, -0.01),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu", "gelu"]),
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
@@ -142,7 +142,7 @@ def run_single_trial_efe(trial):
         start_time = time.time()
         max_batches = 20
         for batch_idx, batch in enumerate(train_loader):
-            if batch_idx >= max_batches:
+            if batch_idx > 4:
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
@@ -246,7 +246,7 @@ def run_phase2_trial(trial, best_params):
     max_batches = 20
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
-        if batch_idx >= max_batches:
+        if batch_idx > 4:
             break
         inputs = batch[0][1]
         targets = batch[1][1]

@@ -29,7 +29,4 @@ class EMBEDDING:
                 key=subkeys[0])
             
         self.e_embed = ErrorCell("e_embed", n_units=embed_dim, 
-                                  batch_size=batch_size * seq_len) # shape=(seq_len, embed_dim, 1),
-    
-            
-
+                                  batch_size=batch_size * seq_len,sigma=config.sigma_norm) # shape=(seq_len, embed_dim, 1),          

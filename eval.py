@@ -20,7 +20,7 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     batch_idx = 0
 
     for batch in data_loader:
-        if batch_idx > 4:
+        if batch_idx > 0:
             break
         inputs = batch[0][1]         
         targets = batch[1][1]        

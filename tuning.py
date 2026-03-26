@@ -142,7 +142,7 @@ def run_single_trial_efe(trial):
         start_time = time.time()
         max_batches = 20
         for batch_idx, batch in enumerate(train_loader):
-            if batch_idx > 4:
+            if batch_idx > 0:
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
@@ -246,7 +246,7 @@ def run_phase2_trial(trial, best_params):
     max_batches = 20
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
-        if batch_idx > 4:
+        if batch_idx > 0:
             break
         inputs = batch[0][1]
         targets = batch[1][1]

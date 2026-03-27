@@ -179,24 +179,24 @@ def run_single_trial_efe(trial):
                 elapsed = time.time() - start_time
                 print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
-        try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        except:
-            final_ce = 1000.0
-            final_ppl = float('inf')
+        # try:
+        #     final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+        # except:
+        #     final_ce = 1000.0
+        #     final_ppl = float('inf')
 
-        final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
-        total_time = time.time() - start_time
+        # final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
+        # total_time = time.time() - start_time
 
-        trial.set_user_attr("ce", float(final_ce))
-        trial.set_user_attr("ppl", float(final_ppl))
-        trial.set_user_attr("time", total_time)
+        # trial.set_user_attr("ce", float(final_ce))
+        # trial.set_user_attr("ppl", float(final_ppl))
+        # trial.set_user_attr("time", total_time)
 
-        for key, value in params.items():
-            trial.set_user_attr(f"param_{key}", value)
+        # for key, value in params.items():
+        #     trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
-        return float(final_efe)
+        # print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
+        # return float(final_efe)
     finally:
         
         # Delete Python objects

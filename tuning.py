@@ -20,7 +20,6 @@ import jax.random as random
 from pathlib import Path
 from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
-from eval import eval_model
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
@@ -179,24 +178,16 @@ def run_single_trial_efe(trial):
                 elapsed = time.time() - start_time
                 print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
-        # try:
-        #     final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        # except:
-        #     final_ce = 1000.0
-        #     final_ppl = float('inf')
+        # Removed evaluation step and related print
+        final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
+        total_time = time.time() - start_time
 
-        # final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
-        # total_time = time.time() - start_time
+        trial.set_user_attr("time", total_time)
+        for key, value in params.items():
+            trial.set_user_attr(f"param_{key}", value)
 
-        # trial.set_user_attr("ce", float(final_ce))
-        # trial.set_user_attr("ppl", float(final_ppl))
-        # trial.set_user_attr("time", total_time)
-
-        # for key, value in params.items():
-        #     trial.set_user_attr(f"param_{key}", value)
-
-        # print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
-        # return float(final_efe)
+        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Time={total_time:.1f}s")
+        return float(final_efe)
     finally:
         
         # Delete Python objects

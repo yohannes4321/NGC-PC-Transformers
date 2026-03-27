@@ -140,7 +140,7 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 20
+        max_batches = 2
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
@@ -243,7 +243,7 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 20
+    max_batches = 2
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
@@ -287,22 +287,16 @@ def run_phase2_trial(trial, best_params):
             elapsed = time.time() - start_time
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
-    try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        final_ce = float(final_ce)
-    except:
-        final_ce = avg_train_ce if batches_processed > 0 else 100.0
-        final_ppl = float('inf')
-
+    # Remove evaluation step during tuning
+    final_ce = avg_train_ce if batches_processed > 0 else 100.0
     total_time = time.time() - start_time
-    trial.set_user_attr("ppl", float(final_ppl))
     trial.set_user_attr("time", total_time)
 
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
-    return float(final_ce)  
+    print(f"Trial {trial.number} Complete | Final Train CE={final_ce:.4f} | Time={total_time:.1f}s")
+    return float(final_ce)
 
 def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)
@@ -317,7 +311,7 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=20, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value

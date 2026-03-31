@@ -26,11 +26,21 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
     k = K.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3]) 
     v = V.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
     # --- RoPE: Use provided cos/sin if available, else precompute ---
+    assert d_head % 2 == 0, f"RoPE head dim must be even, got {d_head}"
     if rope_cos is not None and rope_sin is not None:
         cos, sin = rope_cos[:S], rope_sin[:S]
     else:
         cos, sin = precompute_freqs_cis_real(d_head, S)
+    # Debug: print Q/K stats before RoPE
+    if B == 1 and S == seq_len and n_heads == n_heads:
+        print("Q mean/std before RoPE:", float(jnp.mean(q)), float(jnp.std(q)))
+        print("K mean/std before RoPE:", float(jnp.mean(k)), float(jnp.std(k)))
+        print("cos shape:", cos.shape, "sin shape:", sin.shape)
     q_rot, k_rot = apply_rotary_emb(q, k, cos, sin)
+    # Debug: print Q/K stats after RoPE
+    if B == 1 and S == seq_len and n_heads == n_heads:
+        print("Q mean/std after RoPE:", float(jnp.mean(q_rot)), float(jnp.std(q_rot)))
+        print("K mean/std after RoPE:", float(jnp.mean(k_rot)), float(jnp.std(k_rot)))
     # Scaled dot-product attention (with RoPE)
     s_c = jnp.einsum("BHTE,BHSE->BHTS", q_rot, k_rot) / jnp.sqrt(d_head)
     

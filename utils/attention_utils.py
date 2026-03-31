@@ -6,9 +6,10 @@ import jax
 from functools import partial
 import jax.numpy as jnp
 from utils.model_util import d_softmax_vjp
+from utils.rope_utils import apply_rotary_emb, precompute_freqs_cis_real
 
 @partial(jit, static_argnums=[4, 5, 6, 7, 8])
-def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, batch_size, key):
+def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, batch_size, key, rope_cos=None, rope_sin=None):
     """
     Compute multi-head attention 
     """
@@ -24,8 +25,14 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
     q = Q.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
     k = K.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3]) 
     v = V.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
-    # Scaled dot-product attention
-    s_c = jnp.einsum("BHTE,BHSE->BHTS", q, k) / jnp.sqrt(d_head)
+    # --- RoPE: Use provided cos/sin if available, else precompute ---
+    if rope_cos is not None and rope_sin is not None:
+        cos, sin = rope_cos[:S], rope_sin[:S]
+    else:
+        cos, sin = precompute_freqs_cis_real(d_head, S)
+    q_rot, k_rot = apply_rotary_emb(q, k, cos, sin)
+    # Scaled dot-product attention (with RoPE)
+    s_c = jnp.einsum("BHTE,BHSE->BHTS", q_rot, k_rot) / jnp.sqrt(d_head)
     
   
     _mask = mask[None, None, :, :]  

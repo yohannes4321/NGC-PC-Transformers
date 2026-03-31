@@ -28,7 +28,7 @@ class Attention:
         eta: Learning rate for Hebbian synapses
     """
         
-    def __init__(self, dkey, n_embed, seq_len, batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, prefix, tau_m, **kwargs):
+    def __init__(self, dkey, n_embed, seq_len, batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, prefix, tau_m, rope_cos=None, rope_sin=None, **kwargs):
     
         dkey, *subkeys = random.split(dkey, 10)
 
@@ -52,10 +52,13 @@ class Attention:
                                 bias_init=dist.constant(value=0.), w_bound=0., 
                                 optim_type=optim_type, sign_value= -1.0, key=subkeys[2],prior=("l1l2", (0.001, 0.001)))
        
+        self.rope_cos = rope_cos
+        self.rope_sin = rope_sin
         self.attn_block = AttentionBlock(f"{prefix}attn_block", n_heads=n_heads, 
-                                       n_embed=n_embed, seq_len=seq_len,
-                                       dropout_rate=dropout_rate, 
-                                       batch_size=batch_size)
+                           n_embed=n_embed, seq_len=seq_len,
+                           dropout_rate=dropout_rate, 
+                           batch_size=batch_size,
+                           rope_cos=rope_cos, rope_sin=rope_sin)
         
         self.W_attn_out = HebbianSynapse(f"{prefix}W_attn_out", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                             weight_init=dist.uniform(amin=wlb, amax=wub),

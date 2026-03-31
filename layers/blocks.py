@@ -8,7 +8,7 @@ from utils.rms_norm_util import RMSNorm
 
 class Block:
     def __init__(self, dkey, block_id, n_embed, seq_len, vocab_size,
-                 batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, tau_m, **kwargs):
+                 batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, tau_m, rope_cos=None, rope_sin=None, **kwargs):
         
         dkey, attn_key, mlp_key = random.split(dkey, 3)
         prefix = f"block{block_id}_"
@@ -16,8 +16,9 @@ class Block:
         # self.ln1 = RMSNorm(f"{prefix}ln1", n_embed=n_embed, batch_size= batch_size * seq_len)
 
         self.attention = Attention(dkey=attn_key, n_embed=n_embed, seq_len=seq_len,
-                                 batch_size=batch_size, n_heads=n_heads,
-                                 dropout_rate=dropout_rate, eta=eta, optim_type= optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m)
+                     batch_size=batch_size, n_heads=n_heads,
+                     dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m,
+                     rope_cos=rope_cos, rope_sin=rope_sin)
         
         # self.ln2 = RMSNorm(f"{prefix}ln2", n_embed=n_embed, batch_size= batch_size * seq_len)
         self.mlp = MLP(dkey=mlp_key, n_embed=n_embed, seq_len=seq_len,

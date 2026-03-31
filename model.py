@@ -70,9 +70,11 @@ class NGCTransformer:
             self.blocks = []
             for i in range(n_layers):
                 key, subkey = random.split(subkeys[1 + i])
-                block=Block(dkey=subkey, block_id= i, n_embed=self.n_embed, seq_len=self.seq_len,
-                                batch_size=self.batch_size, vocab_size=self.vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m)
-                self.blocks.append(block)   
+                block = Block(
+                    dkey=subkey, block_id=i, n_embed=self.n_embed, seq_len=self.seq_len, vocab_size=self.vocab_size,
+                    batch_size=self.batch_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m
+                )
+                self.blocks.append(block)
                     
             self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
                 

@@ -55,10 +55,9 @@ class Attention:
         self.rope_cos = rope_cos
         self.rope_sin = rope_sin
         self.attn_block = AttentionBlock(f"{prefix}attn_block", n_heads=n_heads, 
-                           n_embed=n_embed, seq_len=seq_len,
-                           dropout_rate=dropout_rate, 
-                           batch_size=batch_size,
-                           rope_cos=rope_cos, rope_sin=rope_sin)
+                   n_embed=n_embed, seq_len=seq_len,
+                   dropout_rate=dropout_rate, 
+                   batch_size=batch_size)
         
         self.W_attn_out = HebbianSynapse(f"{prefix}W_attn_out", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                             weight_init=dist.uniform(amin=wlb, amax=wub),

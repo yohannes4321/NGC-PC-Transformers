@@ -9,7 +9,7 @@ from ngclearn.utils import tensorstats
 import os
 from pathlib import Path
 
-@partial(jit, static_argnums=[2, 3, 4])
+@partial(jit, static_argnums=[2, 3, 4, 5])
 def _compute_embedding_updates(inputs, post, vocab_size, seq_len, embed_dim, batch_size):
     """
     Compute updates for word embeddings

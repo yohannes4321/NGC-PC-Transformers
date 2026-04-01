@@ -26,7 +26,7 @@ def _compute_attention(Q, K, V, cos, sin, mask, n_heads, d_head, dropout_rate, s
     k = K.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3]) 
     v = V.reshape((B, S, n_heads, d_head)).transpose([0, 2, 1, 3])
     
-    q, k = apply_rotary_emb(q, k, cos, sin)
+    # # q, k = apply_rotary_emb(q, k, cos, sin)
     
     # Scaled dot-product attention
     s_c = jnp.einsum("BHTE,BHSE->BHTS", q, k) / jnp.sqrt(d_head)
@@ -72,7 +72,7 @@ def compute_grads(Q_rot, K_rot, V, cos, sin, mask, s_c, dmu, n_heads, d_head, dr
     
     # Backpropagate through scaled dot-product attention
     dQ_rot = jnp.einsum("bhqk,bhkd->bhqd", ds, K_rot)  # (B, H, S, D)
-    dK_rot = jnp.einsum("bhkq,bhqd->bhkd", ds, Q_rot)  # (B, H, S, D)
+    dK_rot = jnp.einsum("bhqk,bhqd->bhkd", ds, Q_rot)  # (B, H, S, D)
     
     # Inverse RoPE to get raw Q and K gradients
     dQ_raw, dK_raw = apply_rotary_emb_inv(dQ_rot, dK_rot, cos, sin)

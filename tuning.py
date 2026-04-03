@@ -81,7 +81,6 @@ def define_search_space_phase2(trial, best_params):
                                   max(-0.1, wlb_best - 0.02),
                                   min(-0.01, wlb_best + 0.02)),
     }
-    
     # ALL OTHER PARAMETERS ARE FIXED FROM PHASE 1 BEST
     
 
@@ -140,7 +139,7 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 2
+        max_batches = 20
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
@@ -179,9 +178,8 @@ def run_single_trial_efe(trial):
                 elapsed = time.time() - start_time
                 print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
-        # Evaluate on 0 batches (skip evaluation)
         try:
-            final_ce, final_ppl = 1000.0, float('inf')
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
         except:
             final_ce = 1000.0
             final_ppl = float('inf')
@@ -244,7 +242,7 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 2
+    max_batches = 20
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
@@ -288,9 +286,9 @@ def run_phase2_trial(trial, best_params):
             elapsed = time.time() - start_time
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
-    # Evaluate on 0 batches (skip evaluation)
     try:
-        final_ce, final_ppl = avg_train_ce if batches_processed > 0 else 100.0, float('inf')
+        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+        final_ce = float(final_ce)
     except:
         final_ce = avg_train_ce if batches_processed > 0 else 100.0
         final_ppl = float('inf')

@@ -27,31 +27,36 @@ import gc
 
 EFE_STABILITY_THRESHOLD = 2e1
 
-
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 2, 16)
-    embed_mult = trial.suggest_int("embed_mult", 8, 32, step=4)
-    n_embed = n_heads * embed_mult
+    n_heads = trial.suggest_int("n_heads", 1, 3)
+    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
+    n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 64)
-    seq_len = trial.suggest_int("seq_len", 8, 256)
+    batch_size = trial.suggest_int("batch_size", 2, 32)
+    seq_len = trial.suggest_int("seq_len", 4, 8)
+    wub = trial.suggest_float("wub", 0.01, 0.1)
+    wlb = - wub
+    bub = trial.suggest_float("bub", 0.01, 0.5)
+    blb = -bub
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 16),
+        "n_layers": trial.suggest_int("n_layers", 1, 8),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-7, 1e-2, log=True),
-        "tau_m": trial.suggest_int("tau_m", 5, 100),
-        "n_iter": trial.suggest_int("n_iter", 1, 100),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.5),
-        "wub": trial.suggest_float("wub", 0.001, 0.5),
-        "wlb": trial.suggest_float("wlb", -0.5, -0.001),
+        "eta": trial.suggest_float("eta", 1e-5, 1e-1, log=True),
+        "tau_m": trial.suggest_float("tau_m", 1., 20., log=True),
+        "n_iter": trial.suggest_int("n_iter", 20, 200),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.0),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-    "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu", "tanh" ]),
+        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu", "gelu"]),
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
         "seq_len": seq_len,
+        "wub": wub,
+        "wlb":wlb,
+        "bub": bub,
+        "blb": blb,
         "embed_mult": embed_mult
     }
 

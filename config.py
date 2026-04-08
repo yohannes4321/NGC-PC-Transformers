@@ -10,7 +10,7 @@ class Config:
     eta = 5e-3
     exp_dir = "exp" 
     pos_learnable = True
-    optim_type = "sgd"
+    optim_type = "adam"
     epoch = 1
     n_iter= 26
     # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
@@ -26,3 +26,6 @@ class Config:
     # When tokenizer == "BPE", tokenizer_vocab_file may point to a vocab json or a newline token list.
     # Optional: set to None to use a simple fallback whitespace tokenizer.
     tokenizer_vocab_file = None
+    
+    # Scale for Hebbian mean normalization over batch and sequence
+    hebb_scale = 1.0 / ((batch_size * seq_len) ** 0.5)

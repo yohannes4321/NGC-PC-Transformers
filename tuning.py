@@ -30,24 +30,24 @@ EFE_STABILITY_THRESHOLD = 2e1
 
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
-    n_embed =  n_heads * embed_mult
+    n_heads = trial.suggest_int("n_heads", 2, 16)
+    embed_mult = trial.suggest_int("embed_mult", 8, 32, step=4)
+    n_embed = n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
+    batch_size = trial.suggest_int("batch_size", 2, 64)
+    seq_len = trial.suggest_int("seq_len", 8, 256)
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 8),
+        "n_layers": trial.suggest_int("n_layers", 1, 16),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
-        "wub": trial.suggest_float("wub", 0.01, 0.1),
-        "wlb": trial.suggest_float("wlb", -0.1, -0.01),
+        "eta": trial.suggest_float("eta", 1e-7, 1e-2, log=True),
+        "tau_m": trial.suggest_int("tau_m", 5, 100),
+        "n_iter": trial.suggest_int("n_iter", 1, 100),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.5),
+        "wub": trial.suggest_float("wub", 0.001, 0.5),
+        "wlb": trial.suggest_float("wlb", -0.5, -0.001),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+    "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu", "tanh" ]),
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,

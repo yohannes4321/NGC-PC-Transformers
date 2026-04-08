@@ -9,8 +9,9 @@ warnings.filterwarnings('ignore')
 logging.getLogger().setLevel(logging.ERROR)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 logging.getLogger('optuna').setLevel(logging.WARNING)
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3' 
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3'
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']  = 'false'
+os.environ['TF_GPU_ALLOCATOR']               = 'cuda_malloc_async'  # growing pool, no fixed pre-alloc
 
 
 import time
@@ -151,7 +152,7 @@ def run_single_trial_efe(trial):
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
-            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size).astype(jnp.bfloat16)
 
 
             try:
@@ -185,7 +186,7 @@ def run_single_trial_efe(trial):
                 print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
         try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=4)
         except:
             final_ce = 1000.0
             final_ppl = float('inf')
@@ -255,7 +256,7 @@ def run_phase2_trial(trial, best_params):
             break
         inputs = batch[0][1]
         targets = batch[1][1]
-        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size).astype(jnp.bfloat16)
 
         try:
             yMu_inf, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
@@ -293,7 +294,7 @@ def run_phase2_trial(trial, best_params):
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
     try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=4)
         final_ce = float(final_ce)
     except:
         final_ce = avg_train_ce if batches_processed > 0 else 100.0

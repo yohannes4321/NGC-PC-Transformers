@@ -4,6 +4,7 @@ class Config:
     n_embed = 16
     batch_size = 8
     vocab_size = 11710# data vocab size + special tokens = 11706 + 4
+    hebb_scale = 1.0 / ((batch_size * seq_len) ** 0.5)
     n_heads = 2
     n_layers = 2
     dropout_rate = 0.0
@@ -26,3 +27,6 @@ class Config:
     # When tokenizer == "BPE", tokenizer_vocab_file may point to a vocab json or a newline token list.
     # Optional: set to None to use a simple fallback whitespace tokenizer.
     tokenizer_vocab_file = None
+        
+    # Scale for Hebbian mean normalization over batch and sequence
+    hebb_scale = 1.0 / ((batch_size * seq_len) ** 0.5)

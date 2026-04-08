@@ -26,9 +26,9 @@ class MLP:
                     f"{prefix}W_mlp2", shape=(4*n_embed, n_embed), batch_size= batch_size * seq_len, eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),
                     bias_init=dist.constant(value=0.), w_bound=1., optim_type=optim_type, sign_value=-1.0, key=subkeys[5],prior=("l1l2", (0.001, 0.001)),pre_wght=config.hebb_scale, post_wght=config.hebb_scale)
         self.e_mlp2 = ErrorCell(f"{prefix}e_mlp2", n_units=n_embed,sigma=config.sigma_norm,
-                                  batch_size=batch_size * seq_len,sigma=config.sigma_norm_mlp1) # shape=(seq_len, n_embed, 1),
+                                  batch_size=batch_size * seq_len) # shape=(seq_len, n_embed, 1),
         self.e_mlp1 = ErrorCell(f"{prefix}e_mlp1", n_units= 4* n_embed, 
-                                  batch_size=batch_size * seq_len,sigma=config.sigma_norm_mlp1)
+                                  batch_size=batch_size * seq_len,sigma=config.sigma_norm)
         
         
         self.E_mlp1 = StaticSynapse(f"{prefix}E_mlp1", shape=(4 * n_embed,n_embed), weight_init=dist.uniform(low=wlb, high=wub), key=subkeys[4])

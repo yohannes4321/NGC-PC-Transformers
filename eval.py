@@ -17,8 +17,7 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     total_tokens = 0
 
     for batch_idx, batch in enumerate(data_loader):
-        if batch_idx > 0:
-            break
+       
         inputs = batch[0][1]
         targets = batch[1][1]
 

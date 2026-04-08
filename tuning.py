@@ -145,7 +145,7 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 20
+        max_batches = 2  # Only run up to batch 2 for each trial
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
@@ -185,7 +185,7 @@ def run_single_trial_efe(trial):
                 print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
         try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=4)
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=2)  # Only run up to batch 2 for eval
         except:
             final_ce = 1000.0
             final_ppl = float('inf')
@@ -248,7 +248,7 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 20
+    max_batches = 2  # Only run up to batch 2 for each trial
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
@@ -293,7 +293,7 @@ def run_phase2_trial(trial, best_params):
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
     try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=4)
+        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=2)  # Only run up to batch 2 for eval
         final_ce = float(final_ce)
     except:
         final_ce = avg_train_ce if batches_processed > 0 else 100.0

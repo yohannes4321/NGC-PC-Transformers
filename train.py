@@ -36,11 +36,13 @@ def main():
         train_EFE = 0.
         total_nll, total_tokens = 0., 0
 
+
         for batch_idx, batch in enumerate(data_loader):
+           
             inputs = batch[0][1]
             targets = batch[1][1]
 
-            targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
+            targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size).astype(jnp.bfloat16)
 
             _, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE
@@ -49,10 +51,14 @@ def main():
             batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()
             total_nll += batch_ce_loss * targets_flat.shape[0]
             total_tokens += targets_flat.shape[0]
+            del targets_flat, y_mu, y_pred  # free GPU buffers — batch_ce_loss/_EFE are already scalars
 
             if batch_idx % 10 == 0:
                 batch_ppl = jnp.exp(batch_ce_loss)
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+
+            if batch_idx == 0:
+                break
 
         num_batches = batch_idx + 1
         avg_train_EFE = train_EFE / num_batches

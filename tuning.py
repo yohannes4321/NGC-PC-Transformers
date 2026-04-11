@@ -9,8 +9,9 @@ warnings.filterwarnings('ignore')
 logging.getLogger().setLevel(logging.ERROR)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 logging.getLogger('optuna').setLevel(logging.WARNING)
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3' 
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3'
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']  = 'false'
+os.environ['TF_GPU_ALLOCATOR']               = 'cuda_malloc_async'  # growing pool, no fixed pre-alloc
 
 
 import time
@@ -25,33 +26,37 @@ from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
-EFE_STABILITY_THRESHOLD = 2e1
-
-
+EFE_STABILITY_THRESHOLD = 300
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 2, 8)
+    n_heads = trial.suggest_int("n_heads", 1, 3)
     embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
     n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
+    batch_size = trial.suggest_int("batch_size", 2, 32)
+    seq_len = trial.suggest_int("seq_len", 4, 8)
+    wub = trial.suggest_float("wub", 0.01, 0.1)
+    wlb = - wub
+    bub = trial.suggest_float("bub", 0.01, 0.5)
+    blb = -bub
 
     return {
         "n_layers": trial.suggest_int("n_layers", 1, 8),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
-        "wub": trial.suggest_float("wub", 0.01, 0.1),
-        "wlb": trial.suggest_float("wlb", -0.1, -0.01),
+        "eta": trial.suggest_float("eta", 1e-5, 1e-1, log=True),
+        "tau_m": trial.suggest_float("tau_m", 1., 20., log=True),
+        "n_iter": trial.suggest_int("n_iter", 20, 200),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.0),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu", "gelu"]),
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
         "seq_len": seq_len,
+        "wub": wub,
+        "wlb":wlb,
+        "bub": bub,
+        "blb": blb,
         "embed_mult": embed_mult
     }
 
@@ -140,13 +145,13 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 20
+        max_batches = 2  # Only run up to batch 2 for each trial
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
-            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size).astype(jnp.bfloat16)
 
 
             try:
@@ -180,7 +185,7 @@ def run_single_trial_efe(trial):
                 print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
         try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=2)  # Only run up to batch 2 for eval
         except:
             final_ce = 1000.0
             final_ppl = float('inf')
@@ -243,14 +248,14 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 20
+    max_batches = 2  # Only run up to batch 2 for each trial
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
             break
         inputs = batch[0][1]
         targets = batch[1][1]
-        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size).astype(jnp.bfloat16)
 
         try:
             yMu_inf, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
@@ -288,7 +293,7 @@ def run_phase2_trial(trial, best_params):
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
     try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=2)  # Only run up to batch 2 for eval
         final_ce = float(final_ce)
     except:
         final_ce = avg_train_ce if batches_processed > 0 else 100.0

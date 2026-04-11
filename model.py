@@ -16,6 +16,7 @@ from layers.output import Output
 from utils.model_util import ReshapeComponent, Outgrad
 from projection.projection import Projection
 import numpy as np
+from utils.random_init import RandomInit
 
 
 
@@ -75,7 +76,7 @@ class NGCTransformer:
                 self.blocks.append(block)   
                     
             self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
-                
+            self.random_init = RandomInit("random_init", batch_size=self.batch_size * self.seq_len,n_embed=self.n_embed)
             self.z_target=RateCell("z_target", n_units= self.vocab_size, tau_m=0., act_fx="identity", batch_size=self.batch_size * self.seq_len) 
             self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=tau_m, act_fx="softmax", batch_size=self.batch_size * self.seq_len)
             self.projection = Projection(dkey=subkeys[29], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size,
@@ -507,33 +508,7 @@ class NGCTransformer:
     def process(self, obs, lab, adapt_synapses=True):
         
         self.reset.run()
-        # self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
-        # if self.embedding.W_embed.pos_learnable:
-        #    self.projection.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.get())
-        # for i in range(self.n_layers):
-        #     block_proj= self.projection.blocks[i]
-        #     block= self.blocks[i] 
-        #     block_proj.Q_q.weights.set(block.attention.W_q.weights.get())
-        #     block_proj.Q_q.biases.set(block.attention.W_q.biases.get())
-        #     block_proj.Q_k.weights.set(block.attention.W_k.weights.get())
-        #     block_proj.Q_k.biases.set(block.attention.W_k.biases.get())
-        #     block_proj.Q_v.weights.set(block.attention.W_v.weights.get())
-        #     block_proj.Q_v.biases.set(block.attention.W_v.biases.get())
-        #     block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get())
-        #     block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
-        #     block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
-        #     block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
-        #     block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get())
-        #     block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get())
-        #     block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get())
-        #     block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get())
-        #     block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get())
-
-        # self.projection.Q_out.weights.set(self.output.W_out.weights.get())
-        # self.projection.Q_out.biases.set(self.output.W_out.biases.get())
-        # self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
         
-       
         self.clamp_input(obs)
         self.clamp_infer_target(lab)
         
@@ -541,11 +516,14 @@ class NGCTransformer:
 
 
         for i in range(self.n_layers):
-        #     block_proj= self.projection.blocks[i]   
+  
             b= self.blocks[i]
-        #     b.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
-        #     b.mlp.z_mlp.z.set(block_proj.q_mlp_Ratecell.z.get())
-        #     b.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
+        
+            self.random_init.advance_state()
+            b.attention.z_qkv.z.set(self.random_init.z_normal.get())
+            b.attention.z_attn.z.set(self.random_init.z_normal.get())
+            b.mlp.z_mlp.z.set(self.random_init.z_normal.get())
+            b.mlp.z_mlp2.z.set(self.random_init.z_4x_projection.get())
             b.attention.E_q.weights.set(jnp.transpose(b.attention.W_q.weights.get()))
             b.attention.E_k.weights.set(jnp.transpose(b.attention.W_k.weights.get()))
             b.attention.E_v.weights.set(jnp.transpose(b.attention.W_v.weights.get()))
@@ -554,12 +532,8 @@ class NGCTransformer:
             b.mlp.E_mlp1.weights.set(jnp.transpose(b.mlp.W_mlp1.weights.get()))
        
         self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
-        # self.output.z_out.z.set(self.projection.q_out_Ratecell.z.get())
-        # self.output.e_out.dmu.set(self.projection.eq_target.dmu.get())
-        # self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.get())
+        self.output.z_out.z.set(self.random_init.z_normal.get())
         
-        
-        ## get projected prediction (from the P-step)
         y_mu_inf = self.projection.q_target_Ratecell.z.get()
     
         EFE = 0. 

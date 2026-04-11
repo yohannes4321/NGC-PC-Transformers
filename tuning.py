@@ -514,24 +514,35 @@ def main():
         except Exception:
             num_gpus = 1
         print(f"[Launcher] Detected {num_gpus} GPUs.")
-        tunable_params = [
-            'n_heads', 'embed_mult', 'n_layers', 'batch_size', 'seq_len',
-            'wub', 'bub', 'eta', 'tau_m', 'n_iter'
-        ]
-        procs = []
-        for param in tunable_params:
-            for gpu_idx in range(num_gpus):
-                env = os.environ.copy()
-                env['TUNE_PARAM'] = param
-                env['TUNE_IDX'] = str(gpu_idx)
-                env['TUNE_NUM'] = str(num_gpus)
-                env['CUDA_VISIBLE_DEVICES'] = str(gpu_idx)
-                print(f"[Launcher] Launching: {sys.executable} {sys.argv[0]} (param={param}, gpu={gpu_idx})")
-                procs.append(subprocess.Popen([sys.executable, sys.argv[0]], env=env))
-        for p in procs:
-            p.wait()
-        print("[Launcher] All tuning jobs finished.")
-        return
+        if num_gpus == 1:
+            print("[Launcher] Only one GPU detected. Running tuning directly on GPU 0.")
+            # No param splitting, no subprocesses
+            os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+            # Clear split env vars if present
+            os.environ.pop('TUNE_PARAM', None)
+            os.environ.pop('TUNE_IDX', None)
+            os.environ.pop('TUNE_NUM', None)
+            # Run tuning directly
+            # ...proceed to normal worker logic below...
+        else:
+            tunable_params = [
+                'n_heads', 'embed_mult', 'n_layers', 'batch_size', 'seq_len',
+                'wub', 'bub', 'eta', 'tau_m', 'n_iter'
+            ]
+            procs = []
+            for param in tunable_params:
+                for gpu_idx in range(num_gpus):
+                    env = os.environ.copy()
+                    env['TUNE_PARAM'] = param
+                    env['TUNE_IDX'] = str(gpu_idx)
+                    env['TUNE_NUM'] = str(num_gpus)
+                    env['CUDA_VISIBLE_DEVICES'] = str(gpu_idx)
+                    print(f"[Launcher] Launching: {sys.executable} {sys.argv[0]} (param={param}, gpu={gpu_idx})")
+                    procs.append(subprocess.Popen([sys.executable, sys.argv[0]], env=env))
+            for p in procs:
+                p.wait()
+            print("[Launcher] All tuning jobs finished.")
+            return
 
     # Worker: read split info from env vars
     param_split = None

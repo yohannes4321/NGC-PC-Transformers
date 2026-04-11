@@ -1,14 +1,19 @@
+
 import os
 import sys
 import warnings
 import logging
 import optuna
+import argparse
+import subprocess
 
 warnings.filterwarnings('ignore')
 
 logging.getLogger().setLevel(logging.ERROR)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 logging.getLogger('optuna').setLevel(logging.WARNING)
+
+# GPU selection will be set later via argparse
 os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3'
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']  = 'false'
 os.environ['TF_GPU_ALLOCATOR']               = 'cuda_malloc_async'  # growing pool, no fixed pre-alloc
@@ -27,28 +32,95 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
 EFE_STABILITY_THRESHOLD = 300
-def define_search_space(trial):
+def define_search_space(trial, param_split=None):
+    # param_split: dict with keys 'param', 'idx', 'num', 'ranges' (optional)
     # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 1, 3)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
+    # Define all parameter ranges
+    param_ranges = {
+        'n_heads': (1, 3, 'int'),
+        'embed_mult': (8, 16, 'int', 4),
+        'n_layers': (1, 8, 'int'),
+        'batch_size': (2, 32, 'int'),
+        'seq_len': (4, 8, 'int'),
+        'wub': (0.01, 0.1, 'float'),
+        'bub': (0.01, 0.5, 'float'),
+        'eta': (1e-5, 1e-1, 'float', 'log'),
+        'tau_m': (1., 20., 'float', 'log'),
+        'n_iter': (20, 200, 'int'),
+        'dropout_rate': (0.0, 0.0, 'float'),
+    }
+    # Categorical
+    pos_learnable_choices = [True, False]
+    optim_type_choices = ["adam", "sgd"]
+    act_fx_choices = ["identity", "relu", "gelu"]
+
+    # If splitting, adjust the range for the selected parameter
+    split_param = None
+    if param_split is not None:
+        split_param = param_split.get('param')
+        idx = param_split.get('idx', 0)
+        num = param_split.get('num', 1)
+        # Only split if param is in param_ranges
+        if split_param in param_ranges:
+            lo, hi, typ, *extra = param_ranges[split_param]
+            # Integer or float
+            if typ == 'int':
+                step = extra[0] if extra else 1
+                values = list(range(lo, hi+1, step))
+                chunk = len(values) // num
+                start = idx * chunk
+                end = (idx+1)*chunk if idx < num-1 else len(values)
+                values = values[start:end]
+                if len(values) == 1:
+                    param_ranges[split_param] = (values[0], values[0], 'int')
+                else:
+                    param_ranges[split_param] = (values[0], values[-1], 'int', step)
+            elif typ == 'float':
+                if extra and extra[0] == 'log':
+                    import numpy as np
+                    values = np.logspace(np.log10(lo), np.log10(hi), num+1)
+                    split_lo = float(values[idx])
+                    split_hi = float(values[idx+1])
+                    param_ranges[split_param] = (split_lo, split_hi, 'float', 'log')
+                else:
+                    width = (hi - lo) / num
+                    split_lo = lo + idx * width
+                    split_hi = lo + (idx+1) * width if idx < num-1 else hi
+                    param_ranges[split_param] = (split_lo, split_hi, 'float')
+
+    # Now use the possibly-updated param_ranges
+    n_heads = trial.suggest_int("n_heads", *param_ranges['n_heads'][:2])
+    embed_mult = trial.suggest_int("embed_mult", *param_ranges['embed_mult'][:2], step=param_ranges['embed_mult'][3])
     n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 32)
-    seq_len = trial.suggest_int("seq_len", 4, 8)
-    wub = trial.suggest_float("wub", 0.01, 0.1)
+    batch_size = trial.suggest_int("batch_size", *param_ranges['batch_size'][:2])
+    seq_len = trial.suggest_int("seq_len", *param_ranges['seq_len'][:2])
+    wub = trial.suggest_float("wub", *param_ranges['wub'][:2])
     wlb = - wub
-    bub = trial.suggest_float("bub", 0.01, 0.5)
+    bub = trial.suggest_float("bub", *param_ranges['bub'][:2])
     blb = -bub
 
+    # Float/log
+    if len(param_ranges['eta']) > 3 and param_ranges['eta'][3] == 'log':
+        eta = trial.suggest_float("eta", param_ranges['eta'][0], param_ranges['eta'][1], log=True)
+    else:
+        eta = trial.suggest_float("eta", param_ranges['eta'][0], param_ranges['eta'][1])
+    if len(param_ranges['tau_m']) > 3 and param_ranges['tau_m'][3] == 'log':
+        tau_m = trial.suggest_float("tau_m", param_ranges['tau_m'][0], param_ranges['tau_m'][1], log=True)
+    else:
+        tau_m = trial.suggest_float("tau_m", param_ranges['tau_m'][0], param_ranges['tau_m'][1])
+    n_iter = trial.suggest_int("n_iter", *param_ranges['n_iter'][:2])
+    dropout_rate = trial.suggest_float("dropout_rate", *param_ranges['dropout_rate'][:2])
+
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 8),
-        "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-5, 1e-1, log=True),
-        "tau_m": trial.suggest_float("tau_m", 1., 20., log=True),
-        "n_iter": trial.suggest_int("n_iter", 20, 200),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.0),
-        "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu", "gelu"]),
+        "n_layers": trial.suggest_int("n_layers", *param_ranges['n_layers'][:2]),
+        "pos_learnable": trial.suggest_categorical("pos_learnable", pos_learnable_choices),
+        "eta": eta,
+        "tau_m": tau_m,
+        "n_iter": n_iter,
+        "dropout_rate": dropout_rate,
+        "optim_type": trial.suggest_categorical("optim_type", optim_type_choices),
+        "act_fx": trial.suggest_categorical("act_fx", act_fx_choices),
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
@@ -120,9 +192,9 @@ def create_model_with_all_params(trial_number, params, cfg):
 
     model = NGCTransformer(**model_args)
     return model, train_loader, valid_loader
-def run_single_trial_efe(trial):
+def run_single_trial_efe(trial, param_split=None):
     try:
-        params = define_search_space(trial)
+        params = define_search_space(trial, param_split)
         print(f"[EFE Phase] Trial {trial.number} | params: {params}")
 
         cfg = type('Config', (), {})()
@@ -309,7 +381,8 @@ def run_phase2_trial(trial, best_params):
     print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
     return float(final_ce)  
 
-def case1_efe_to_ce_complete():
+
+def case1_efe_to_ce_complete(param_split=None):
     Path("tuning").mkdir(exist_ok=True)
 
     print("PHASE 1: TPE optimizing EFE (all parameters)")
@@ -322,7 +395,10 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
+    def trial_wrapper(trial):
+        return run_single_trial_efe(trial, param_split)
+
+    study_efe.optimize(trial_wrapper, n_trials=10, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
@@ -425,7 +501,50 @@ def case1_efe_to_ce_complete():
         }
     return None
 
+
+
 def main():
+    import sys
+    # Minimal change: if LAUNCHER env var is set, spawn subprocesses for each param and GPU
+    if os.environ.get('LAUNCHER', '0') == '1':
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            num_gpus = pynvml.nvmlDeviceGetCount()
+        except Exception:
+            num_gpus = 1
+        print(f"[Launcher] Detected {num_gpus} GPUs.")
+        tunable_params = [
+            'n_heads', 'embed_mult', 'n_layers', 'batch_size', 'seq_len',
+            'wub', 'bub', 'eta', 'tau_m', 'n_iter'
+        ]
+        procs = []
+        for param in tunable_params:
+            for gpu_idx in range(num_gpus):
+                env = os.environ.copy()
+                env['TUNE_PARAM'] = param
+                env['TUNE_IDX'] = str(gpu_idx)
+                env['TUNE_NUM'] = str(num_gpus)
+                env['CUDA_VISIBLE_DEVICES'] = str(gpu_idx)
+                print(f"[Launcher] Launching: {sys.executable} {sys.argv[0]} (param={param}, gpu={gpu_idx})")
+                procs.append(subprocess.Popen([sys.executable, sys.argv[0]], env=env))
+        for p in procs:
+            p.wait()
+        print("[Launcher] All tuning jobs finished.")
+        return
+
+    # Worker: read split info from env vars
+    param_split = None
+    param = os.environ.get('TUNE_PARAM')
+    idx = os.environ.get('TUNE_IDX')
+    num = os.environ.get('TUNE_NUM')
+    gpu = os.environ.get('CUDA_VISIBLE_DEVICES')
+    if param and idx and num:
+        param_split = {'param': param, 'idx': int(idx), 'num': int(num)}
+        print(f"Splitting parameter '{param}' for GPU {int(idx)+1}/{int(num)}")
+    if gpu:
+        print(f"Using GPU: {gpu}")
+
     print("PC TRANSFORMER - TWO-PHASE HYPERPARAMETER TUNING")
     print("="*60)
     print("PHASE 1: Find stable architecture (minimize EFE)")
@@ -433,7 +552,7 @@ def main():
     print("="*60)
 
     try:
-        results = case1_efe_to_ce_complete()
+        results = case1_efe_to_ce_complete(param_split=param_split)
         if results:
             print(f"\n{'='*60}")
             print("TUNING COMPLETED SUCCESSFULLY")
@@ -455,4 +574,5 @@ def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
+    # To launch all splits: LAUNCHER=1 python tuning.py
     main()

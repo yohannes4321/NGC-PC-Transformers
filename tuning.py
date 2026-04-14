@@ -4,6 +4,9 @@ import warnings
 import logging
 import optuna
 
+if "CUDA_VISIBLE_DEVICES" not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 warnings.filterwarnings('ignore')
 
 logging.getLogger().setLevel(logging.ERROR)
@@ -11,8 +14,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 logging.getLogger('optuna').setLevel(logging.WARNING)
 os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3'
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']  = 'false'
-os.environ['TF_GPU_ALLOCATOR']               = 'cuda_malloc_async'  # growing pool, no fixed pre-alloc
-
+os.environ['TF_GPU_ALLOCATOR']               = 'cuda_malloc_async'
 
 import time
 import jax
@@ -122,6 +124,10 @@ def create_model_with_all_params(trial_number, params, cfg):
     return model, train_loader, valid_loader
 def run_single_trial_efe(trial):
     try:
+        gpu_id = trial.number % jax.device_count()
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        print(f"[Trial {trial.number}] Using GPU {gpu_id}")
+        
         params = define_search_space(trial)
         print(f"[EFE Phase] Trial {trial.number} | params: {params}")
 
@@ -220,7 +226,10 @@ def run_single_trial_efe(trial):
             pass
 
 def run_phase2_trial(trial, best_params):
-    """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
+    gpu_id = trial.number % jax.device_count()
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    print(f"[Trial {trial.number}] Using GPU {gpu_id}")
+    
     continuous_params = define_search_space_phase2(trial, best_params)
     params = {**best_params, **continuous_params}
     tuning_params = {k: v for k, v in params.items() if k in ['eta', 'dropout_rate', 'wub', 'wlb']}
@@ -322,7 +331,7 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs=jax.device_count(), show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
@@ -371,7 +380,7 @@ def case1_efe_to_ce_complete():
     def phase2_trial_wrapper(trial):
         return run_phase2_trial(trial, best_params)
 
-    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs= 1, show_progress_bar=False)
+    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs=jax.device_count(), show_progress_bar=False)
 
     if study_ce.best_trial:
         best_ce = study_ce.best_value

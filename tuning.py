@@ -29,6 +29,31 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
 EFE_STABILITY_THRESHOLD = 300
+
+# Device and scheduling controls.
+# - TUNING_N_JOBS can force Optuna parallel jobs.
+# - TUNING_CLEAR_JAX_CACHE=1 restores per-trial cache clearing (slower but lower memory).
+AVAILABLE_DEVICES = max(1, jax.device_count())
+DEFAULT_N_JOBS = 1 if AVAILABLE_DEVICES == 1 else AVAILABLE_DEVICES
+_n_jobs_env = os.environ.get("TUNING_N_JOBS")
+if _n_jobs_env is not None:
+    try:
+        TUNING_N_JOBS = max(1, min(int(_n_jobs_env), AVAILABLE_DEVICES))
+    except ValueError:
+        TUNING_N_JOBS = DEFAULT_N_JOBS
+else:
+    TUNING_N_JOBS = DEFAULT_N_JOBS
+
+CLEAR_JAX_CACHE_EVERY_TRIAL = os.environ.get("TUNING_CLEAR_JAX_CACHE", "0") == "1"
+
+
+def _log_device_mode():
+    print(f"JAX devices visible: {AVAILABLE_DEVICES}")
+    print(f"Optuna n_jobs: {TUNING_N_JOBS}")
+    if AVAILABLE_DEVICES == 1:
+        print("Single-GPU mode: using one worker and fixed device placement.")
+
+
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
     n_heads = trial.suggest_int("n_heads", 1, 3)
@@ -124,9 +149,7 @@ def create_model_with_all_params(trial_number, params, cfg):
     return model, train_loader, valid_loader
 def run_single_trial_efe(trial):
     try:
-        gpu_id = trial.number % jax.device_count()
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        print(f"[Trial {trial.number}] Using GPU {gpu_id}")
+        print(f"[Trial {trial.number}] Starting EFE trial")
         
         params = define_search_space(trial)
         print(f"[EFE Phase] Trial {trial.number} | params: {params}")
@@ -215,20 +238,18 @@ def run_single_trial_efe(trial):
             if obj_name in locals() and locals()[obj_name] is not None:
                 del locals()[obj_name]
         
-        # Force garbage collection
-        for _ in range(2):
-            gc.collect()
+        # Keep cleanup lightweight for speed; use env var if aggressive cache cleanup is needed.
+        gc.collect()
         
         # Clear JAX caches
-        try:
-            jax.clear_caches()
-        except:
-            pass
+        if CLEAR_JAX_CACHE_EVERY_TRIAL:
+            try:
+                jax.clear_caches()
+            except:
+                pass
 
 def run_phase2_trial(trial, best_params):
-    gpu_id = trial.number % jax.device_count()
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    print(f"[Trial {trial.number}] Using GPU {gpu_id}")
+    print(f"[Trial {trial.number}] Starting CE trial")
     
     continuous_params = define_search_space_phase2(trial, best_params)
     params = {**best_params, **continuous_params}
@@ -320,6 +341,7 @@ def run_phase2_trial(trial, best_params):
 
 def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)
+    _log_device_mode()
 
     print("PHASE 1: TPE optimizing EFE (all parameters)")
     study_efe = optuna.create_study(
@@ -331,7 +353,7 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs=jax.device_count(), show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs=TUNING_N_JOBS, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
@@ -380,7 +402,7 @@ def case1_efe_to_ce_complete():
     def phase2_trial_wrapper(trial):
         return run_phase2_trial(trial, best_params)
 
-    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs=jax.device_count(), show_progress_bar=False)
+    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs=TUNING_N_JOBS, show_progress_bar=False)
 
     if study_ce.best_trial:
         best_ce = study_ce.best_value

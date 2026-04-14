@@ -62,7 +62,7 @@ def define_search_space(trial):
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
     batch_size = trial.suggest_int("batch_size", 2, 32)
     seq_len = trial.suggest_int("seq_len", 4, 8)
-    wub = trial.suggest_float("wub", 0.01, 0.1)
+    wub = trial.suggest_float("wub", 0.01, 0.05)
     wlb = - wub
     bub = trial.suggest_float("bub", 0.01, 0.5)
     blb = -bub
@@ -70,9 +70,9 @@ def define_search_space(trial):
     return {
         "n_layers": trial.suggest_int("n_layers", 1, 8),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-5, 1e-1, log=True),
-        "tau_m": trial.suggest_float("tau_m", 1., 20., log=True),
-        "n_iter": trial.suggest_int("n_iter", 20, 200),
+        "eta": trial.suggest_float("eta", 1e-5, 3e-3, log=True),
+        "tau_m": trial.suggest_float("tau_m", 3., 20., log=True),
+        "n_iter": trial.suggest_int("n_iter", 20, 120),
         "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.0),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
         "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu", "gelu"]),
@@ -99,19 +99,19 @@ def define_search_space_phase2(trial, best_params):
     # Only tune these continuous parameters with narrow search
     return {
         "eta": trial.suggest_float("eta",
-                                   eta_best * 0.2,      
-                                   eta_best * 5.0,      
-                                   log=True),
+                       eta_best * 0.3,
+                       eta_best * 2.0,
+                       log=True),
         "dropout_rate": trial.suggest_float("dropout_rate",
                                            max(0.0, dropout_rate_best - 0.05),
                                            min(0.3, dropout_rate_best + 0.05)),
         "wub": trial.suggest_float("wub",
-                                  max(0.01, wub_best - 0.02),
-                                  min(0.1, wub_best + 0.02)),
+                      max(0.01, wub_best - 0.01),
+                      min(0.05, wub_best + 0.01)),
         
         "wlb": trial.suggest_float("wlb",
-                                  max(-0.1, wlb_best - 0.02),
-                                  min(-0.01, wlb_best + 0.02)),
+                      max(-0.05, wlb_best - 0.01),
+                      min(-0.01, wlb_best + 0.01)),
     }
     
     # ALL OTHER PARAMETERS ARE FIXED FROM PHASE 1 BEST

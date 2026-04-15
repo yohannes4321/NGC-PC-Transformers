@@ -17,10 +17,11 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
     total_tokens = 0
 
     for batch_idx, batch in enumerate(data_loader):
+       
         inputs = batch[0][1]
         targets = batch[1][1]
 
-        targets_flat = jax.nn.one_hot(targets.flatten(), vocab_size)
+        targets_flat = jax.nn.one_hot(targets.flatten(), vocab_size).astype(jnp.bfloat16)
         _, y_mu, _ = model.process(obs=inputs,
                                    lab=targets_flat,
                                    adapt_synapses=False)

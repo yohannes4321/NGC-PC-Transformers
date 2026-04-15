@@ -4,14 +4,17 @@ import warnings
 import logging
 import optuna
 
+if "CUDA_VISIBLE_DEVICES" not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 warnings.filterwarnings('ignore')
 
 logging.getLogger().setLevel(logging.ERROR)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 logging.getLogger('optuna').setLevel(logging.WARNING)
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3' 
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
-
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3'
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']  = 'false'
+os.environ['TF_GPU_ALLOCATOR']               = 'cuda_malloc_async'
 
 import time
 import jax
@@ -25,33 +28,62 @@ from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
-EFE_STABILITY_THRESHOLD = 2e1
+EFE_STABILITY_THRESHOLD = 300
+
+# Device and scheduling controls.
+# - TUNING_N_JOBS can force Optuna parallel jobs.
+# - TUNING_CLEAR_JAX_CACHE=1 restores per-trial cache clearing (slower but lower memory).
+AVAILABLE_DEVICES = max(1, jax.device_count())
+DEFAULT_N_JOBS = 1 if AVAILABLE_DEVICES == 1 else AVAILABLE_DEVICES
+_n_jobs_env = os.environ.get("TUNING_N_JOBS")
+if _n_jobs_env is not None:
+    try:
+        TUNING_N_JOBS = max(1, min(int(_n_jobs_env), AVAILABLE_DEVICES))
+    except ValueError:
+        TUNING_N_JOBS = DEFAULT_N_JOBS
+else:
+    TUNING_N_JOBS = DEFAULT_N_JOBS
+
+CLEAR_JAX_CACHE_EVERY_TRIAL = os.environ.get("TUNING_CLEAR_JAX_CACHE", "0") == "1"
+
+
+def _log_device_mode():
+    print(f"JAX devices visible: {AVAILABLE_DEVICES}")
+    print(f"Optuna n_jobs: {TUNING_N_JOBS}")
+    if AVAILABLE_DEVICES == 1:
+        print("Single-GPU mode: using one worker and fixed device placement.")
 
 
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 2, 8)
+    n_heads = trial.suggest_int("n_heads", 1, 3)
     embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
     n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
+    batch_size = trial.suggest_int("batch_size", 2, 32)
+    seq_len = trial.suggest_int("seq_len", 4, 8)
+    wub = trial.suggest_float("wub", 0.01, 0.05)
+    wlb = - wub
+    bub = trial.suggest_float("bub", 0.01, 0.5)
+    blb = -bub
 
     return {
         "n_layers": trial.suggest_int("n_layers", 1, 8),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
-        "wub": trial.suggest_float("wub", 0.01, 0.1),
-        "wlb": trial.suggest_float("wlb", -0.1, -0.01),
+        "eta": trial.suggest_float("eta", 1e-5, 3e-3, log=True),
+        "tau_m": trial.suggest_float("tau_m", 3., 20., log=True),
+        "n_iter": trial.suggest_int("n_iter", 20, 120),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.0),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu", "gelu"]),
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
         "seq_len": seq_len,
+        "wub": wub,
+        "wlb":wlb,
+        "bub": bub,
+        "blb": blb,
         "embed_mult": embed_mult
     }
 
@@ -67,19 +99,19 @@ def define_search_space_phase2(trial, best_params):
     # Only tune these continuous parameters with narrow search
     return {
         "eta": trial.suggest_float("eta",
-                                   eta_best * 0.2,      
-                                   eta_best * 5.0,      
-                                   log=True),
+                       eta_best * 0.3,
+                       eta_best * 2.0,
+                       log=True),
         "dropout_rate": trial.suggest_float("dropout_rate",
                                            max(0.0, dropout_rate_best - 0.05),
                                            min(0.3, dropout_rate_best + 0.05)),
         "wub": trial.suggest_float("wub",
-                                  max(0.01, wub_best - 0.02),
-                                  min(0.1, wub_best + 0.02)),
+                      max(0.01, wub_best - 0.01),
+                      min(0.05, wub_best + 0.01)),
         
         "wlb": trial.suggest_float("wlb",
-                                  max(-0.1, wlb_best - 0.02),
-                                  min(-0.01, wlb_best + 0.02)),
+                      max(-0.05, wlb_best - 0.01),
+                      min(-0.01, wlb_best + 0.01)),
     }
     
     # ALL OTHER PARAMETERS ARE FIXED FROM PHASE 1 BEST
@@ -117,6 +149,8 @@ def create_model_with_all_params(trial_number, params, cfg):
     return model, train_loader, valid_loader
 def run_single_trial_efe(trial):
     try:
+        print(f"[Trial {trial.number}] Starting EFE trial")
+        
         params = define_search_space(trial)
         print(f"[EFE Phase] Trial {trial.number} | params: {params}")
 
@@ -140,13 +174,13 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 20
+        max_batches = 2  # Only run up to batch 2 for each trial
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
-            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size).astype(jnp.bfloat16)
 
 
             try:
@@ -180,7 +214,7 @@ def run_single_trial_efe(trial):
                 print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
         try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=2)  # Only run up to batch 2 for eval
         except:
             final_ce = 1000.0
             final_ppl = float('inf')
@@ -204,18 +238,19 @@ def run_single_trial_efe(trial):
             if obj_name in locals() and locals()[obj_name] is not None:
                 del locals()[obj_name]
         
-        # Force garbage collection
-        for _ in range(2):
-            gc.collect()
+        # Keep cleanup lightweight for speed; use env var if aggressive cache cleanup is needed.
+        gc.collect()
         
         # Clear JAX caches
-        try:
-            jax.clear_caches()
-        except:
-            pass
+        if CLEAR_JAX_CACHE_EVERY_TRIAL:
+            try:
+                jax.clear_caches()
+            except:
+                pass
 
 def run_phase2_trial(trial, best_params):
-    """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
+    print(f"[Trial {trial.number}] Starting CE trial")
+    
     continuous_params = define_search_space_phase2(trial, best_params)
     params = {**best_params, **continuous_params}
     tuning_params = {k: v for k, v in params.items() if k in ['eta', 'dropout_rate', 'wub', 'wlb']}
@@ -243,14 +278,14 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 20
+    max_batches = 2  # Only run up to batch 2 for each trial
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
             break
         inputs = batch[0][1]
         targets = batch[1][1]
-        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size).astype(jnp.bfloat16)
 
         try:
             yMu_inf, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
@@ -288,7 +323,7 @@ def run_phase2_trial(trial, best_params):
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
     try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size, max_batches=2)  # Only run up to batch 2 for eval
         final_ce = float(final_ce)
     except:
         final_ce = avg_train_ce if batches_processed > 0 else 100.0
@@ -306,6 +341,7 @@ def run_phase2_trial(trial, best_params):
 
 def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)
+    _log_device_mode()
 
     print("PHASE 1: TPE optimizing EFE (all parameters)")
     study_efe = optuna.create_study(
@@ -317,7 +353,7 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs=TUNING_N_JOBS, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
@@ -366,7 +402,7 @@ def case1_efe_to_ce_complete():
     def phase2_trial_wrapper(trial):
         return run_phase2_trial(trial, best_params)
 
-    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs= 1, show_progress_bar=False)
+    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs=TUNING_N_JOBS, show_progress_bar=False)
 
     if study_ce.best_trial:
         best_ce = study_ce.best_value

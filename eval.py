@@ -93,6 +93,7 @@ if __name__ == "__main__":
         optim_type=config.optim_type,
         wub=config.wub,
         wlb=config.wlb,
+        w_bound=config.w_bound,
     )
     data_loader = DataLoader(seq_len=config.seq_len, batch_size=config.batch_size)
     _, _, test_loader = data_loader.load_and_prepare_data()

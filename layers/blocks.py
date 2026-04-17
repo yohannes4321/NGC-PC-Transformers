@@ -8,7 +8,7 @@ from utils.rms_norm_util import RMSNorm
 
 class Block:
     def __init__(self, dkey, block_id, n_embed, seq_len, vocab_size,
-                 batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, tau_m, **kwargs):
+                 batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, tau_m, w_bound=0.5, **kwargs):
         
         dkey, attn_key, mlp_key = random.split(dkey, 3)
         prefix = f"block{block_id}_"
@@ -17,11 +17,11 @@ class Block:
 
         self.attention = Attention(dkey=attn_key, n_embed=n_embed, seq_len=seq_len,
                                  batch_size=batch_size, n_heads=n_heads,
-                                 dropout_rate=dropout_rate, eta=eta, optim_type= optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m)
+                                 dropout_rate=dropout_rate, eta=eta, optim_type= optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m, w_bound=w_bound)
         
         # self.ln2 = RMSNorm(f"{prefix}ln2", n_embed=n_embed, batch_size= batch_size * seq_len)
         self.mlp = MLP(dkey=mlp_key, n_embed=n_embed, seq_len=seq_len,
-                      batch_size=batch_size, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m)
+                      batch_size=batch_size, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m, w_bound=w_bound)
 
         
         self.reshape_2d_to_3d_q = ReshapeComponent(f"{prefix}reshape_2d_to_3d_q",

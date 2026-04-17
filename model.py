@@ -588,7 +588,7 @@ class NGCTransformer:
         EFE = L4 + block_errors + L1
 
         if adapt_synapses == True:
-                self.embedding_evolve.run()
+            self.embedding_evolve.run()
             self.evolve.run(t=self.T,dt=self.dt)
                 
         ## skip E/M steps if just doing test-time inference

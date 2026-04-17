@@ -2,6 +2,7 @@ from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, Hebbia
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from jax import numpy as jnp, random, jit
 import jax
+import math
 from config import Config as config
 from utils.attention_utils import AttentionBlock
 from utils.attn_ratecell import AttnRateCell
@@ -31,7 +32,7 @@ class Attention:
     def __init__(self, dkey, n_embed, seq_len, batch_size, n_heads, dropout_rate, eta, optim_type, wub, wlb, prefix, tau_m, w_bound=0.35, **kwargs):
     
         dkey, *subkeys = random.split(dkey, 10)
-        pre_scale = 1.0 / jnp.sqrt(float(max(batch_size * seq_len, 1)))
+        pre_scale = 1.0 / math.sqrt(max(batch_size * seq_len, 1))
         hebb_prior = getattr(config, "hebb_prior", (0.003, 0.2))
 
         self.z_qkv = AttnRateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=tau_m, 

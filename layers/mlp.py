@@ -1,5 +1,6 @@
 import jax
 from jax import numpy as jnp, random, jit
+import math
 from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, HebbianSynapse, StaticSynapse
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 from config import Config as config
@@ -15,7 +16,7 @@ class MLP:
 
     def __init__(self, dkey,n_embed, seq_len, batch_size, eta, optim_type, wub , wlb, prefix, tau_m, w_bound=0.35, **kwargs):
         dkey, *subkeys = random.split(dkey, 10)
-        pre_scale = 1.0 / jnp.sqrt(float(max(batch_size * seq_len, 1)))
+        pre_scale = 1.0 / math.sqrt(max(batch_size * seq_len, 1))
         hebb_prior = getattr(config, "hebb_prior", (0.003, 0.2))
        
 

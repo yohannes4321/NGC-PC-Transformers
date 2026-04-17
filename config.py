@@ -7,15 +7,20 @@ class Config:
     n_heads = 2
     n_layers = 2
     dropout_rate = 0.0
-    eta = 4.919042890915579e-06
+    eta = 5e-5
     exp_dir = "exp" 
     pos_learnable = True
-    optim_type = "sgd"
+    optim_type = "adam"
     epoch = 1
     n_iter= 26
+    dt = 0.75
     # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
     wub = 0.035284728580901155
     wlb =  -0.07318664527441558
+    # Positive value enables synaptic clipping in HebbianSynapse.
+    w_bound = 0.7
+    # Elastic-net prior settings used by HebbianSynapse as (scale, l1_ratio).
+    hebb_prior = (0.0015, 0.1)
     tau_m = 11.
     act_fx = "identity"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"

@@ -13,18 +13,22 @@ class MLP:
     `target` and `td_error` to match how the model wires layers.
     """
 
-    def __init__(self, dkey,n_embed, seq_len, batch_size, eta, optim_type, wub , wlb, prefix, tau_m, **kwargs):
+    def __init__(self, dkey,n_embed, seq_len, batch_size, eta, optim_type, wub , wlb, prefix, tau_m, w_bound=0.35, **kwargs):
         dkey, *subkeys = random.split(dkey, 10)
+        pre_scale = 1.0 / jnp.sqrt(float(max(batch_size * seq_len, 1)))
+        hebb_prior = getattr(config, "hebb_prior", (0.003, 0.2))
        
 
         self.z_mlp = RateCell(f"{prefix}z_mlp", n_units=n_embed, tau_m=tau_m, act_fx="identity", batch_size=batch_size * seq_len)
         self.z_mlp2 = RateCell(f"{prefix}z_mlp2", n_units= 4* n_embed, tau_m= tau_m, act_fx="gelu", batch_size=batch_size * seq_len)
         
         self.W_mlp1 = HebbianSynapse(f"{prefix}W_mlp1", shape=(n_embed, 4*n_embed), batch_size = batch_size * seq_len, eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),
-                    bias_init=dist.constant(value=0.), w_bound=0., optim_type=optim_type, sign_value=-1.0, key=subkeys[4],prior=("l1l2", (0.001, 0.001)))
+                    bias_init=dist.constant(value=0.), w_bound=w_bound, optim_type=optim_type, sign_value=-1.0, key=subkeys[4],
+                    pre_wght=pre_scale, prior=("l1l2", hebb_prior))
         self.W_mlp2 = HebbianSynapse(
                     f"{prefix}W_mlp2", shape=(4*n_embed, n_embed), batch_size= batch_size * seq_len, eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),
-                    bias_init=dist.constant(value=0.), w_bound=0., optim_type=optim_type, sign_value=-1.0, key=subkeys[5],prior=("l1l2", (0.001, 0.001)))
+                    bias_init=dist.constant(value=0.), w_bound=w_bound, optim_type=optim_type, sign_value=-1.0, key=subkeys[5],
+                    pre_wght=pre_scale, prior=("l1l2", hebb_prior))
         self.e_mlp = ErrorCell(f"{prefix}e_mlp", n_units=n_embed, 
                                   batch_size=batch_size * seq_len) # shape=(seq_len, n_embed, 1),   
         self.e_mlp1 = ErrorCell(f"{prefix}e_mlp1", n_units= 4* n_embed, 

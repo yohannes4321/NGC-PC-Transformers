@@ -45,17 +45,19 @@ class NGCTransformer:
     """
 
    
-    def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, n_layers, n_heads, T, dt, tau_m, act_fx, eta, dropout_rate, exp_dir, model_name, loadDir=None, pos_learnable=False, optim_type="adam", wub=1.0, wlb=0.0, **kwargs):
+    def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, n_layers, n_heads, T, dt, tau_m, act_fx, eta, dropout_rate, exp_dir, model_name, loadDir=None, pos_learnable=False, optim_type="adam", wub=1.0, wlb=0.0, w_bound=0.35, **kwargs):
 
         self.exp_dir = exp_dir
         self.model_name = model_name
         self.nodes = None
         self.n_layers = n_layers
         self.T = T
+        self.dt = dt
         self.batch_size= batch_size
         self.seq_len= seq_len
         self.vocab_size= vocab_size
         self.n_embed= n_embed
+        self.w_bound = w_bound
         
         if exp_dir is not None:
             makedir(exp_dir)
@@ -71,10 +73,10 @@ class NGCTransformer:
             for i in range(n_layers):
                 key, subkey = random.split(subkeys[1 + i])
                 block=Block(dkey=subkey, block_id= i, n_embed=self.n_embed, seq_len=self.seq_len,
-                                batch_size=self.batch_size, vocab_size=self.vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m)
+                                batch_size=self.batch_size, vocab_size=self.vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m, w_bound=self.w_bound)
                 self.blocks.append(block)   
                     
-            self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
+            self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m, w_bound=self.w_bound)
                 
             self.z_target=RateCell("z_target", n_units= self.vocab_size, tau_m=0., act_fx="identity", batch_size=self.batch_size * self.seq_len) 
             self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=tau_m, act_fx="softmax", batch_size=self.batch_size * self.seq_len)
@@ -570,7 +572,7 @@ class NGCTransformer:
             self.clamp_input(obs)
             self.clamp_target(lab)
              
-            self.advance.run(t=ts,dt=1.)
+            self.advance.run(t=ts,dt=self.dt)
            
         # y_mu = self.output.W_out.outputs.get() 
         y_mu = self.z_actfx.zF.get() 
@@ -587,7 +589,7 @@ class NGCTransformer:
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()
-                self.evolve.run(t=self.T,dt=1.)
+            self.evolve.run(t=self.T,dt=self.dt)
                 
         ## skip E/M steps if just doing test-time inference
         return y_mu_inf, y_mu, EFE 

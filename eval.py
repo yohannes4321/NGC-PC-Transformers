@@ -21,9 +21,9 @@ def eval_model(model: NGCTransformer, data_loader, vocab_size: int):
         targets = batch[1][1]
 
         targets_flat = jax.nn.one_hot(targets.flatten(), vocab_size)
-        _, y_mu, _ = model.process(obs=inputs,
-                                   lab=targets_flat,
-                                   adapt_synapses=False)
+        y_mu, _ = model.process(obs=inputs,
+                    lab=targets_flat,
+                    adapt_synapses=False)
 
         y_pred = y_mu.reshape(-1, vocab_size)
         batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()
@@ -82,7 +82,7 @@ if __name__ == "__main__":
         n_layers=config.n_layers,
         n_heads=config.n_heads,
         T=config.n_iter,
-        dt=1., tau_m=config.tau_m,
+        dt=config.dt, tau_m=config.tau_m,
         act_fx=config.act_fx,
         eta=config.eta,
         dropout_rate=config.dropout_rate,
@@ -93,6 +93,7 @@ if __name__ == "__main__":
         optim_type=config.optim_type,
         wub=config.wub,
         wlb=config.wlb,
+        w_bound=config.w_bound,
     )
     data_loader = DataLoader(seq_len=config.seq_len, batch_size=config.batch_size)
     _, _, test_loader = data_loader.load_and_prepare_data()

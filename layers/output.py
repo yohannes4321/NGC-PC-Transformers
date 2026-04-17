@@ -5,7 +5,7 @@ from config import Config as config
 
 
 class Output:
-  """
+    """
     NGC Output Layer for final projection to vocabulary space.
     
     Projects hidden representations to vocabulary distribution with

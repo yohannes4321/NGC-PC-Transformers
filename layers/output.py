@@ -24,12 +24,15 @@ class Output:
      def __init__(self, dkey, n_embed, seq_len, batch_size, vocab_size, eta, optim_type, wub, wlb, tau_m,  **kwargs):
      
         dkey, *subkeys = random.split(dkey, 10)
+        pre_scale = 1.0 / max(batch_size * seq_len, 1)
       
-        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=tau_m, act_fx="identity", batch_size=batch_size * seq_len)
+        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=tau_m, act_fx="identity",
+                      batch_size=batch_size * seq_len, prior=("gaussian", 0.1), resist_scale=0.5)
         
         self.W_out = HebbianSynapse(
                     "W_out", shape=(n_embed, vocab_size), batch_size= batch_size * seq_len, eta=eta, weight_init=dist.uniform(amin=wlb, amax=wub),
-                    bias_init=dist.constant(value=0.), w_bound=1., optim_type=optim_type, sign_value= -1.0, key=subkeys[4],prior=("l1l2", (0.001, 0.001)))
+                    bias_init=dist.constant(value=0.), w_bound=1., optim_type=optim_type, sign_value= -1.0, key=subkeys[4],
+                    prior=("l1l2", (0.001, 0.001)), pre_wght=pre_scale)
         self.e_out = ErrorCell("e_out", n_units=vocab_size, 
                                   batch_size=batch_size * seq_len) # shape=(seq_len, vocab_size, 1),
         self.E_out = StaticSynapse(

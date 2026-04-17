@@ -52,6 +52,7 @@ class NGCTransformer:
         self.nodes = None
         self.n_layers = n_layers
         self.T = T
+        self.dt = dt
         self.batch_size= batch_size
         self.seq_len= seq_len
         self.vocab_size= vocab_size
@@ -77,7 +78,8 @@ class NGCTransformer:
             self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
                 
             self.z_target=RateCell("z_target", n_units= self.vocab_size, tau_m=0., act_fx="identity", batch_size=self.batch_size * self.seq_len) 
-            self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=tau_m, act_fx="softmax", batch_size=self.batch_size * self.seq_len)
+            self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=tau_m, act_fx="softmax",
+                                   batch_size=self.batch_size * self.seq_len, prior=("gaussian", 0.1), resist_scale=0.5)
             self.projection = Projection(dkey=subkeys[29], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size,
                                              vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate)
             self.reshape_4d_to_2d = ReshapeComponent("reshape_4d_to_2d",
@@ -565,7 +567,7 @@ class NGCTransformer:
             self.clamp_input(obs)
             self.clamp_target(lab)
              
-            self.advance.run(t=ts,dt=1.)
+            self.advance.run(t=ts,dt=self.dt)
            
         # y_mu = self.output.W_out.outputs.get() 
         y_mu = self.z_actfx.zF.get() 
@@ -581,8 +583,8 @@ class NGCTransformer:
         EFE =  block_errors + L1
 
         if adapt_synapses == True:
-                self.embedding_evolve.run()
-                self.evolve.run(t=self.T,dt=1.)
+            self.embedding_evolve.run()
+            self.evolve.run(t=self.T,dt=self.dt)
 
         ## skip E/M steps if just doing test-time inference
         return y_mu, EFE

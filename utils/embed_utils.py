@@ -29,8 +29,9 @@ def _compute_embedding_updates(inputs, post, word_weights, pos_weights,
     """
     
     # Flatten for processing
+    norm = 1.0 / max(batch_size * seq_len, 1)
     flat_tokens = inputs.reshape(-1)
-    flat_errors = post.reshape(batch_size * seq_len, embed_dim)
+    flat_errors = post.reshape(batch_size * seq_len, embed_dim) * norm
      
     # Word embeddings update - accumulate gradients for each token
     d_word_weights = jnp.zeros((vocab_size, embed_dim))

@@ -7,16 +7,17 @@ class Config:
     n_heads = 2
     n_layers = 2
     dropout_rate = 0.0
-    eta = 5e-3
+    eta = 1e-4
     exp_dir = "exp" 
     pos_learnable = True
-    optim_type = "sgd"
+    optim_type = "adam"
     epoch = 1
     n_iter= 26
     # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
     wub = 0.035284728580901155
     wlb =  -0.07318664527441558
     tau_m = 3.
+    dt = 0.25
     act_fx = "identity"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"

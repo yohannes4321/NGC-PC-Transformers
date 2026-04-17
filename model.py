@@ -545,11 +545,20 @@ class NGCTransformer:
         for i in range(self.n_layers):
         #     block_proj= self.projection.blocks[i]   
             b= self.blocks[i]
+            z_qkv_before = b.attention.z_qkv.z.get()
             self.random_init.advance_state()
-            b.attention.z_qkv.z.set(self.random_init.z_qkv.get())
+            z_qkv_rand = self.random_init.z_qkv.get()
+            b.attention.z_qkv.z.set(z_qkv_rand)
             b.attention.z_attn.z.set(self.random_init.z_attn.get())
             b.mlp.z_mlp.z.set(self.random_init.z_mlp.get())
             b.mlp.z_mlp2.z.set(self.random_init.z_mlp2.get())
+
+            z_qkv_after = b.attention.z_qkv.z.get()
+            print(
+                f"[random_init][block {i}] z_qkv mean_abs_before={float(jnp.mean(jnp.abs(z_qkv_before))):.8f} "
+                f"mean_abs_after={float(jnp.mean(jnp.abs(z_qkv_after))):.8f} "
+                f"all_zero_after={bool(jnp.all(z_qkv_after == 0.0))}"
+            )
         
             b.attention.E_q.weights.set(jnp.transpose(b.attention.W_q.weights.get()))
             b.attention.E_k.weights.set(jnp.transpose(b.attention.W_k.weights.get()))
@@ -560,6 +569,10 @@ class NGCTransformer:
        
         self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
         self.output.z_out.z.set(self.random_init.z_out.get())
+        print(
+            f"[random_init][output] z_out mean_abs={float(jnp.mean(jnp.abs(self.output.z_out.z.get()))):.8f} "
+            f"all_zero={bool(jnp.all(self.output.z_out.z.get() == 0.0))}"
+        )
         # self.output.e_out.dmu.set(self.projection.eq_target.dmu.get())
         # self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.get())
         

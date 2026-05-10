@@ -39,7 +39,8 @@ def rms_norm_grad(x, rms, gamma, v):
     gamma_r = gamma.reshape((1,) * (v.ndim - 1) + (-1,)).astype(x.dtype)
     x_norm  = x / rms
     scale   = gamma_r / rms
-    inner   = jnp.mean(x_norm * (gamma_r * v), axis=-1, keepdims=True)
+    # FIX: use raw x instead of x_norm here
+    inner   = jnp.mean(x * (gamma_r * v), axis=-1, keepdims=True) #stopped “double-normalizing” the signal inside the averaging step.
     dx      = scale * (v - x_norm * inner)
     return dx
 
@@ -114,11 +115,13 @@ class RMSNormGrad(JaxComponent):
         x   = self.mu.get()
         rms = self.rms.get()
         v   = self.dmu.get()
+        v_attn = self.dmu_attn.get()
 
         # Apply the RMSNorm Jacobian once — derivation applied to v only
         dx  = rms_norm_grad(x, rms, self.gamma, v)
+        dx_attn = rms_norm_grad(x, rms, self.gamma, v_attn)
 
-        self.dmu_.set(dx)
+        self.dmu_.set(dx_attn)  # Store the attention gradient in dmu_ for wiring compatibility
         self.dmu_mlp1.set(dx)
 
     @compilable

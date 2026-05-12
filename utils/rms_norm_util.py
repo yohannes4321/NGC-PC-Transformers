@@ -31,11 +31,15 @@ def rms_norm_grad(x, rms, gamma, v):
     """
     gamma_r = gamma.reshape((1,) * (v.ndim - 1) + (-1,)).astype(x.dtype)
     x_norm  = x / rms
+    
     # 1. Apply weights (gamma) to the incoming error (v)
     v_weighted = v * gamma_r
-    scale   = 1 / rms
-    inner   = jnp.mean(x_norm * v_weighted, axis=-1, keepdims=True)
-    dx      = scale * (v_weighted - x_norm * inner)
+    
+    # 2. Calculate the projection (the average 'alignment')
+    inner = jnp.mean(x_norm * v_weighted, axis=-1, keepdims=True)
+    
+    # 3. Final gradient calculation
+    dx = (1.0 / rms) * (v_weighted - x_norm * inner)
     return dx
 
 

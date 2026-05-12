@@ -29,7 +29,13 @@ class MLP:
                                   batch_size=batch_size * seq_len) # shape=(seq_len, n_embed, 1),   
         self.e_mlp1 = ErrorCell(f"{prefix}e_mlp1", n_units= 4* n_embed, 
                                   batch_size=batch_size * seq_len)
-        
+        self.skip_mlp = StaticSynapse(
+    f"{prefix}skip_mlp", 
+    shape=(n_embed, n_embed),
+    # Use the 'identity' kernel with a scaling factor of 1.0
+    weight_init=("identity", 1.0), 
+    key=subkeys[8]
+)
         
         self.E_mlp1 = StaticSynapse(f"{prefix}E_mlp1", shape=(4 * n_embed,n_embed), weight_init=dist.uniform(low=wlb, high=wub), key=subkeys[4])
         self.E_mlp = StaticSynapse(f"{prefix}E_mlp", shape=(n_embed, 4 * n_embed), weight_init=dist.uniform(low=wlb, high=wub), key=subkeys[4])

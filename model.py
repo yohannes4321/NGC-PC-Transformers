@@ -16,7 +16,7 @@ from layers.output import Output
 from utils.model_util import ReshapeComponent, Outgrad
 from projection.projection import Projection
 import numpy as np
-
+from ngclearn.operations import Summation
 
 
 class NGCTransformer:
@@ -109,6 +109,9 @@ class NGCTransformer:
                 for blocks in range(n_layers):
                     block= self.blocks[blocks]
                     # attention forward
+                    block.attention.z_qkv.zF >> block.attention.skip_attn.inputs
+                    
+                    
                     block.attention.z_qkv.zF >> block.ln1.inputs
                     block.ln1.outputs >> block.attention.W_q.inputs
                     block.ln1.outputs >> block.attention.W_k.inputs
@@ -126,13 +129,19 @@ class NGCTransformer:
                     block.reshape_3d_to_2d.outputs >> block.attention.z_attn.z 
                     
                     block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
-                    block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
+                   
+                    
+                    Summation(block.attention.W_attn_out.outputs, block.attention.skip_attn.outputs) >> block.attention.e_attn.mu
+                    
+                    
 
                     # 
                     block.mlp.z_mlp.z >> block.attention.e_attn.target
                     
                     #mlp forward
-                    block.mlp.z_mlp.zF  >> block.ln2.inputs
+                    block.mlp.z_mlp.zF  >> block.mlp.skip_mlp.inputs
+                    
+                    block.mlp.z_mlp.zF >> block.ln2.inputs
                     block.ln2.outputs   >> block.mlp.W_mlp1.inputs
                     
                     block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu
@@ -140,9 +149,13 @@ class NGCTransformer:
 
 
                     block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.inputs
-                    block.mlp.W_mlp2.outputs >> block.mlp.e_mlp.mu
-
-     
+                    block.mlp.W_mlp2.outputs >> 
+                    
+                    
+                    
+                    Summation(block.mlp.W_mlp2.outputs, block.mlp.skip_mlp.inputs) >> block.attention.e_attn.mu
+                    
+                    
                     
                     if blocks == n_layers - 1:
                         self.output.z_out.z >> block.mlp.e_mlp.target

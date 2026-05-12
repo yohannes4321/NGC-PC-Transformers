@@ -67,6 +67,13 @@ class Attention:
         
         self.E_q = StaticSynapse(f"{prefix}E_q", shape=(n_embed, n_embed),
                         weight_init=dist.uniform(low=wlb, high=wub),  key=subkeys[4])
+        self.skip_attn = StaticSynapse(
+    f"{prefix}skip_attn", 
+    shape=(n_embed, n_embed),
+    # Use the 'identity' kernel with a scaling factor of 1.0
+    weight_init=("identity", 1.0), 
+    key=subkeys[8]
+)
         self.E_k = StaticSynapse(f"{prefix}E_k", shape=(n_embed, n_embed),
                         weight_init=dist.uniform(low=wlb, high=wub),  key=subkeys[5])
         self.E_v = StaticSynapse(f"{prefix}E_v", shape=(n_embed, n_embed),

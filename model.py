@@ -129,10 +129,7 @@ class NGCTransformer:
                     block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
 
-                    if blocks == n_layers - 1:
-                        self.output.z_out.z >> block.attention.e_attn.target
-                    else:
-                        self.blocks[blocks + 1].attention.z_qkv.z >> block.attention.e_attn.target
+                    block.mlp.z_mlp.z >> block.attention.e_attn.target
                     
                     #mlp forward
                     block.mlp.z_mlp.zF  >> block.ln2.inputs
@@ -161,7 +158,7 @@ class NGCTransformer:
                     #q path
                     block.attention.z_qkv.zF    >> block.ln1_grad_q.mu
                     block.ln1.rms               >> block.ln1_grad_q.rms
-                    block.attention.e_attn.dmu    >> block.ln1_grad_q.dmu
+                    # block.attention.e_attn.dmu    >> block.ln1_grad_q.dmu
                     block.attention.attn_block.dq >> block.attention.E_q.inputs
                     block.attention.E_q.outputs      >> block.ln1_grad_q.dmu_attn
                     block.ln1_grad_q.dmu_ >> block.attention.z_qkv.jq
@@ -170,14 +167,14 @@ class NGCTransformer:
                     #block.attention.e_attn.dmu  >> block.ln1_grad_k.dmu
                     block.attention.z_qkv.zF  >> block.ln1_grad_k.mu
                     block.ln1.rms               >> block.ln1_grad_k.rms
-                    block.attention.e_attn.dmu    >> block.ln1_grad_k.dmu
+                    # block.attention.e_attn.dmu    >> block.ln1_grad_k.dmu
                     block.attention.attn_block.dk >> block.attention.E_k.inputs
                     block.attention.E_k.outputs      >> block.ln1_grad_k.dmu_attn
                     block.ln1_grad_k.dmu_  >> block.attention.z_qkv.jk
                     #  V path  
                     block.attention.z_qkv.zF            >> block.ln1_grad_v.mu
                     block.ln1.rms               >> block.ln1_grad_v.rms
-                    block.attention.e_attn.dmu    >> block.ln1_grad_v.dmu
+                    # block.attention.e_attn.dmu    >> block.ln1_grad_v.dmu
                     block.attention.attn_block.dv >> block.attention.E_v.inputs
                     block.attention.E_v.outputs      >> block.ln1_grad_v.dmu_attn
                     block.ln1_grad_v.dmu_ >> block.attention.z_qkv.jv

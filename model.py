@@ -351,6 +351,9 @@ class NGCTransformer:
                     advance_process >> block.reshape_3d_to_2d_attnout.advance_state
                     advance_process >> block.attention.W_attn_out.advance_state
                     advance_process >> block.attention.E_q.advance_state
+                    
+                    advance_process >> block.attention.skip_attn
+                    advance_process >> block.mlp.skip_mlp
                     advance_process >> block.attention.E_k.advance_state
                     advance_process >> block.attention.E_v.advance_state
                     advance_process >> block.attention.E_attn.advance_state

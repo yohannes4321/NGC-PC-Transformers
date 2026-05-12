@@ -194,8 +194,7 @@ class NGCTransformer:
  
                     # E_mlp output -> ln2_grad -> z_mlp.j
                     block.ln2.rms >> block.ln2_grad.rms
-                    block.mlp.z_mlp.zF >> block.ln2_grad.mu # dummy connection to carry activations for attention modulation (not wired in this design)
-                     
+                    block.mlp.z_mlp.zF >> block.ln2_grad.z 
 
                     # E_mlp1 — backward signal for z_mlp2 state 
                     block.mlp.e_mlp1.dmu     >> block.mlp.E_mlp1.inputs  # (18,64) → E_mlp1(64,16)

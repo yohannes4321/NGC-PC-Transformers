@@ -25,22 +25,21 @@ def rms_normalize(x, gamma, eps=1e-6):
 @jit
 def rms_norm_grad(x, rms, gamma, v):
     """
-    RMSNorm Jacobian-vector product:  dx = J_RMSNorm(x)^T @ v
-
-    Derivation:
-        y_i = (x_i / rms) * gamma_i
-        rms = sqrt( mean(x^2) + eps )
-
-        dL/dx = (gamma / rms) * ( v - x_norm * mean(x_norm * gamma * v) )
-        where x_norm = x / rms
-
-    This is the derivation applied once to v — single multiplication
+    Corrected RMSNorm Jacobian-vector product.
+    Formula: dx = (1/rms) * [ (v * gamma) - x_norm * mean(v * gamma * x_norm) ]
     """
+    # Ensure gamma matches the shape of the error signal v
     gamma_r = gamma.reshape((1,) * (v.ndim - 1) + (-1,)).astype(x.dtype)
     x_norm  = x / rms
-    scale   = gamma_r / rms
-    inner   = jnp.mean(x_norm * (gamma_r * v), axis=-1, keepdims=True)
-    dx      = scale * (v - x_norm * inner)
+    
+    # 1. Apply weights (gamma) to the incoming error (v)
+    v_weighted = v * gamma_r
+    
+    # 2. Calculate the projection (the average 'alignment')
+    inner = jnp.mean(x_norm * v_weighted, axis=-1, keepdims=True)
+    
+    # 3. Final gradient calculation
+    dx = (1.0 / rms) * (v_weighted - x_norm * inner)
     return dx
 
 
@@ -114,11 +113,13 @@ class RMSNormGrad(JaxComponent):
         x   = self.mu.get()
         rms = self.rms.get()
         v   = self.dmu.get()
+        v_attn = self.dmu_attn.get()
 
         # Apply the RMSNorm Jacobian once — derivation applied to v only
         dx  = rms_norm_grad(x, rms, self.gamma, v)
+        dx_attn = rms_norm_grad(x, rms, self.gamma, v_attn)
 
-        self.dmu_.set(dx)
+        self.dmu_.set(dx_attn)  # Store the attention gradient in dmu_ for wiring compatibility
         self.dmu_mlp1.set(dx)
 
     @compilable

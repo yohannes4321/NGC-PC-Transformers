@@ -149,7 +149,7 @@ class NGCTransformer:
 
 
                     block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.inputs
-                    block.mlp.W_mlp2.outputs >> 
+                  
                     
                     
                     

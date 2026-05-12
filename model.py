@@ -199,7 +199,7 @@ class NGCTransformer:
 
                     # E_mlp1 — backward signal for z_mlp2 state 
                     block.mlp.e_mlp1.dmu     >> block.mlp.E_mlp1.inputs  # (18,64) → E_mlp1(64,16)
-                    block.mlp.E_mlp1.outputs >> block.ln2_grad.dmu
+                    block.mlp.E_mlp1.outputs >> block.ln2_grad.dmu_mlp1
                     block.ln2_grad.dmu_mlp1_out >> block.mlp.z_mlp.j
 
                     # E_mlp — backward signal for z_mlp2 from output error

@@ -129,11 +129,12 @@ class NGCTransformer:
                     block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
 
-                    if blocks == n_layers - 1:
-                        self.output.z_out.z >> block.attention.e_attn.target
-                    else:
-                        self.blocks[blocks + 1].attention.z_qkv.z >> block.attention.e_attn.target
-                    
+                    # if blocks == n_layers - 1:
+                    #     self.output.z_out.z >> block.attention.e_attn.target
+                    # else:
+                    #     self.blocks[blocks + 1].attention.z_qkv.z >> block.attention.e_attn.target
+                                       
+                    block.mlp.z_mlp.z >> block.attention.e_attn.target
                     #mlp forward
                     block.mlp.z_mlp.zF  >> block.ln2.inputs
                     block.ln2.outputs   >> block.mlp.W_mlp1.inputs

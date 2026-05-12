@@ -123,8 +123,7 @@ class NGCTransformer:
                     block.reshape_2d_to_3d_v.outputs >> block.attention.attn_block.inputs_v
                     block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
 
-                    block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
-                    block.attention.z_attn.z >> block.attention.e_qkv.target
+                    block.reshape_3d_to_2d.outputs >> block.attention.z_attn.z 
                     
                     block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu

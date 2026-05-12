@@ -153,7 +153,7 @@ class NGCTransformer:
                     
                     
                     
-                    Summation(block.mlp.W_mlp2.outputs, block.mlp.skip_mlp.inputs) >> block.attention.e_attn.mu
+                    Summation(block.mlp.W_mlp2.outputs, block.mlp.skip_mlp.outputs) >> block.attention.e_attn.mu
                     
                     
                     

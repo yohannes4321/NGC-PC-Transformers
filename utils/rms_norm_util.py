@@ -113,12 +113,15 @@ class RMSNormGrad(JaxComponent):
     def advance_state(self):
         x   = self.mu.get()
         rms = self.rms.get()
+        v_attn = self.dmu_attn.get()
         v   = self.dmu.get()
-
+        
+        dx_attn = rms_norm_grad(x, rms, self.gamma, v_attn)
         # Apply the RMSNorm Jacobian once — derivation applied to v only
         dx  = rms_norm_grad(x, rms, self.gamma, v)
+        
 
-        self.dmu_.set(dx)
+        self.dmu_.set(dx_attn)  # Store the attention gradient in dmu_ for wiring compatibility
         self.dmu_mlp1.set(dx)
 
     @compilable

@@ -110,10 +110,9 @@ class RMSNormGrad(JaxComponent):
     @compilable
     def reset(self):
         zeros = jnp.zeros((self.batch_size, self.n_embed))
-        ones  = jnp.ones((self.batch_size, self.n_embed))
         self.z.set(zeros)
         self.rms.set(jnp.ones((self.batch_size, 1)))
-        self.dmu.set(zeros)
-        self.dmu_attn.set(ones)
+        self.dmu_attn.set(zeros)
         self.dmu_out.set(zeros)
-        self.dmu_mlp1_out.set(zeros)
+        self.dmu_mlp1.set(jnp.zeros((self.batch_size, 4 * self.n_embed)))
+        self.dmu_mlp1_out.set(jnp.zeros((self.batch_size, 4 * self.n_embed)))

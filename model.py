@@ -237,7 +237,7 @@ class NGCTransformer:
                 self.z_actfx.zF              >> self.output.e_out.mu
                 self.z_target.z              >> self.output.e_out.target
  
-                self.output.e_out.dmu        >> self.output.E_out.inputs
+                self.output.e_out.dtarget        >> self.output.E_out.inputs
  
                 self.output.E_out.outputs    >> self.output.z_out.j
                 self.blocks[n_layers - 1].mlp.e_mlp.dtarget >> self.output.z_out.j_td
@@ -247,7 +247,7 @@ class NGCTransformer:
                 self.reshape_2d_to_3d_embed.outputs >> self.embedding.W_embed.post
  
                 self.output.z_out.zF            >> self.output.W_out.pre
-                self.output.e_out.dmu           >> self.output.W_out.post
+                self.output.e_out.dtarget           >> self.output.W_out.post
 
 
 

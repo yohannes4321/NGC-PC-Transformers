@@ -230,26 +230,26 @@ class NGCTransformer:
                     block.mlp.e_mlp.dmu     >> block.mlp.W_mlp2.post
 
 
-            # Output layer 
-            self.output.z_out.zF         >> self.output.W_out.inputs
-            self.output.W_out.outputs    >> self.z_actfx.j
-            self.output.W_out.outputs    >> self.Outgrad.mu
+                # Output layer 
+                self.output.z_out.zF         >> self.output.W_out.inputs
+                self.output.W_out.outputs    >> self.z_actfx.j
+                self.output.W_out.outputs    >> self.Outgrad.mu
 
-            # z_target goes directly to Outgrad (removed e_out from gradient path)
-            self.z_target.z              >> self.Outgrad.target
+                # z_target goes directly to Outgrad (removed e_out from gradient path)
+                self.z_target.z              >> self.Outgrad.target
 
-            # Outgrad computes e^0 = target - P internally
-            self.Outgrad.dmu_            >> self.output.E_out.inputs
+                # Outgrad computes e^0 = target - P internally
+                self.Outgrad.dmu_            >> self.output.E_out.inputs
 
-            self.output.E_out.outputs    >> self.output.z_out.j
-            self.blocks[n_layers - 1].mlp.e_mlp.dtarget >> self.output.z_out.j_td
+                self.output.E_out.outputs    >> self.output.z_out.j
+                self.blocks[n_layers - 1].mlp.e_mlp.dtarget >> self.output.z_out.j_td
 
-            # Embedding backward
-            self.embedding.e_embed.dmu      >> self.reshape_2d_to_3d_embed.inputs
-            self.reshape_2d_to_3d_embed.outputs >> self.embedding.W_embed.post
+                # Embedding backward
+                self.embedding.e_embed.dmu      >> self.reshape_2d_to_3d_embed.inputs
+                self.reshape_2d_to_3d_embed.outputs >> self.embedding.W_embed.post
 
-            self.output.z_out.zF            >> self.output.W_out.pre
-            self.Outgrad.dmu_               >> self.output.W_out.post
+                self.output.z_out.zF            >> self.output.W_out.pre
+                self.Outgrad.dmu_               >> self.output.W_out.post
 
 
 

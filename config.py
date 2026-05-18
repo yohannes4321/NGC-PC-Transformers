@@ -7,8 +7,8 @@ class Config:
     n_heads = 8
     n_layers = 2
     dropout_rate = 0.0
-    eta = 1e-3
-    eta_o= 2.9e-03
+    eta = 1e-4
+    eta_o= 1e-4
     exp_dir = "exp" 
     pos_learnable = True
     optim_type = "adam"

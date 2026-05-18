@@ -582,7 +582,7 @@ class NGCTransformer:
                 block = self.blocks[i]
                 block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
 
-        EFE = block_errors + L1
+        EFE = block_errors + L1 + L4
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()

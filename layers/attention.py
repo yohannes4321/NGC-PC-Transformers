@@ -59,7 +59,7 @@ class Attention:
         
         self.W_attn_out = HebbianSynapse(f"{prefix}W_attn_out", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                             weight_init=dist.gaussian(mean=0.0, std=0.01
-                                                      ),
+             ),
                             bias_init=dist.constant(value=0.), w_bound=1., 
                             optim_type=optim_type, sign_value= -1.0, key=subkeys[3], prior=("constant", 0.))
         self.e_qkv = ErrorCell(f"{prefix}e_qkv", n_units=n_embed, batch_size=batch_size * seq_len) 

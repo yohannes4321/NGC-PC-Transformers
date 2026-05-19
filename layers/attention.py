@@ -36,6 +36,14 @@ class Attention:
                             act_fx=config.act_fx, batch_size=batch_size * seq_len )
         self.z_attn = RateCell(f"{prefix}z_attn", n_units=n_embed, tau_m=tau_m,
                             act_fx=config.act_fx, batch_size=batch_size * seq_len )
+        self.residual_rate_cell = RateCell(
+    name="residual_rate_cell",
+    n_units=9,
+    tau_m=0.0,              # disables dynamics (stateless mode)
+    prior=("gaussian", 0.), # no leak
+    act_fx="identity",      # no activation change
+    resist_scale=1.0        # no scaling
+)
         
         self.W_q = HebbianSynapse(f"{prefix}W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.gaussian(mean=0.0, std=0.02) ,

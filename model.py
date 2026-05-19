@@ -123,7 +123,9 @@ class NGCTransformer:
                     block.reshape_2d_to_3d_v.outputs >> block.attention.attn_block.inputs_v
                     block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
 
-                    block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
+                    block.reshape_3d_to_2d.outputs >> block.attention.residual_rate_cell.j
+                    self.embedding.z_embed.zF >> block.attention.residual_rate_cell.j_td
+                    block.attention.residual_rate_cell.zF >> block.attention.e_qkv.mu
                     block.attention.z_attn.z >> block.attention.e_qkv.target
                     
                     block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
@@ -137,7 +139,18 @@ class NGCTransformer:
                     block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
 
 
-                    block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.inputs
+
+
+
+
+
+
+                    block.mlp.z_mlp2.zF >>  block.attention.residual_rate_cell.j
+
+                
+                    block.attention.z_attn.zF  >> block.attention.residual_rate_cell.j_td
+                    block.attention.residual_rate_cell.zF >> block.mlp.W_mlp2.inputs
+                    
                     block.mlp.W_mlp2.outputs >> block.mlp.e_mlp.mu
 
      

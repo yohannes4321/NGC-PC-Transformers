@@ -145,11 +145,11 @@ class NGCTransformer:
 
 
 
-                    block.mlp.z_mlp2.zF >>  block.attention.residual_rate_cell.j
+                    block.mlp.z_mlp2.zF >>  4*block.attention.residual_rate_cell.j
 
                 
-                    block.attention.z_attn.zF  >> block.attention.residual_rate_cell.j_td
-                    block.attention.residual_rate_cell.zF >> block.mlp.W_mlp2.inputs
+                    block.attention.z_attn.zF  >> block.attention.residual_rate_cell1.j_td
+                    block.attention.residual_rate_cell1.zF >> block.mlp.W_mlp2.inputs
                     
                     block.mlp.W_mlp2.outputs >> block.mlp.e_mlp.mu
 
@@ -343,6 +343,9 @@ class NGCTransformer:
                     advance_process >> block.reshape_3d_to_2d_attnout.advance_state
                     advance_process >> block.attention.W_attn_out.advance_state
                     advance_process >> block.attention.E_q.advance_state
+                    advance_process >> block.attention.residual_rate_cell.advance_state
+                    advance_process >> block.attention.residual_rate_cell1.advance_state
+                    
                     advance_process >> block.attention.E_k.advance_state
                     advance_process >> block.attention.E_v.advance_state
                     advance_process >> block.attention.E_attn.advance_state

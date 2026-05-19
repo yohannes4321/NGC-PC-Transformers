@@ -43,6 +43,14 @@ class Attention:
     prior=("gaussian", 0.), # no leak
     act_fx="identity",      # no activation change
     resist_scale=1.0        # no scaling
+) 
+        self.residual_rate_cell1 = RateCell(
+    name="residual_rate_cell1",
+    n_units=9,
+    tau_m=0.0,              # disables dynamics (stateless mode)
+    prior=("gaussian", 0.), # no leak
+    act_fx="identity",      # no activation change
+    resist_scale=1.0        # no scaling
 )
         
         self.W_q = HebbianSynapse(f"{prefix}W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,

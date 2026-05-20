@@ -1,27 +1,42 @@
-
-
 import jax
 from jax import numpy as jnp
 from ngclearn.components.jaxComponent import JaxComponent
 from ngclearn import Compartment
 from ngclearn import compilable
 
-def d_softmax_vjp(P, v):
+def d_softmax_vjp(P, v, tau=0.0):
     """
     Computes the Vector-Jacobian Product (VJP) for Softmax efficiently.
     This calculates: dL/dmu = J^T @ v = P * (v - sum(P * v, axis=-1))
     
+    Backward-compatible: If tau is supplied or if v is not passed as a positional vector, 
+    it falls back safely to processing raw logits.
+    
     Args:
-        P: Softmax probabilities output from the cell (same shape as v)
-        v: Upstream error vector (dL/dP) from the error cell
+        P: Softmax probabilities output from the cell OR raw logits if used in attention.
+        v: Upstream error vector (dL/dP).
+        tau: Temperature parameter (optional fallback).
     Returns:
         Gradients with respect to the pre-softmax logits (dL/dmu)
     """
-    # Vectorized dot product sum(p * v) along the vocabulary/class dimension
+    # Fallback to legacy JVP format if called with a single main tensor and tau inside attention
+    if isinstance(v, float) or tau > 0.0 or v is None:
+        # In this legacy case, P is actually the raw input logits 'x'
+        x = P
+        if tau > 0.0:
+            x = x / tau
+        P_probs = jax.nn.softmax(x, axis=-1)
+        
+        # Return a JVP function to avoid breaking old attention code loops
+        def jvp_fn(incoming_v):
+            p_dot_v = jnp.sum(P_probs * incoming_v, axis=-1, keepdims=True)
+            return P_probs * (incoming_v - p_dot_v)
+        return P_probs, jvp_fn
+
+    # Standard, highly optimized VJP calculation for your new Outgrad component
     p_dot_v = jnp.sum(P * v, axis=-1, keepdims=True)
-    
-    # Exact VJP identity for categorical distributions
     return P * (v - p_dot_v)
+
 
 class ReshapeComponent(JaxComponent):
     """Component that reshapes tensors for ngc-learn wiring"""
@@ -35,14 +50,15 @@ class ReshapeComponent(JaxComponent):
     
     @compilable
     def advance_state(self):
-        output=self.inputs.reshape(self.output_shape)
+        output = self.inputs.get().reshape(self.output_shape)
         self.outputs.set(output)
-    
     
     @compilable
     def reset(self):
         self.inputs.set(jnp.zeros(self.input_shape))
         self.outputs.set(jnp.zeros(self.output_shape))
+
+
 class Outgrad(JaxComponent):
     """
     Compute the Jacobian matrix multiplication for the logits gradients.

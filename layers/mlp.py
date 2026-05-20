@@ -31,8 +31,8 @@ class MLP:
                                   batch_size=batch_size * seq_len)
         
         
-        self.E_mlp1 = StaticSynapse(f"{prefix}E_mlp1", shape=(4 * n_embed,n_embed), weight_init=dist.constant(value=0.0), bias_init=None, key=subkeys[4])
-        self.E_mlp = StaticSynapse(f"{prefix}E_mlp", shape=(n_embed, 4 * n_embed), weight_init=dist.constant(value=0.0), bias_init=None, key=subkeys[4])
+        self.E_mlp1 = StaticSynapse(f"{prefix}E_mlp1", shape=(4 * n_embed,n_embed), weight_init=dist.gaussian(mean=0.0, std=0.005), bias_init=None, key=subkeys[4])
+        self.E_mlp = StaticSynapse(f"{prefix}E_mlp", shape=(n_embed, 4 * n_embed), weight_init=dist.gaussian(mean=0.0, std=0.005), bias_init=None, key=subkeys[4])
     def get_components(self):
         """Return all components for easy access"""
         return {

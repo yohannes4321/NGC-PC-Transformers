@@ -34,6 +34,7 @@ def main():
 
     def train_model(data_loader):
         train_EFE = 0.
+        train_EFE_abs = 0.
         total_nll, total_tokens = 0., 0
 
         for batch_idx, batch in enumerate(data_loader):
@@ -43,7 +44,10 @@ def main():
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
 
             _, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            train_EFE += _EFE
+            batch_EFE = float(_EFE)
+            batch_EFE_abs = abs(batch_EFE)
+            train_EFE += batch_EFE
+            train_EFE_abs += batch_EFE_abs
 
             y_pred = y_mu.reshape(-1, vocab_size)
             batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()
@@ -52,23 +56,24 @@ def main():
 
             if batch_idx % 10 == 0:
                 batch_ppl = jnp.exp(batch_ce_loss)
-                print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+                print(f"  Batch {batch_idx}: EFE = {batch_EFE:.4f}, |EFE| = {batch_EFE_abs:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
 
         num_batches = batch_idx + 1
         avg_train_EFE = train_EFE / num_batches
+        avg_train_EFE_abs = train_EFE_abs / num_batches
         ce_loss = total_nll / total_tokens
         ppl = jnp.exp(ce_loss)
-        return avg_train_EFE, ce_loss, ppl
+        return avg_train_EFE, avg_train_EFE_abs, ce_loss, ppl
 
     start_time = time.time()
 
     for i in range(epoch):
         print(f"\nEpoch {i}:")
 
-        avg_train_EFE, train_ce, train_ppl = train_model(train_loader)
+        avg_train_EFE, avg_train_EFE_abs, train_ce, train_ppl = train_model(train_loader)
 
         dev_ce, dev_ppl = eval_model(model, valid_loader, vocab_size)
-        print(f"Epoch {i} Summary: Train CE = {train_ce:.4f}, Train PPL = {train_ppl:.4f}, Val CE = {dev_ce:.4f}, Val PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}")
+        print(f"Epoch {i} Summary: Train CE = {train_ce:.4f}, Train PPL = {train_ppl:.4f}, Val CE = {dev_ce:.4f}, Val PPL = {dev_ppl:.4f}, Avg EFE = {avg_train_EFE:.4f}, Avg |EFE| = {avg_train_EFE_abs:.4f}")
         if i == (epoch-1):
           model.save_to_disk(params_only=False) # save final state of model to disk
     total_time = time.time() - start_time

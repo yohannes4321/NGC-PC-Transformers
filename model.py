@@ -129,10 +129,7 @@ class NGCTransformer:
                     block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
 
-                    if blocks == n_layers - 1:
-                        self.output.z_out.z >> block.attention.e_attn.target
-                    else:
-                        self.blocks[blocks + 1].attention.z_qkv.z >> block.attention.e_attn.target
+                    block.mlp.z_mlp.z >> block.attention.e_attn.target
                     
                     #mlp forward
                     block.mlp.z_mlp.zF  >> block.ln2.inputs
@@ -147,7 +144,10 @@ class NGCTransformer:
 
      
                     
-                    block.mlp.z_mlp.z >> block.attention.e_attn.target
+                    if blocks == n_layers - 1:
+                        self.output.z_out.z >> block.mlp.e_mlp.target
+                    else:
+                        self.blocks[blocks + 1].attention.z_qkv.z >> block.mlp.e_mlp.target
 
 
                     # Backward attention errors 
@@ -234,6 +234,10 @@ class NGCTransformer:
                 self.output.z_out.zF         >> self.output.W_out.inputs
                 self.output.W_out.outputs    >> self.z_actfx.j
                 self.output.W_out.outputs    >> self.Outgrad.mu
+
+                # Keep the output error cell active for EFE reporting and output feedback
+                self.z_actfx.zF              >> self.output.e_out.mu
+                self.z_target.z              >> self.output.e_out.target
 
                 # z_target goes directly to Outgrad (removed e_out from gradient path)
                 self.z_target.z              >> self.Outgrad.target

@@ -1,54 +1,25 @@
 import jax
+from jax import numpy as jnp
 from ngclearn.components.jaxComponent import JaxComponent
 from ngclearn import Compartment
 from ngclearn import compilable
-from jax import numpy as jnp, random, jit
-from functools import partial
-from jax import vmap
 
-
-def d_softmax_vjp(x, tau=0.0):
+def d_softmax_vjp(P, v):
     """
-    Memory-efficient softmax derivative using JVP (Jacobian-Vector Product).
-    
-    Returns probabilities and a function that computes J @ v without forming 
-    the full Jacobian matrix.
+    Computes the Vector-Jacobian Product (VJP) for Softmax efficiently.
+    This calculates: dL/dmu = J^T @ v = P * (v - sum(P * v, axis=-1))
     
     Args:
-        x: Input tensor of any shape (attention scores, output logits, etc.)
-           Examples:
-           - Attention: (batch_size, n_heads, seq_len, seq_len)
-           - Output: (batch_size, vocab_size) or (batch_size*seq_len, vocab_size)
-        tau: Temperature parameter for softmax
-    
+        P: Softmax probabilities output from the cell (same shape as v)
+        v: Upstream error vector (dL/dP) from the error cell
     Returns:
-        P: Softmax probabilities (same shape as x)
-        jvp_fn: Function that computes J @ v for any v of same shape as P
-               jvp_fn(v) = p * (v - (p @ v))
+        Gradients with respect to the pre-softmax logits (dL/dmu)
     """
-    if tau > 0.0:
-        x = x / tau
+    # Vectorized dot product sum(p * v) along the vocabulary/class dimension
+    p_dot_v = jnp.sum(P * v, axis=-1, keepdims=True)
     
-    # Compute probabilities once
-    P = jax.nn.softmax(x, axis=-1)
-    
-    def jvp_fn(v):
-        """
-        Compute J @ v efficiently using the identity:
-        J @ v = p * (v - (p @ v))
-        
-        Args:
-            v: Vector to multiply Jacobian with (same shape as P)
-               In practice, this is dL/dP from upstream
-        
-        Returns:
-            J @ v with same shape as v (which is dL/dx)
-        """
-        # p @ v along last dimension (sum over that dimension)
-        p_dot_v = jnp.sum(P * v, axis=-1, keepdims=True)
-        return P * (v - p_dot_v)
-    
-    return P, jvp_fn
+    # Exact VJP identity for categorical distributions
+    return P * (v - p_dot_v)
 
 class ReshapeComponent(JaxComponent):
     """Component that reshapes tensors for ngc-learn wiring"""
@@ -72,8 +43,9 @@ class ReshapeComponent(JaxComponent):
         self.outputs.set(jnp.zeros(self.output_shape))
 
 class Outgrad(JaxComponent):
-    """Compute the Jacobian matrix multiplication for the logits gradients
-    This computes: dL/dmu = J_softmax(mu) @ dL/dP
+    """
+    Compute the Jacobian matrix multiplication for the logits gradients.
+    This computes: dL/dmu = J_softmax(mu)^T @ dL/dP
     where mu are the logits (pre-softmax)
     """
     
@@ -84,20 +56,19 @@ class Outgrad(JaxComponent):
         self.batch_size = batch_size
         self.seq_len = seq_len
         
+        # Receives the POST-activation probabilities (zF) to bypass redundant softmax computation
         self.mu = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
         self.dmu = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
         self.dmu_ = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
    
     @compilable   
     def advance_state(self):
-        """Compute the output gradients: dL/dmu = J_softmax(mu) @ dL/dP"""
-        
-        mu = self.mu.get()        
+        """Compute the output gradients using the VJP function"""
+        P = self.mu.get()        
         dmu = self.dmu.get()      
         
-        P, jvp_fn = d_softmax_vjp(mu, tau=0.0)
-        
-        dmu_out = jvp_fn(dmu)
+        # Map the upstream error backward through the Softmax manifold
+        dmu_out = d_softmax_vjp(P, dmu)
         
         self.dmu_.set(dmu_out)
         

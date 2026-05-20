@@ -4,23 +4,24 @@ from ngclearn.components.jaxComponent import JaxComponent
 from ngclearn import Compartment
 from ngclearn import compilable
 
-def d_softmax_vjp(P, v, tau=0.0):
+def d_softmax_vjp(P, v=None, tau=0.0):
     """
     Computes the Vector-Jacobian Product (VJP) for Softmax efficiently.
     This calculates: dL/dmu = J^T @ v = P * (v - sum(P * v, axis=-1))
     
-    Backward-compatible: If tau is supplied or if v is not passed as a positional vector, 
-    it falls back safely to processing raw logits.
+    Backward-compatible: If v is omitted (None) or tau is supplied, 
+    it falls back safely to processing raw logits and returning a jvp_fn.
     
     Args:
         P: Softmax probabilities output from the cell OR raw logits if used in attention.
-        v: Upstream error vector (dL/dP).
+        v: Upstream error vector (dL/dP). Defaults to None for legacy calls.
         tau: Temperature parameter (optional fallback).
     Returns:
-        Gradients with respect to the pre-softmax logits (dL/dmu)
+        Gradients with respect to the pre-softmax logits (dL/dmu), 
+        OR a tuple of (Probabilities, jvp_fn) if in legacy mode.
     """
-    # Fallback to legacy JVP format if called with a single main tensor and tau inside attention
-    if isinstance(v, float) or tau > 0.0 or v is None:
+    # Fallback to legacy JVP format if called from attention_utils without 'v'
+    if v is None or tau > 0.0:
         # In this legacy case, P is actually the raw input logits 'x'
         x = P
         if tau > 0.0:

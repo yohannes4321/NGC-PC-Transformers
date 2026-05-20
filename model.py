@@ -235,17 +235,15 @@ class NGCTransformer:
                 # Drive current into the categorical activation cell
                 self.output.W_out.outputs >> self.z_actfx.j
 
-                # CORRECTED: Pass the pre-computed post-activation probabilities (zF) 
-                # into Outgrad's mu compartment to resolve the VJP correctly and save cycles
-                self.z_actfx.zF >> self.Outgrad.mu
+                # Outgrad uses logits plus the one-hot target to form a stable CE gradient.
+                self.output.W_out.outputs >> self.Outgrad.mu
+                self.z_target.z >> self.Outgrad.target
 
                 # ==================== ERROR COMPUTATION ====================
                 # Pass categorical outputs and data targets to the generative error cell
                 self.z_actfx.zF >> self.output.e_out.mu
                 self.z_target.z >> self.output.e_out.target
 
-                # Push upstream categorical error into Outgrad for backpropagation
-                self.output.e_out.dmu >> self.Outgrad.dmu
                 # Send the precision-weighted logit error out to the internal error unit
                 self.Outgrad.dmu_ >> self.output.E_out.inputs
 

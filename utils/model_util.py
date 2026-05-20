@@ -5,21 +5,7 @@ from ngclearn import Compartment
 from ngclearn import compilable
 
 def d_softmax_vjp(P, v=None, tau=0.0):
-    """
-    Computes the Vector-Jacobian Product (VJP) for Softmax efficiently.
-    This calculates: dL/dmu = J^T @ v = P * (v - sum(P * v, axis=-1))
-    
-    Backward-compatible: If v is omitted (None) or tau is supplied, 
-    it falls back safely to processing raw logits and returning a jvp_fn.
-    
-    Args:
-        P: Softmax probabilities output from the cell OR raw logits if used in attention.
-        v: Upstream error vector (dL/dP). Defaults to None for legacy calls.
-        tau: Temperature parameter (optional fallback).
-    Returns:
-        Gradients with respect to the pre-softmax logits (dL/dmu), 
-        OR a tuple of (Probabilities, jvp_fn) if in legacy mode.
-    """
+ 
     # Fallback to legacy JVP format if called from attention_utils without 'v'
     if v is None or tau > 0.0:
         # In this legacy case, P is actually the raw input logits 'x'
@@ -76,24 +62,25 @@ class Outgrad(JaxComponent):
         
         # Receives the POST-activation probabilities (zF) to bypass redundant softmax computation
         self.mu = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
+        self.target = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
         self.dmu = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
         self.dmu_ = Compartment(jnp.zeros((batch_size * seq_len, vocab_size)))
    
     @compilable   
     def advance_state(self):
-        """Compute the output gradients using the VJP function"""
-        P = self.mu.get()        
-        dmu = self.dmu.get()      
-        
-        # Map the upstream error backward through the Softmax manifold
-        dmu_out = d_softmax_vjp(P, dmu)
-        
-        self.dmu_.set(dmu_out)
+        """Compute a stable softmax-cross-entropy gradient from logits and targets."""
+        logits = self.mu.get()
+        target = self.target.get()
+        probs = jax.nn.softmax(logits, axis=-1)
+
+        # Gradient w.r.t. logits for cross-entropy with softmax.
+        self.dmu_.set(probs - target)
         
     @compilable
     def reset(self):
         """Reset compartments to zeros"""
         zeros = jnp.zeros((self.batch_size * self.seq_len, self.vocab_size))
         self.mu.set(zeros)
+        self.target.set(zeros)
         self.dmu.set(zeros)
         self.dmu_.set(zeros)

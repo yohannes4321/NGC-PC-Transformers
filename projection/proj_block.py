@@ -25,13 +25,13 @@ class ProjBlock:
         self.q_mlp2_Ratecell = RateCell(f"{prefix}q_mlp2_Ratecell", n_units=4 * n_embed, tau_m=0., act_fx="relu",
                            batch_size= batch_size * seq_len)
         self.Q_q = StaticSynapse(f"{prefix}Q_q", shape=(n_embed, n_embed),
-                         weight_init=dist.gaussian(mean=0.0, std=0.005), bias_init=dist.constant(value=0.), key=subkeys[6])
+                         weight_init=dist.uniform(low=wlb, high=wub), bias_init=dist.constant(value=0.), key=subkeys[6])
                 
         self.Q_k = StaticSynapse(f"{prefix}Q_k", shape=(n_embed, n_embed),
-                          weight_init=dist.gaussian(mean=0.0, std=0.005), bias_init=dist.constant(value=0.), key=subkeys[7])
+                          weight_init=dist.uniform(low=wlb, high=wub), bias_init=dist.constant(value=0.), key=subkeys[7])
                 
         self.Q_v = StaticSynapse(f"{prefix}Q_v", shape=(n_embed, n_embed),
-                          weight_init=dist.gaussian(mean=0.0, std=0.005), bias_init=dist.constant(value=0.), key=subkeys[8])
+                          weight_init=dist.uniform(low=wlb, high=wub), bias_init=dist.constant(value=0.), key=subkeys[8])
         
         self.q_attn_block = AttentionBlock(f"{prefix}q_attn_block",
 
@@ -40,14 +40,14 @@ class ProjBlock:
                 
         
         self.Q_attn_out = StaticSynapse(f"{prefix}Q_attn_out", shape=(n_embed, n_embed),
-                                 weight_init=dist.gaussian(mean=0.0, std=0.005), bias_init=dist.constant(value=0.),
+                                 weight_init=dist.uniform(low=wlb, high=wub), bias_init=dist.constant(value=0.),
  key=subkeys[0])
                 
         self.Q_mlp1 = StaticSynapse(f"{prefix}Q_mlp1", shape=(n_embed, 4 * n_embed),
-                             weight_init=dist.gaussian(mean=0.0, std=0.005), bias_init=dist.constant(value=0.), key=subkeys[0])
+                             weight_init=dist.uniform(low=wlb, high=wub), bias_init=dist.constant(value=0.), key=subkeys[0])
                 
         self.Q_mlp2 = StaticSynapse(f"{prefix}Q_mlp2", shape=(4* n_embed, n_embed),
-                             weight_init=dist.gaussian(mean=0.0, std=0.005), bias_init=dist.constant(value=0.), key=subkeys[0])
+                             weight_init=dist.uniform(low=wlb, high=wub), bias_init=dist.constant(value=0.), key=subkeys[0])
                         
         
         self.reshape_3d_to_2d_proj1= ReshapeComponent(f"{prefix}reshape_3d_to_2d_proj1",

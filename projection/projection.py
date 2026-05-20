@@ -37,7 +37,7 @@ class Projection():
                           wlb=wlb)
             self.blocks.append(block)       
         
-        self.Q_out = StaticSynapse("Q_out", shape=(n_embed, vocab_size), weight_init=dist.gaussian(mean=0.0, std=0.005), bias_init=dist.constant(value=0.), key=subkeys[12])
+        self.Q_out = StaticSynapse("Q_out", shape=(n_embed, vocab_size), weight_init=dist.uniform(low=wlb, high=wub), bias_init=dist.constant(value=0.), key=subkeys[12])
                 
         self.eq_target = ErrorCell("eq_target", n_units=vocab_size, batch_size=batch_size * seq_len)
                 

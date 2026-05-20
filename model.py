@@ -228,27 +228,40 @@ class NGCTransformer:
                     block.mlp.e_mlp.dmu     >> block.mlp.W_mlp2.post
 
 
-                # Output layer 
+                                # Output layer 
+                                # ==================== FORWARD PROJECTION ====================
+                # Push structural activity from representation layer to output synapses
                 self.output.z_out.zF >> self.output.W_out.inputs
+                # Drive current into the categorical activation cell
                 self.output.W_out.outputs >> self.z_actfx.j
-                # self.output.W_out.outputs >> self.Outgrad.mu
 
+                # CORRECTED: Pass the pre-computed post-activation probabilities (zF) 
+                # into Outgrad's mu compartment to resolve the VJP correctly and save cycles
+                self.z_actfx.zF >> self.Outgrad.mu
+
+                # ==================== ERROR COMPUTATION ====================
+                # Pass categorical outputs and data targets to the generative error cell
                 self.z_actfx.zF >> self.output.e_out.mu
                 self.z_target.z >> self.output.e_out.target
 
-                self.output.e_out.dtarget >> self.output.E_out.inputs
+                # Push upstream categorical error into Outgrad for backpropagation
+                self.output.e_out.dmu >> self.Outgrad.dmu
+                # Send the precision-weighted logit error out to the internal error unit
+                self.Outgrad.dmu_ >> self.output.E_out.inputs
 
-
+                # ==================== BACKWARD FEEDBACK ====================
+                # Transmit bottom-up error signals back to representation layer (Equation 8)
                 self.output.E_out.outputs >> self.output.z_out.j
                 self.blocks[n_layers - 1].mlp.e_mlp.dtarget >> self.output.z_out.j_td
 
-
+                # ==================== COMPONENT RESHAPING ====================
                 self.embedding.e_embed.dmu >> self.reshape_2d_to_3d_embed.inputs
                 self.reshape_2d_to_3d_embed.outputs >> self.embedding.W_embed.post
 
-
+                # ==================== SYNAPTIC LEARNING ====================
+                # Local Hebbian correlation matrix construction (Equation 6)
                 self.output.z_out.zF >> self.output.W_out.pre
-                self.output.e_out.dtarget >> self.output.W_out.post
+                self.Outgrad.dmu_ >> self.output.W_out.post
 
                         
                         

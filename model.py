@@ -657,7 +657,7 @@ class NGCTransformer:
         
         block_errors = 0.
         for i in range(self.n_layers):
-                block = self.blocks[i]
+            block = self.blocks[i]
             block_term = block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
             print(f"Block {i} energy | {float(block_term):.4f}")
             block_errors += block_term

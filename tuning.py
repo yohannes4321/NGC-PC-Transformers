@@ -29,6 +29,46 @@ EFE_STABILITY_THRESHOLD = 2e1
 
 
 def define_search_space(trial):
+    # Lock architecture near the stable configurations (Trial 31 used heads=2, embed_mult=32)
+    n_heads = trial.suggest_int("n_heads", 2, 4)
+    embed_mult = trial.suggest_int("embed_mult", 24, 40, step=4) 
+    n_embed =  n_heads * embed_mult
+    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
+    
+    # Micro-batches are critical for EFE stability
+    batch_size = trial.suggest_int("batch_size", 2, 8)
+    seq_len = trial.suggest_int("seq_len", 16, 32)
+
+    return {
+        "n_layers": trial.suggest_int("n_layers", 2, 4), # Trial 31 & 32 favored 3 layers
+        "pos_learnable": trial.suggest_categorical("pos_learnable", [True]), # True consistently out-performed False
+        
+        # ETA must be tiny. The best was ~1.32e-6, which was at the absolute bottom of your old range.
+        "eta": trial.suggest_float("eta", 5e-7, 5e-6, log=True),
+        
+        "tau_m": trial.suggest_int("tau_m", 25, 35),
+        
+        # CRITICAL: High inference iterations blow up the EFE. Keep this very low.
+        "n_iter": trial.suggest_int("n_iter", 1, 5),
+        
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.01, 0.1),
+        
+        # Weights need tight, symmetric boundaries (Best was wub=0.028, wlb=-0.026)
+        "wub": trial.suggest_float("wub", 0.02, 0.04),
+        "wlb": trial.suggest_float("wlb", -0.04, -0.02),
+        
+        # Hard-lock these two: Adam and non-linearities cause catastrophic EFE instability in your model
+        "optim_type": trial.suggest_categorical("optim_type", ["sgd"]),
+        "act_fx": trial.suggest_categorical("act_fx", ["identity"]),
+        
+        "n_heads": n_heads,
+        "n_embed": n_embed,
+        "batch_size": batch_size,
+        "seq_len": seq_len,
+        "embed_mult": embed_mult
+    }
+
+def define_search_space(trial):
 
     # number of heads
     n_heads = trial.suggest_int("n_heads", 2, 4)
@@ -115,7 +155,6 @@ def define_search_space(trial):
         "seq_len": seq_len,
         "embed_mult": embed_mult
     }
-
 ## Phase 2 search space function commented out per user request
 ## def define_search_space_phase2(trial, best_params):
 ##     """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""

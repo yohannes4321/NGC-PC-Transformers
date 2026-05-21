@@ -340,12 +340,13 @@ def run_single_trial_efe(trial):
             batches_processed += 1
             current_efe = total_EFE / batches_processed
 
-            trial.report(current_efe, 0)
-            if trial.should_prune():
-                reason = f"TPE pruned at batch {batch_idx} | current EFE={current_efe:.4f}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+            # pruning disabled so the trial can print batches 0-3 consistently
+            # trial.report(current_efe, batch_idx)
+            # if trial.should_prune():
+            #     reason = f"TPE pruned at batch {batch_idx} | current EFE={current_efe:.4f}"
+            #     trial.set_user_attr("prune_reason", reason)
+            #     print(reason)
+            #     raise optuna.TrialPruned()
             # compute CE/PPL on the training batch (no validation eval)
             try:
                 y_pred = y_mu.reshape(-1, cfg.vocab_size)

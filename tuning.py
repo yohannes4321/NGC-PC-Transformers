@@ -32,7 +32,7 @@ def define_search_space(trial):
     n_heads = trial.suggest_int("n_heads", 1, 12)
     embed_mult = trial.suggest_int("embed_mult", 1, 16)
     n_embed = n_heads * embed_mult
-    batch_size = trial.suggest_int("batch_size", 1, 16)
+    batch_size = trial.suggest_int("batch_size", 4, 32)
     seq_len = trial.suggest_int("seq_len", 4, 64)
 
     return {

@@ -312,7 +312,7 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 1
+        max_batches = 4
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break

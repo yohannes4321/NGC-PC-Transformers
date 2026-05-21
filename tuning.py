@@ -22,21 +22,21 @@ from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
 from config import Config as base_config
 import gc
+from eval import eval_model
 
 EFE_STABILITY_THRESHOLD = 2e1
 
 
 def define_search_space(trial):
-    # Wider search space for more exploration on EFE.
-    n_heads = trial.suggest_int("n_heads", 2, 12)
-    embed_mult = trial.suggest_int("embed_mult", 8, 24, step=4)
-    n_embed =  n_heads * embed_mult
-    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 16)
-    seq_len = trial.suggest_int("seq_len", 8, 64)
+    # Include smaller hyperparameter ranges to explore lower-EFE regimes.
+    n_heads = trial.suggest_int("n_heads", 1, 12)
+    embed_mult = trial.suggest_int("embed_mult", 1, 16)
+    n_embed = n_heads * embed_mult
+    batch_size = trial.suggest_int("batch_size", 1, 16)
+    seq_len = trial.suggest_int("seq_len", 4, 64)
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 12),
+        "n_layers": trial.suggest_int("n_layers", 1, 6),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
         "eta": trial.suggest_float("eta", 1e-7, 5e-4, log=True),
         "tau_m": trial.suggest_int("tau_m", 5, 40),

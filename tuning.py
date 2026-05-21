@@ -20,7 +20,7 @@ import jax.random as random
 from pathlib import Path
 from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
-from eval import eval_model
+# from eval import eval_model  # commented out per user request
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
@@ -31,7 +31,7 @@ EFE_STABILITY_THRESHOLD = 2e1
 def define_search_space(trial):
     # Heads and embedding: ensure n_embed divisible by n_heads
     n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 2, 16, step=4)
+    embed_mult = trial.suggest_int("embed_mult", 2, 24, step=4)
     n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
     batch_size = trial.suggest_int("batch_size", 2, 32)
@@ -41,9 +41,9 @@ def define_search_space(trial):
         "n_layers": trial.suggest_int("n_layers", 1, 8),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
         "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
+        "tau_m": trial.suggest_int("tau_m", 5, 40),
         "n_iter": trial.suggest_int("n_iter", 1, 50),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.3),
         "wub": trial.suggest_float("wub", 0.01, 0.1),
         "wlb": trial.suggest_float("wlb", -0.1, -0.01),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
@@ -55,34 +55,31 @@ def define_search_space(trial):
         "embed_mult": embed_mult
     }
 
-def define_search_space_phase2(trial, best_params):
-    """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
-    
-    # Extract Phase 1 best values
-    eta_best = best_params.get("eta", 1e-5)
-    dropout_rate_best = best_params.get("dropout_rate", 0.0)
-    wub_best = best_params.get("wub", 0.05)
-    wlb_best = best_params.get("wlb", -0.05)
-    
-    # Only tune these continuous parameters with narrow search
-    return {
-        "eta": trial.suggest_float("eta",
-                                   eta_best * 0.2,      
-                                   eta_best * 5.0,      
-                                   log=True),
-        "dropout_rate": trial.suggest_float("dropout_rate",
-                                           max(0.0, dropout_rate_best - 0.05),
-                                           min(0.3, dropout_rate_best + 0.05)),
-        "wub": trial.suggest_float("wub",
-                                  max(0.01, wub_best - 0.02),
-                                  min(0.1, wub_best + 0.02)),
-        
-        "wlb": trial.suggest_float("wlb",
-                                  max(-0.1, wlb_best - 0.02),
-                                  min(-0.01, wlb_best + 0.02)),
-    }
-    
-    # ALL OTHER PARAMETERS ARE FIXED FROM PHASE 1 BEST
+## Phase 2 search space function commented out per user request
+## def define_search_space_phase2(trial, best_params):
+##     """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
+##     # Extract Phase 1 best values
+##     eta_best = best_params.get("eta", 1e-5)
+##     dropout_rate_best = best_params.get("dropout_rate", 0.0)
+##     wub_best = best_params.get("wub", 0.05)
+##     wlb_best = best_params.get("wlb", -0.05)
+##     # Only tune these continuous parameters with narrow search
+##     return {
+##         "eta": trial.suggest_float("eta",
+##                                    eta_best * 0.2,      
+##                                    eta_best * 5.0,      
+##                                    log=True),
+##         "dropout_rate": trial.suggest_float("dropout_rate",
+##                                            max(0.0, dropout_rate_best - 0.05),
+##                                            min(0.3, dropout_rate_best + 0.05)),
+##         "wub": trial.suggest_float("wub",
+##                                   max(0.01, wub_best - 0.02),
+##                                   min(0.1, wub_best + 0.02)),
+##         "wlb": trial.suggest_float("wlb",
+##                                   max(-0.1, wlb_best - 0.02),
+##                                   min(-0.01, wlb_best + 0.02)),
+##     }
+##     # ALL OTHER PARAMETERS ARE FIXED FROM PHASE 1 BEST
     
 
 def create_model_with_all_params(trial_number, params, cfg):
@@ -140,7 +137,7 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 20
+        max_batches = 1
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
@@ -150,7 +147,7 @@ def run_single_trial_efe(trial):
 
 
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                yMu_inf, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
             except Exception as e:
                 reason = f"model.process failed: {e}"
@@ -168,34 +165,33 @@ def run_single_trial_efe(trial):
             batches_processed += 1
             current_efe = total_EFE / batches_processed
 
-            trial.report(current_efe, batch_idx)
+            trial.report(current_efe, 0)
             if trial.should_prune():
                 reason = f"TPE pruned at batch {batch_idx} | current EFE={current_efe:.4f}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
+            # compute CE/PPL on the training batch (no validation eval)
+            try:
+                y_pred = y_mu.reshape(-1, cfg.vocab_size)
+                batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()
+                batch_ppl = float(jnp.exp(batch_ce_loss))
+            except Exception:
+                batch_ce_loss = float('inf')
+                batch_ppl = float('inf')
 
-            if batch_idx % 2 == 0:
-                elapsed = time.time() - start_time
-                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
-
-        try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        except:
-            final_ce = 1000.0
-            final_ppl = float('inf')
-
+            elapsed = time.time() - start_time
+            print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={float(batch_ce_loss):.4f} | PPL={batch_ppl:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+        # evaluation on validation set removed per user request
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         total_time = time.time() - start_time
 
-        trial.set_user_attr("ce", float(final_ce))
-        trial.set_user_attr("ppl", float(final_ppl))
         trial.set_user_attr("time", total_time)
 
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
+        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Time={total_time:.1f}s")
         return float(final_efe)
     finally:
         
@@ -317,7 +313,7 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=40, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
@@ -336,89 +332,112 @@ def case1_efe_to_ce_complete():
         print(f"\nContinuous Parameters to be fine-tuned in Phase 2:")
         for key in ['eta', 'dropout_rate', 'wub', 'wlb']:
             print(f"  {key}: {best_params.get(key)}")
-    else:
-        return None
 
-    print(f"\n{'='*60}")
-    print("PHASE 2: TPE optimizing CE (continuous parameters only)")
-    print(f"{'='*60}")
-    print("Strategy: Keep architecture/discrete/categorical parameters FIXED")
-    print("Only fine-tune: eta, dropout_rate, wub, wlb")
-    
-    study_ce = optuna.create_study(
-    study_name="case1_complete_phase2_ce",
-    storage="sqlite:///tuning/case1_complete_phase2_ce.db",
-    load_if_exists=True,
-    direction="minimize",
-    sampler=optuna.samplers.TPESampler(
-        seed=42,
-        n_startup_trials=5,
-        multivariate=True,    
-        group=True,          
-        prior_weight=1.0,     
-        consider_endpoints=True  
-    ),
-    pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15)
-    )
-    
-    print(f"Resuming with {len(study_ce.trials)} previous trials")
-
-    def phase2_trial_wrapper(trial):
-        return run_phase2_trial(trial, best_params)
-
-    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs= 1, show_progress_bar=False)
-
-    if study_ce.best_trial:
-        best_ce = study_ce.best_value
-        final_params = study_ce.best_trial.params
-        
-        print(f"\n{'='*60}")
-        print("PHASE 2 COMPLETE")
-        print(f"{'='*60}")
-        print(f"Best CE achieved: {best_ce:.4f}")
-        
-        print(f"\nParameter changes from Phase 1 → Phase 2:")
-        for key in ['eta', 'dropout_rate', 'wub', 'wlb']:
-            phase1_val = best_params.get(key)
-            phase2_val = final_params.get(key)
-            change_pct = ((phase2_val - phase1_val) / phase1_val * 100) if phase1_val != 0 else 0
-            print(f"  {key}: {phase1_val:.6f} → {phase2_val:.6f} ({change_pct:+.1f}%)")
-        
+        # Save best EFE and parameters (PHASE 2 removed/commented)
         with open("tuning/best_hyperparameters.txt", "w") as f:
             f.write("="*60 + "\n")
-            f.write("BEST HYPERPARAMETERS\n")
+            f.write("BEST HYPERPARAMETERS (EFE ONLY)\n")
             f.write("="*60 + "\n\n")
-            
-            f.write("PHASE 1 - BEST FOR EFE:\n")
+            f.write("Best EFE: %0.6f\n" % best_efe)
             f.write("-"*40 + "\n")
-            f.write(f"Best EFE: {best_efe:.6f}\n")
-            f.write(f"Corresponding CE: {best_efe_ce:.6f}\n")
-            f.write("-"*40 + "\n")
-            
             for key, value in best_params.items():
                 f.write(f"{key} = {value}\n")
-            
-            f.write("\n" + "="*60 + "\n\n")
-            
-            f.write("PHASE 2 - BEST FOR CE:\n")
-            f.write("-"*40 + "\n")
-            f.write(f"Best CE: {best_ce:.6f}\n")
-            f.write("-"*40 + "\n")
-            
-            for key, value in final_params.items():
-                f.write(f"{key} = {value}\n")
-        
+
         print(f"\n✓ Best hyperparameters saved to: tuning/best_hyperparameters.txt")
-        
+
         return {
             "phase1_best_efe": best_efe,
-            "phase1_best_ce": best_efe_ce,
-            "phase2_best_ce": best_ce,
             "phase1_parameters": best_params,
-            "phase2_parameters": final_params,
-            "improvement_pct": ((best_efe_ce - best_ce) / best_efe_ce * 100) if best_efe_ce > 0 else 0
         }
     return None
+
+# ------------------------------------------------------------------
+# PHASE 2 (CE tuning) has been commented out per user request.
+# The code below (originally handling CE phase) is intentionally
+# disabled so only EFE is tuned. If you want to re-enable, remove
+# the leading comment markers (#) on the following lines.
+# ------------------------------------------------------------------
+#
+#    print(f"\n{'='*60}")
+#    print("PHASE 2: TPE optimizing CE (continuous parameters only)")
+#    print(f"{'='*60}")
+#    print("Strategy: Keep architecture/discrete/categorical parameters FIXED")
+#    print("Only fine-tune: eta, dropout_rate, wub, wlb")
+#    
+#    study_ce = optuna.create_study(
+#    study_name="case1_complete_phase2_ce",
+#    storage="sqlite:///tuning/case1_complete_phase2_ce.db",
+#    load_if_exists=True,
+#    direction="minimize",
+#    sampler=optuna.samplers.TPESampler(
+#        seed=42,
+#        n_startup_trials=5,
+#        multivariate=True,    
+#        group=True,          
+#        prior_weight=1.0,     
+#        consider_endpoints=True  
+#    ),
+#    pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15)
+#    )
+#    
+#    print(f"Resuming with {len(study_ce.trials)} previous trials")
+#
+#    def phase2_trial_wrapper(trial):
+#        return run_phase2_trial(trial, best_params)
+#
+#    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs= 1, show_progress_bar=False)
+#
+#    if study_ce.best_trial:
+#        best_ce = study_ce.best_value
+#        final_params = study_ce.best_trial.params
+#        
+#        print(f"\n{'='*60}")
+#        print("PHASE 2 COMPLETE")
+#        print(f"{'='*60}")
+#        print(f"Best CE achieved: {best_ce:.4f}")
+#        
+#        print(f"\nParameter changes from Phase 1 → Phase 2:")
+#        for key in ['eta', 'dropout_rate', 'wub', 'wlb']:
+#            phase1_val = best_params.get(key)
+#            phase2_val = final_params.get(key)
+#            change_pct = ((phase2_val - phase1_val) / phase1_val * 100) if phase1_val != 0 else 0
+#            print(f"  {key}: {phase1_val:.6f} → {phase2_val:.6f} ({change_pct:+.1f}%)")
+#        
+#        with open("tuning/best_hyperparameters.txt", "w") as f:
+#            f.write("="*60 + "\n")
+#            f.write("BEST HYPERPARAMETERS\n")
+#            f.write("="*60 + "\n\n")
+#            
+#            f.write("PHASE 1 - BEST FOR EFE:\n")
+#            f.write("-"*40 + "\n")
+#            f.write(f"Best EFE: {best_efe:.6f}\n")
+#            f.write(f"Corresponding CE: {best_efe_ce:.6f}\n")
+#            f.write("-"*40 + "\n")
+#            
+#            for key, value in best_params.items():
+#                f.write(f"{key} = {value}\n")
+#            
+#            f.write("\n" + "="*60 + "\n\n")
+#            
+#            f.write("PHASE 2 - BEST FOR CE:\n")
+#            f.write("-"*40 + "\n")
+#            f.write(f"Best CE: {best_ce:.6f}\n")
+#            f.write("-"*40 + "\n")
+#            
+#            for key, value in final_params.items():
+#                f.write(f"{key} = {value}\n")
+#        
+#        print(f"\n✓ Best hyperparameters saved to: tuning/best_hyperparameters.txt")
+#        
+#        return {
+#            "phase1_best_efe": best_efe,
+#            "phase1_best_ce": best_efe_ce,
+#            "phase2_best_ce": best_ce,
+#            "phase1_parameters": best_params,
+#            "phase2_parameters": final_params,
+#            "improvement_pct": ((best_efe_ce - best_ce) / best_efe_ce * 100) if best_efe_ce > 0 else 0
+#        }
+#    return None
 
 def main():
     print("PC TRANSFORMER - TWO-PHASE HYPERPARAMETER TUNING")

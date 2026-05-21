@@ -22,6 +22,7 @@ from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
 from config import Config as base_config
 import gc
+from eval import eval_model
 
 EFE_STABILITY_THRESHOLD = 2e1
 
@@ -150,12 +151,23 @@ def run_single_trial_efe(trial):
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         total_time = time.time() - start_time
 
+        try:
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+            final_ce = float(final_ce)
+            final_ppl = float(final_ppl)
+        except Exception as e:
+            final_ce = float("inf")
+            final_ppl = float("inf")
+            trial.set_user_attr("eval_error", str(e))
+
         trial.set_user_attr("time", total_time)
+        trial.set_user_attr("ce", final_ce)
+        trial.set_user_attr("ppl", final_ppl)
 
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Time={total_time:.1f}s")
+        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | PPL={final_ppl:.4f} | Time={total_time:.1f}s")
         return float(final_efe)
     finally:
         
@@ -192,11 +204,15 @@ def case1_efe_only_complete():
     if study_efe.best_trial:
         best_efe = study_efe.best_value
         best_params = study_efe.best_trial.params
+        best_ce = study_efe.best_trial.user_attrs.get("ce", float("inf"))
+        best_ppl = study_efe.best_trial.user_attrs.get("ppl", float("inf"))
         
         print(f"\n{'='*60}")
         print("EFE TUNING COMPLETE")
         print(f"{'='*60}")
         print(f"Best EFE: {best_efe:.4f}")
+        print(f"Best CE: {best_ce:.4f}")
+        print(f"Best PPL: {best_ppl:.4f}")
         print(f"\nBest Parameters:")
         for key in ['n_layers', 'n_heads', 'n_embed', 'tau_m', 'n_iter',
                    'batch_size', 'seq_len', 'pos_learnable', 'optim_type', 'act_fx', 'eta', 'dropout_rate', 'wub', 'wlb']:
@@ -212,6 +228,9 @@ def case1_efe_only_complete():
         f.write("-"*40 + "\n")
         f.write(f"Best EFE: {best_efe:.6f}\n")
         f.write("-"*40 + "\n")
+        f.write(f"Best CE: {study_efe.best_trial.user_attrs.get('ce', float('inf')):.6f}\n")
+        f.write(f"Best PPL: {study_efe.best_trial.user_attrs.get('ppl', float('inf')):.6f}\n")
+        f.write("\n")
         for key, value in best_params.items():
             f.write(f"{key} = {value}\n")
 
@@ -219,6 +238,8 @@ def case1_efe_only_complete():
 
     return {
         "best_efe": best_efe,
+        "best_ce": best_ce,
+        "best_ppl": best_ppl,
         "parameters": best_params,
     }
 
@@ -236,6 +257,8 @@ def main():
             print(f"{'='*60}")
             print(f"Final Results:")
             print(f"- Best EFE: {results['best_efe']:.4f}")
+            print(f"- Best CE: {results['best_ce']:.4f}")
+            print(f"- Best PPL: {results['best_ppl']:.4f}")
             print(f"\n Parameters saved to: tuning/best_hyperparameters.txt")
         else:
             print("Tuning failed or was interrupted.")

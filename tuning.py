@@ -29,25 +29,86 @@ EFE_STABILITY_THRESHOLD = 2e1
 
 
 def define_search_space(trial):
-    # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 2, 24, step=4)
-    n_embed =  n_heads * embed_mult
-    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 32)
-    seq_len = trial.suggest_int("seq_len", 4, 64)
+
+    # number of heads
+    n_heads = trial.suggest_int("n_heads", 2, 4)
+
+    # head dimension
+    embed_mult = trial.suggest_int(
+        "embed_mult", 16, 32, step=4
+    )
+
+    # total embedding dimension
+    n_embed = n_heads * embed_mult
+
+    batch_size = trial.suggest_int("batch_size", 2, 16)
+
+    seq_len = trial.suggest_int("seq_len", 8, 32)
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 8),
-        "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 5, 40),
-        "n_iter": trial.suggest_int("n_iter", 1, 50),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.3),
-        "wub": trial.suggest_float("wub", 0.01, 0.1),
-        "wlb": trial.suggest_float("wlb", -0.1, -0.01),
-        "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+
+        # smaller transformers are more stable
+        "n_layers": trial.suggest_int("n_layers", 1, 3),
+
+        "pos_learnable": trial.suggest_categorical(
+            "pos_learnable",
+            [True, False]
+        ),
+
+        # very important for stability
+        "eta": trial.suggest_float(
+            "eta",
+            1e-6,
+            5e-6,
+            log=True
+        ),
+
+        # membrane time constant
+        "tau_m": trial.suggest_int(
+            "tau_m",
+            15,
+            40
+        ),
+
+        # too many iterations can explode
+        "n_iter": trial.suggest_int(
+            "n_iter",
+            3,
+            12
+        ),
+
+        # some dropout helps stabilize
+        "dropout_rate": trial.suggest_float(
+            "dropout_rate",
+            0.05,
+            0.25
+        ),
+
+        # smaller initialization range
+        "wub": trial.suggest_float(
+            "wub",
+            0.005,
+            0.03
+        ),
+
+        "wlb": trial.suggest_float(
+            "wlb",
+            -0.03,
+            -0.005
+        ),
+
+        # optimizer
+        "optim_type": trial.suggest_categorical(
+            "optim_type",
+            ["adam", "sgd"]
+        ),
+
+        # activation
+        "act_fx": trial.suggest_categorical(
+            "act_fx",
+            ["identity", "tanh", "relu"]
+        ),
+
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,

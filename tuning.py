@@ -149,13 +149,23 @@ def run_single_trial_efe(trial):
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         total_time = time.time() - start_time
+        try:
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+            final_ce = float(final_ce)
+            final_ppl = float(final_ppl)
+        except Exception as e:
+            final_ce = float('inf')
+            final_ppl = float('inf')
+            trial.set_user_attr('eval_error', str(e))
 
         trial.set_user_attr("time", total_time)
+        trial.set_user_attr("ce", final_ce)
+        trial.set_user_attr("ppl", final_ppl)
 
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Time={total_time:.1f}s")
+        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | PPL={final_ppl:.4f} | Time={total_time:.1f}s")
         return float(final_efe)
     finally:
         

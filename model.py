@@ -27,7 +27,7 @@ class NGCTransformer:
 
     Architecture:
     z_embed -(W_embed)-> e_embed, z_qkv -(W_q,W_k,W_v - > W_attn_out)-> e_attn, z_mlp -(W_mlp1,W_mlp2)-> e_mlp, z_out -(W_out)-> e_out
-    e_attn -(E_attn)-> z_qkv <- e_embed, e_mlp -(E_mlp)-> z_mlp <- e_attn, e_out -(E_out)-> z_out <- e_mlp
+    e_attn -(E_attn)-> z_qkv <- e_embed, e_mlp -(E_mlp2)-> z_mlp <- e_attn, e_out -(E_out)-> z_out <- e_mlp
 
     Args:
         dkey: JAX seeding key
@@ -108,10 +108,10 @@ class NGCTransformer:
                 # self.reshape_4d_to_2d.inputs >> self.attention.z_qkv.zF
                 for blocks in range(n_layers):
                     block= self.blocks[blocks]
-
-                    block.attention.z_qkv.zF >> block.attention.W_q.inputs
-                    block.attention.z_qkv.zF>> block.attention.W_k.inputs 
-                    block.attention.z_qkv.zF >> block.attention.W_v.inputs
+                    block.attention.z_qkv.zF >> block.ln1.inputs
+                    block.ln1.outputs >> block.attention.W_q.inputs
+                    block.ln1.outputs >> block.attention.W_k.inputs
+                    block.ln1.outputs >> block.attention.W_v.inputs
                     
                     block.attention.W_q.outputs >> block.reshape_2d_to_3d_q.inputs 
                     block.attention.W_k.outputs >> block.reshape_2d_to_3d_k.inputs 
@@ -124,13 +124,13 @@ class NGCTransformer:
 
                     block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
                     block.attention.z_attn.z >> block.attention.e_qkv.target
-                    
                     block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
                     block.mlp.z_mlp1.z >> block.attention.e_attn.target
 
                     
-                    block.mlp.z_mlp1.zF >> block.mlp.W_mlp1.inputs
+                    block.mlp.z_mlp2.zF >> block.ln2.inputs
+                    block.ln2.outputs   >> block.mlp.W_mlp1.inputs
                     
 
 
@@ -153,49 +153,77 @@ class NGCTransformer:
                     block.mlp.e_mlp1.dmu >> block.mlp.E_mlp1.inputs
                     block.mlp.e_mlp2.dmu  >> block.mlp.E_mlp2.inputs
 
+
+                    # Backward attention errors 
                     block.attention.e_qkv.dmu >> block.attention.attn_block.dmu
                     
-                    block.attention.attn_block.dq >> block.attention.E_q.inputs
-                    block.attention.attn_block.dk >> block.attention.E_k.inputs
-                    block.attention.attn_block.dv >> block.attention.E_v.inputs
-                    block.attention.e_attn.dmu >> block.attention.E_attn.inputs
+
+                    # RMSNorm gradient corrects error before entering z_qkv
+                    #q path
+                    block.attention.z_qkv.zF    >> block.ln1_grad_q.z
+                    block.ln1.rms               >> block.ln1_grad_q.rms
+                    block.attention.attn_block.dq  >> block.ln1_grad_q.dmu_attn
+                    block.ln1_grad_q.dmu_out >> block.attention.E_q.inputs
+                    block.attention.E_q.outputs >> block.attention.z_qkv.jq
+ 
+                    #  K path 
                     
-                    
-                    block.attention.E_q.outputs >>block.attention.z_qkv.jq
-                    block.attention.E_k.outputs >>block.attention.z_qkv.jk
+                    block.attention.z_qkv.zF  >> block.ln1_grad_k.z
+                    block.ln1.rms               >> block.ln1_grad_k.rms
+                    block.attention.attn_block.dk >> block.ln1_grad_k.dmu_attn
+                    block.ln1_grad_k.dmu_out   >> block.attention.E_k.inputs
+                    block.attention.E_k.outputs >> block.attention.z_qkv.jk
+                    #  V path  
+                    block.attention.z_qkv.zF  >> block.ln1_grad_v.z
+                    block.ln1.rms  >> block.ln1_grad_v.rms
+                    block.attention.attn_block.dv >> block.ln1_grad_v.dmu_attn
+                    block.ln1_grad_v.dmu_out >>  block.attention.E_v.inputs
                     block.attention.E_v.outputs >> block.attention.z_qkv.jv
+
+                    # e_attn → E_attn → z_attn.j  (no ln on this path)
+                    block.attention.e_attn.dmu     >> block.attention.E_attn.inputs
                     block.attention.E_attn.outputs >> block.attention.z_attn.j
-
-
+ 
+                    # top-down error into z_qkv
                     if blocks == 0:
                         self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
                     else:
-                        self.blocks[blocks - 1].mlp.e_mlp2.dtarget >> block.attention.z_qkv.j_td
+                        self.blocks[blocks - 1].mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
                     block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
 
-                    block.mlp.E_mlp2.outputs  >> block.mlp.z_mlp2.j
+            
+                    block.ln2.rms >> block.ln2_grad.rms
+                    block.mlp.z_mlp1.zF >> block.ln2_grad.z 
+
+                    # E_mlp1 — backward signal for z_mlp2 state 
+                    block.mlp.e_mlp1.dmu     >> block.ln2_grad.dmu_mlp1
+                    block.ln2_grad.dmu_mlp1_out >> block.mlp.E_mlp1.inputs
                     block.mlp.E_mlp1.outputs >> block.mlp.z_mlp1.j
+                  
 
-                    block.attention.e_attn.dtarget >> block.mlp.z_mlp1.j_td
-                    block.mlp.e_mlp1.dtarget >> block.mlp.z_mlp2.j_td
+                    # E_mlp2 — backward signal for z_mlp2 from output error
+                    block.mlp.e_mlp2.dmu      >> block.mlp.E_mlp2.inputs   # (18,16) → E_mlp2(16,64)
+                    block.mlp.E_mlp2.outputs  >> block.mlp.z_mlp2.j 
+
+                    block.attention.e_attn.dtarget >> block.mlp.z_mlp.j_td
+                    block.mlp.e_mlp1.dtarget       >> block.mlp.z_mlp2.j_td
 
 
-                    block.attention.z_qkv.zF >> block.attention.W_q.pre
-                    block.attention.attn_block.dtarget_q >> block.attention.W_q.post
-
-                    block.attention.z_qkv.zF >> block.attention.W_k.pre
-                    block.attention.attn_block.dtarget_k >> block.attention.W_k.post
-
-                    block.attention.z_qkv.zF >> block.attention.W_v.pre
-                    block.attention.attn_block.dtarget_v >> block.attention.W_v.post
-
+                    #  Hebbian pre/post wiring 
+                    block.ln1.outputs       >> block.attention.W_q.pre
+                    block.ln1_grad_q.dmu_out   >> block.attention.W_q.post
+ 
+                    block.ln1.outputs       >> block.attention.W_k.pre
+                    block.ln1_grad_k.dmu_out   >> block.attention.W_k.post
+ 
+                    block.ln1.outputs       >> block.attention.W_v.pre
+                    block.ln1_grad_v.dmu_out  >> block.attention.W_v.post
+ 
                     block.attention.z_attn.zF >> block.attention.W_attn_out.pre
                     block.attention.e_attn.dmu >> block.attention.W_attn_out.post
-
-
-                    block.mlp.z_mlp1.zF  >> block.mlp.W_mlp1.pre
-                    block.mlp.e_mlp1.dmu >> block.mlp.W_mlp1.post
-
+ 
+                    block.ln2.outputs >> block.mlp.W_mlp1.pre
+                    block.ln2_grad.dmu_mlp1_out >> block.mlp.W_mlp1.post
                     block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.pre
                     block.mlp.e_mlp2.dmu  >> block.mlp.W_mlp2.post
 

@@ -173,7 +173,7 @@ class NGCTransformer:
                     block.ln1.rms  >> block.ln1_grad_v.rms
                     block.attention.attn_block.dv >> block.attention.E_v.inputs
                     block.attention.E_v.outputs      >> block.ln1_grad_v.dmu_attn
-                block.ln1_grad_k.dmu_out >> block.attention.z_qkv.jv
+                    block.ln1_grad_k.dmu_out >> block.attention.z_qkv.jv
                     block.attention.e_attn.dmu >> block.attention.E_attn.inputs
                     block.attention.E_attn.outputs >> block.attention.z_attn.j
                     if blocks == 0:

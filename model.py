@@ -588,8 +588,23 @@ class NGCTransformer:
         
             self.clamp_input(obs)
             self.clamp_target(lab)
-             
+            
             self.advance.run(t=ts,dt=1.)
+            # NaN detection: check core compartments for NaNs after each advance
+            for i in range(self.n_layers):
+                block = self.blocks[i]
+                # check critical compartments
+                comps = [
+                    block.mlp.z_mlp1.z.get(),
+                    block.mlp.z_mlp2.z.get(),
+                    block.mlp.W_mlp1.weights.get(),
+                    block.mlp.W_mlp2.weights.get(),
+                    block.attention.z_attn.z.get(),
+                ]
+                for arr in comps:
+                    if jnp.any(jnp.isnan(arr)):
+                        jax.debug.print("NaN detected at ts={ts}, block={i}", ts=ts, i=i)
+                        raise FloatingPointError(f"NaN detected at ts={ts}, block={i}")
            
         # y_mu = self.output.W_out.outputs.get() 
         y_mu = self.z_actfx.zF.get() 

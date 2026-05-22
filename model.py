@@ -162,23 +162,23 @@ class NGCTransformer:
                     #q path
                     block.attention.z_qkv.zF    >> block.ln1_grad_q.z
                     block.ln1.rms               >> block.ln1_grad_q.rms
-                    block.attention.attn_block.dq  >> block.ln1_grad_q.dmu_attn
-                    block.ln1_grad_q.dmu_out >> block.attention.E_q.inputs
-                    block.attention.E_q.outputs >> block.attention.z_qkv.jq
+                    block.attention.attn_block.dq >> block.attention.E_q.inputs
+                    block.attention.E_q.outputs      >> block.ln1_grad_q.dmu_attn
+                    block.ln1_grad_q.dmu_out >> block.attention.z_qkv.jq
  
                     #  K path 
                     
                     block.attention.z_qkv.zF  >> block.ln1_grad_k.z
                     block.ln1.rms               >> block.ln1_grad_k.rms
-                    block.attention.attn_block.dk >> block.ln1_grad_k.dmu_attn
-                    block.ln1_grad_k.dmu_out   >> block.attention.E_k.inputs
-                    block.attention.E_k.outputs >> block.attention.z_qkv.jk
+                    block.attention.attn_block.dk >> block.attention.E_k.inputs
+                    block.attention.E_k.outputs      >> block.ln1_grad_k.dmu_attn
+                    block.ln1_grad_k.dmu_out  >> block.attention.z_qkv.jk
                     #  V path  
                     block.attention.z_qkv.zF  >> block.ln1_grad_v.z
                     block.ln1.rms  >> block.ln1_grad_v.rms
-                    block.attention.attn_block.dv >> block.ln1_grad_v.dmu_attn
-                    block.ln1_grad_v.dmu_out >>  block.attention.E_v.inputs
-                    block.attention.E_v.outputs >> block.attention.z_qkv.jv
+                    block.attention.attn_block.dv >> block.attention.E_v.inputs
+                    block.attention.E_v.outputs      >> block.ln1_grad_v.dmu_attn
+                    block.ln1_grad_v.dmu_out >> block.attention.z_qkv.jv
 
                     # e_attn → E_attn → z_attn.j  (no ln on this path)
                     block.attention.e_attn.dmu     >> block.attention.E_attn.inputs
@@ -325,7 +325,7 @@ class NGCTransformer:
                     advance_process >> block.attention.z_attn.advance_state
                     advance_process >> block.attention.W_attn_out.advance_state
 
-                    # advance_process >> block.mlp.z_mlp1.advance_state
+                    advance_process >> block.mlp.z_mlp1.advance_state
                     advance_process >> block.attention.e_attn.advance_state
                     advance_process >> block.attention.E_attn.advance_state
                     advance_process >> block.mlp.W_mlp1.advance_state

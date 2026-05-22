@@ -4,7 +4,7 @@ from layers.mlp import MLP
 from jax import random
 import jax.numpy as jnp
 from utils.model_util import ReshapeComponent
-from utils.rms_norm_util import RMSNorm
+from utils.rms_norm_util import RMSNorm,RMSNormGrad
 
 class Block:
     def __init__(self, dkey, block_id, n_embed, seq_len, vocab_size,

@@ -56,6 +56,16 @@ class NGCTransformer:
         self.seq_len= seq_len
         self.vocab_size= vocab_size
         self.n_embed= n_embed
+        tau_m_layers = kwargs.pop("tau_m_layers", None)
+        if tau_m_layers is None:
+            tau_m_layers = [tau_m] * n_layers
+        elif not isinstance(tau_m_layers, (list, tuple)):
+            tau_m_layers = [tau_m_layers] * n_layers
+        else:
+            tau_m_layers = list(tau_m_layers)
+        if len(tau_m_layers) < n_layers:
+            tau_m_layers.extend([tau_m_layers[-1]] * (n_layers - len(tau_m_layers)))
+        self.tau_m_layers = tau_m_layers[:n_layers]
         
         if exp_dir is not None:
             makedir(exp_dir)
@@ -70,14 +80,15 @@ class NGCTransformer:
             self.blocks = []
             for i in range(n_layers):
                 key, subkey = random.split(subkeys[1 + i])
+                block_tau_m = self.tau_m_layers[i]
                 block=Block(dkey=subkey, block_id= i, n_embed=self.n_embed, seq_len=self.seq_len,
-                                batch_size=self.batch_size, vocab_size=self.vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m)
+                                batch_size=self.batch_size, vocab_size=self.vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=block_tau_m)
                 self.blocks.append(block)   
                     
-            self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
+            self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=config.eta_o, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=self.tau_m_layers[-1])
                 
             self.z_target=RateCell("z_target", n_units= self.vocab_size, tau_m=0., act_fx="identity", batch_size=self.batch_size * self.seq_len) 
-            self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=tau_m, act_fx="softmax", batch_size=self.batch_size * self.seq_len)
+            self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=self.tau_m_layers[-1], act_fx="softmax", batch_size=self.batch_size * self.seq_len)
             self.projection = Projection(dkey=subkeys[29], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size,
                                              vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate)
             self.reshape_4d_to_2d = ReshapeComponent("reshape_4d_to_2d",

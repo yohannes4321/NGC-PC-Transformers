@@ -8,7 +8,7 @@ class Config:
     n_layers = 3
     dropout_rate = 0.059089954105342984
     eta = 1.1696389681412456e-06
-    eta_o= 1.0e-03
+    eta_o= 1.0e-06
     exp_dir = "exp" 
     pos_learnable = True
     optim_type = "adam"
@@ -21,6 +21,7 @@ class Config:
     wu = 0.025
     wl = -0.025
     tau_m = 31.0
+    tau_m_layers = [33.0, 31.0, 29.0]
     act_fx = "relu"
     act_fx_o = "identity"
     embed_mult = 32

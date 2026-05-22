@@ -30,6 +30,7 @@ model = NGCTransformer(
     optim_type=config.optim_type, 
     wub=config.wub, 
     wlb=config.wlb, 
+    tau_m_layers=config.tau_m_layers,
     model_name="ngc transformer"
 )
 

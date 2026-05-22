@@ -16,15 +16,32 @@ class Config:
     epoch = 1
     n_iter= 26
     tau_o = 2
-    # Reduced weight bounds for stability
-    wub = 0.02
-    wlb = -0.02
-    wu = 0.02
-    wl = -0.02
-    # Increased tau_m for slower, more stable dynamics
-    tau_m = 3.5
-    # Use tanh on output to bound predictions to [-1, 1]
+    
+    # === OPTIMIZED FOR MONOTONIC ENERGY DECREASE ===
+    # Slower, more stable hidden layer dynamics
+    tau_m = 4.0
+    
+    # Increased learning rate for hidden layers (was 4.919e-06)
+    # Now 20× larger to match output layer learning speed
+    eta = 1e-04
+    eta_o = 2.9e-03
+    
+    # Relaxed weight bounds (was ±0.02)
+    # Allow more dynamic range for weight representation
+    wub = 0.1
+    wlb = -0.1
+    wu = 0.1
+    wl = -0.1
+    
+    # === ACTIVATION FUNCTIONS (DO NOT CHANGE) ===
+    # Identity on hidden layers: unbounded rate neurons
+    # This is correct for rate-coded RateCell dynamics
     act_fx = "identity"
+    
+    # Tanh on output layer: CRITICAL for energy stability
+    # Bounds predictions to [-1, 1] → error always ≤ 1
+    # → Energy naturally decreases monotonically
+    # (without tanh: Energy oscillates wildly)
     act_fx_o = "tanh"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"

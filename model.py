@@ -641,8 +641,8 @@ class NGCTransformer:
                 L_mlp2 = block.mlp.e_mlp2.L.get()
                 L_mlp1 = block.mlp.e_mlp1.L.get()
                 block_errors += L_qkv + L_attn + L_mlp2 + L_mlp1
-                print(f"Block {i} errors: L_qkv={L_qkv:.8f} L_attn={L_attn:.8f} L_mlp1={L_mlp1:.8f} L_mlp2={L_mlp2:.8f}")
-        print(f"{L1}     {  L4}")
+                # print(f"Block {i} errors: L_qkv={L_qkv:.8f} L_attn={L_attn:.8f} L_mlp1={L_mlp1:.8f} L_mlp2={L_mlp2:.8f}")
+        # print(f"{L1}     {  L4}")
         #         jax.debug.print("  block {i}: L_qkv={a:.8f} L_attn={b:.8f} L_mlp1={c:.8f} L_mlp2={d:.8f}", i=i, a=L_qkv, b=L_attn, c=L_mlp1, d=L_mlp2)
         # jax.debug.print("  L_embed={a:.8f} L_out={b:.8f}", a=L1, b=L4)
 

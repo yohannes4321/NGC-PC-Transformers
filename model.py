@@ -159,7 +159,7 @@ class NGCTransformer:
                     block.ln1.rms               >> block.ln1_grad_q.rms
                     block.attention.attn_block.dq >> block.attention.E_q.inputs
                     block.attention.E_q.outputs      >> block.ln1_grad_q.dmu_attn
-                    block. >> block.attention.z_qkv.jq
+                    block.ln1_grad_q.dmu_out >> block.attention.z_qkv.jq
  
                     #  K path 
                     

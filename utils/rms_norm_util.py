@@ -89,7 +89,7 @@ class RMSNormGrad(JaxComponent):
 
         self.z        = Compartment(jnp.zeros((batch_size, n_embed)))
         self.rms       = Compartment(jnp.ones((batch_size, 1)))
-        self.dmu_mlp1  = Compartment(jnp.zeros((batch_size,4 * n_embed)))
+        self.dmu_mlp1  = Compartment(jnp.zeros((batch_size, n_embed)))
         self.dmu_attn  = Compartment(jnp.ones((batch_size, n_embed)))
         self.dmu_out      = Compartment(jnp.zeros((batch_size, n_embed)))
         self.dmu_mlp1_out  = Compartment(jnp.zeros((batch_size, n_embed)))

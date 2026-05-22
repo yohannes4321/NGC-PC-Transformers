@@ -129,7 +129,7 @@ class NGCTransformer:
                     block.mlp.z_mlp1.z >> block.attention.e_attn.target
 
                     
-                    block.mlp.z_mlp2.zF >> block.ln2.inputs
+                    block.mlp.z_mlp1.zF >> block.ln2.inputs
                     block.ln2.outputs   >> block.mlp.W_mlp1.inputs
                     
 
@@ -195,10 +195,10 @@ class NGCTransformer:
                     block.ln2.rms >> block.ln2_grad.rms
                     block.mlp.z_mlp1.zF >> block.ln2_grad.z 
 
-                    # E_mlp1 — backward signal for z_mlp2 state 
-                    block.mlp.e_mlp1.dmu     >> block.ln2_grad.dmu_mlp1
-                    block.ln2_grad.dmu_mlp1_out >> block.mlp.E_mlp1.inputs
-                    block.mlp.E_mlp1.outputs >> block.mlp.z_mlp1.j
+                    # E_mlp1 — backward signal for z_mlp1 state 
+                    block.mlp.e_mlp1.dmu     >> block.mlp.E_mlp1.inputs
+                    block.mlp.E_mlp1.outputs >> block.ln2_grad.dmu_mlp1
+                    block.ln2_grad.dmu_mlp1_out >> block.mlp.z_mlp1.j
                   
 
                     # E_mlp2 — backward signal for z_mlp2 from output error

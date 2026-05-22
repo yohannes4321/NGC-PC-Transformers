@@ -647,6 +647,11 @@ class NGCTransformer:
         # jax.debug.print("  L_embed={a:.8f} L_out={b:.8f}", a=L1, b=L4)
 
         EFE =  block_errors + L1
+        
+        # Normalize EFE by total number of elements to get reasonable loss magnitude
+        # (error cells sum squared errors over all dimensions and timesteps)
+        # total_elements = self.batch_size * self.seq_len
+        # EFE_normalized = EFE / total_elements
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()
@@ -660,7 +665,7 @@ class NGCTransformer:
                 self.output.W_out.biases.set(jnp.clip(self.output.W_out.biases.get(), -bias_bound, bias_bound))
 
         ## skip E/M steps if just doing test-time inference
-        return y_mu, EFE
+        return y_mu, EFE_normalized
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()

@@ -11,19 +11,21 @@ class Config:
     eta_o = 2.9e-03
     exp_dir = "exp"
     pos_learnable = True
-    optim_type = "sgd"
+    # Switch to Adam optimizer for better gradient handling with large loss magnitudes
+    optim_type = "adam"
     epoch = 1
     n_iter= 26
     tau_o = 2
-    # Reduced weight bounds for stability with small learning rates
+    # Reduced weight bounds for stability
     wub = 0.02
     wlb = -0.02
     wu = 0.02
     wl = -0.02
     # Increased tau_m for slower, more stable dynamics
     tau_m = 3.5
+    # Use tanh on output to bound predictions to [-1, 1]
     act_fx = "identity"
-    act_fx_o = "identity"
+    act_fx_o = "tanh"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"
     # When tokenizer == "tiktoken", tokenizer_name is used (e.g. "gpt2" or "cl100k_base")

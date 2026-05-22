@@ -27,7 +27,9 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
     # Scaled dot-product attention
     s_c = jnp.einsum("BHTE,BHSE->BHTS", q, k) / jnp.sqrt(d_head)
     
-  
+    # Clip attention scores to prevent softmax overflow in backward pass
+    s_c = jnp.clip(s_c, -30.0, 30.0)
+    
     _mask = mask[None, None, :, :]  
     s_c = jnp.where(_mask, s_c, -1e9)
         

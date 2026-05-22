@@ -26,8 +26,8 @@ class NGCTransformer:
     algorithm in a predictive coding network with local hebbian synaptic plasticity"
 
     Architecture:
-    z_embed -(W_embed)-> e_embed, z_qkv -(W_q,W_k,W_v - > W_attn_out)-> e_attn, z_mlp1 -(W_mlp1,W_mlp2)-> e_mlp, z_out -(W_out)-> e_out
-    e_attn -(E_attn)-> z_qkv <- e_embed, e_mlp -(E_mlp2)-> z_mlp1 <- e_attn, e_out -(E_out)-> z_out <- e_mlp
+    z_embed -(W_embed)-> e_embed, z_qkv -(W_q,W_k,W_v - > W_attn_out)-> e_attn, z_mlp1 -(W_mlp1,W_mlp2)-> e_mlp1, z_out -(W_out)-> e_out
+    e_attn -(E_attn)-> z_qkv <- e_embed, e_mlp1 -(E_mlp2)-> z_mlp1 <- e_attn, e_out -(E_out)-> z_out <- e_mlp1
 
     Args:
         dkey: JAX seeding key
@@ -188,7 +188,7 @@ class NGCTransformer:
                     if blocks == 0:
                         self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
                     else:
-                        self.blocks[blocks - 1].mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
+                        self.blocks[blocks - 1].mlp.e_mlp1.dtarget >> block.attention.z_qkv.j_td
                     block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
 
             

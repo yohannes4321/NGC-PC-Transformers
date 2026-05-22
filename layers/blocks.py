@@ -20,6 +20,16 @@ class Block:
                                  dropout_rate=dropout_rate, eta=eta, optim_type= optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m)
         
         self.ln2 = RMSNorm(f"{prefix}ln2", n_embed=n_embed, batch_size= batch_size * seq_len)
+        # Backward norm-grad — three for attention (Q/K/V), one for MLP 
+        self.ln1_grad_q = RMSNormGrad(f"{prefix}ln1_grad_q", n_embed=n_embed,
+                                      batch_size=bs, gamma=self.ln1.gamma)
+        self.ln1_grad_k = RMSNormGrad(f"{prefix}ln1_grad_k", n_embed=n_embed,
+                                      batch_size=bs, gamma=self.ln1.gamma)
+        self.ln1_grad_v = RMSNormGrad(f"{prefix}ln1_grad_v", n_embed=n_embed,
+                                      batch_size=bs, gamma=self.ln1.gamma)
+        # MLP path 
+        self.ln2_grad = RMSNormGrad(f"{prefix}ln2_grad", n_embed=n_embed,
+                                    batch_size=bs, gamma=self.ln2.gamma)
         self.mlp = MLP(dkey=mlp_key, n_embed=n_embed, seq_len=seq_len,
                       batch_size=batch_size, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, prefix=prefix, tau_m=tau_m)
 

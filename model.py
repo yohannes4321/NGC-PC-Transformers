@@ -223,7 +223,7 @@ class NGCTransformer:
                     block.attention.e_attn.dmu >> block.attention.W_attn_out.post
  
                     block.ln2.outputs >> block.mlp.W_mlp1.pre
-                    block.ln2_grad.dmu_mlp1_out >> block.mlp.W_mlp1.post
+                    # block.ln2_grad.dmu_mlp1_out >> block.mlp.W_mlp1.post
                     block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.pre
                     block.mlp.e_mlp2.dmu  >> block.mlp.W_mlp2.post
 

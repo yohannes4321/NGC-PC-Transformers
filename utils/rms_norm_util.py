@@ -92,7 +92,7 @@ class RMSNormGrad(JaxComponent):
         self.dmu_mlp1  = Compartment(jnp.zeros((batch_size, n_embed)))
         self.dmu_attn  = Compartment(jnp.ones((batch_size, n_embed)))
         self.dmu_out      = Compartment(jnp.zeros((batch_size, n_embed)))
-        self.dmu_mlp1_out  = Compartment(jnp.zeros((batch_size, n_embed)))
+        self.dmu_mlp1_out  = Compartment(jnp.zeros((batch_size, 4* n_embed)))
 
     @compilable
     def advance_state(self):

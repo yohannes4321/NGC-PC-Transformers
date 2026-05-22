@@ -26,8 +26,8 @@ class NGCTransformer:
     algorithm in a predictive coding network with local hebbian synaptic plasticity"
 
     Architecture:
-    z_embed -(W_embed)-> e_embed, z_qkv -(W_q,W_k,W_v - > W_attn_out)-> e_attn, z_mlp1 -(W_mlp1,W_mlp2)-> e_mlp1, z_out -(W_out)-> e_out
-    e_attn -(E_attn)-> z_qkv <- e_embed, e_mlp1 -(E_mlp2)-> z_mlp1 <- e_attn, e_out -(E_out)-> z_out <- e_mlp1
+    z_embed -(W_embed)-> e_embed, z_qkv -(W_q,W_k,W_v - > W_attn_out)-> e_attn, z_mlp1 -(W_mlp1,W_mlp2)-> e_mlp2, z_out -(W_out)-> e_out
+    e_attn -(E_attn)-> z_qkv <- e_embed, e_mlp2 -(E_mlp2)-> z_mlp1 <- e_attn, e_out -(E_out)-> z_out <- e_mlp2
 
     Args:
         dkey: JAX seeding key
@@ -108,6 +108,7 @@ class NGCTransformer:
                 # self.reshape_4d_to_2d.inputs >> self.attention.z_qkv.zF
                 for blocks in range(n_layers):
                     block= self.blocks[blocks]
+                    # attention forward
                     block.attention.z_qkv.zF >> block.ln1.inputs
                     block.ln1.outputs >> block.attention.W_q.inputs
                     block.ln1.outputs >> block.attention.W_k.inputs
@@ -124,16 +125,14 @@ class NGCTransformer:
 
                     block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
                     block.attention.z_attn.z >> block.attention.e_qkv.target
+                    
                     block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
                     block.mlp.z_mlp1.z >> block.attention.e_attn.target
 
-                    
-                    block.mlp.z_mlp1.zF >> block.ln2.inputs
+                    block.mlp.z_mlp1.zF  >> block.ln2.inputs
                     block.ln2.outputs   >> block.mlp.W_mlp1.inputs
                     
-
-
                     block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu
                     block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
 
@@ -147,11 +146,6 @@ class NGCTransformer:
                         self.output.z_out.z >> block.mlp.e_mlp2.target
                     else:
                         self.blocks[blocks + 1].attention.z_qkv.z >> block.mlp.e_mlp2.target
-
-
-
-                    block.mlp.e_mlp1.dmu >> block.mlp.E_mlp1.inputs
-                    block.mlp.e_mlp2.dmu  >> block.mlp.E_mlp2.inputs
 
 
                     # Backward attention errors 
@@ -188,18 +182,22 @@ class NGCTransformer:
                     if blocks == 0:
                         self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
                     else:
-                        self.blocks[blocks - 1].mlp.e_mlp1.dtarget >> block.attention.z_qkv.j_td
+                        self.blocks[blocks - 1].mlp.e_mlp2.dtarget >> block.attention.z_qkv.j_td
                     block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
 
-            
+                    #  Backward MLP errors 
+                    #block.mlp.e_mlp1.dmu >> block.mlp.E_mlp1.inputs
+                    
+                    #block.mlp.e_mlp2.dmu  >> block.mlp.E_mlp2.inputs
+ 
+                    # E_mlp2 output -> ln2_grad -> z_mlp1.j
                     block.ln2.rms >> block.ln2_grad.rms
                     block.mlp.z_mlp1.zF >> block.ln2_grad.z 
 
-                    # E_mlp1 — backward signal for z_mlp1 state 
-                    block.mlp.e_mlp1.dmu     >> block.mlp.E_mlp1.inputs
+                    # E_mlp1 — backward signal for z_mlp2 state 
+                    block.mlp.e_mlp1.dmu     >> block.mlp.E_mlp1.inputs  # (18,64) → E_mlp1(64,16)
                     block.mlp.E_mlp1.outputs >> block.ln2_grad.dmu_mlp1
                     block.ln2_grad.dmu_mlp1_out >> block.mlp.z_mlp1.j
-                  
 
                     # E_mlp2 — backward signal for z_mlp2 from output error
                     block.mlp.e_mlp2.dmu      >> block.mlp.E_mlp2.inputs   # (18,16) → E_mlp2(16,64)
@@ -219,35 +217,51 @@ class NGCTransformer:
                     block.ln1.outputs       >> block.attention.W_v.pre
                     block.ln1_grad_v.dmu_out  >> block.attention.W_v.post
  
-                    block.attention.z_attn.zF >> block.attention.W_attn_out.pre
-                    block.attention.e_attn.dmu >> block.attention.W_attn_out.post
+                    block.attention.z_attn.zF    >> block.attention.W_attn_out.pre
+                    block.attention.e_attn.dmu   >> block.attention.W_attn_out.post
  
-                    block.ln2.outputs >> block.mlp.W_mlp1.pre
-                    block.ln2_grad.dmu_mlp1_out >> block.mlp.W_mlp1.post
-                    block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.pre
-                    block.mlp.e_mlp2.dmu  >> block.mlp.W_mlp2.post
+                    block.ln2.outputs       >> block.mlp.W_mlp1.pre
+                    #block.ln2_grad.dmu_      >> block.mlp.W_mlp1.pre
+                    block.mlp.e_mlp1.dmu     >> block.mlp.W_mlp1.post
+ 
+                    block.mlp.z_mlp2.zF     >> block.mlp.W_mlp2.pre
+                    block.mlp.e_mlp2.dmu     >> block.mlp.W_mlp2.post
 
-                        
+
+                                # Output layer 
+                                # ==================== FORWARD PROJECTION ====================
+                # Push structural activity from representation layer to output synapses
                 self.output.z_out.zF >> self.output.W_out.inputs
+                # Drive current into the categorical activation cell
                 self.output.W_out.outputs >> self.z_actfx.j
-                self.output.W_out.outputs >> self.Outgrad.mu
 
+                # CORRECTED: Pass the pre-computed post-activation probabilities (zF) 
+                # into Outgrad's mu compartment to resolve the VJP correctly and save cycles
+                self.z_actfx.zF >> self.Outgrad.mu
+
+                # ==================== ERROR COMPUTATION ====================
+                # Pass categorical outputs and data targets to the generative error cell
                 self.z_actfx.zF >> self.output.e_out.mu
                 self.z_target.z >> self.output.e_out.target
 
-                self.output.e_out.dtarget >> self.output.E_out.inputs
+                # Push upstream categorical error into Outgrad for backpropagation
+                self.output.e_out.dmu >> self.Outgrad.dmu
+                # Send the precision-weighted logit error out to the internal error unit
+                self.Outgrad.dmu_ >> self.output.E_out.inputs
 
-
+                # ==================== BACKWARD FEEDBACK ====================
+                # Transmit bottom-up error signals back to representation layer (Equation 8)
                 self.output.E_out.outputs >> self.output.z_out.j
                 self.blocks[n_layers - 1].mlp.e_mlp2.dtarget >> self.output.z_out.j_td
 
-
+                # ==================== COMPONENT RESHAPING ====================
                 self.embedding.e_embed.dmu >> self.reshape_2d_to_3d_embed.inputs
                 self.reshape_2d_to_3d_embed.outputs >> self.embedding.W_embed.post
 
-
+                # ==================== SYNAPTIC LEARNING ====================
+                # Local Hebbian correlation matrix construction (Equation 6)
                 self.output.z_out.zF >> self.output.W_out.pre
-                self.output.e_out.dtarget >> self.output.W_out.post
+                self.Outgrad.dmu_ >> self.output.W_out.post
 
                         
                         
@@ -298,17 +312,26 @@ class NGCTransformer:
                 embedding_evolve_process  >> self.embedding.W_embed.evolve
 
 
-
+                # ADVANCE PROCESS 
+                #embedding
                 advance_process >> self.embedding.z_embed.advance_state
                 advance_process >> self.reshape_3d_to_2d_embed.advance_state
                 advance_process >> self.embedding.W_embed.advance_state
                 advance_process >> self.reshape_2d_to_3d_embed.advance_state
                 advance_process >> self.embedding.e_embed.advance_state
 
+                # transformer blocks
                 for i in range(n_layers):
                     block = self.blocks[i]
                     
+                    # z nodes
                     advance_process >> block.attention.z_qkv.advance_state
+                    advance_process >> block.attention.z_attn.advance_state
+                    advance_process >> block.mlp.z_mlp1.advance_state
+                    advance_process >> block.mlp.z_mlp2.advance_state
+
+                    # Wsynapse nodes  
+                    advance_process >> block.ln1.advance_state
                     advance_process >> block.attention.W_q.advance_state
                     advance_process >> block.attention.W_k.advance_state
                     advance_process >> block.attention.W_v.advance_state
@@ -317,42 +340,98 @@ class NGCTransformer:
                     advance_process >> block.reshape_2d_to_3d_v.advance_state
                     advance_process >> block.attention.attn_block.advance_state
                     advance_process >> block.reshape_3d_to_2d.advance_state
-                    advance_process >> block.attention.e_qkv.advance_state
+                    advance_process >> block.reshape_3d_to_2d_attnout.advance_state
+                    advance_process >> block.attention.W_attn_out.advance_state
                     advance_process >> block.attention.E_q.advance_state
                     advance_process >> block.attention.E_k.advance_state
                     advance_process >> block.attention.E_v.advance_state
-
-                    advance_process >> block.attention.z_attn.advance_state
-                    advance_process >> block.attention.W_attn_out.advance_state
-
-                    advance_process >> block.mlp.z_mlp1.advance_state
-                    advance_process >> block.attention.e_attn.advance_state
                     advance_process >> block.attention.E_attn.advance_state
+                    advance_process >> block.ln1_grad_q.advance_state
+                    advance_process >> block.ln1_grad_k.advance_state
+                    advance_process >> block.ln1_grad_v.advance_state
+                    advance_process >> block.ln2.advance_state
                     advance_process >> block.mlp.W_mlp1.advance_state
-                    advance_process >> block.mlp.e_mlp1.advance_state
-                    advance_process >> block.mlp.E_mlp1.advance_state
-
-                    advance_process >> block.mlp.z_mlp2.advance_state
                     advance_process >> block.mlp.W_mlp2.advance_state
-                    advance_process >> block.mlp.e_mlp2.advance_state
+                    advance_process >> block.mlp.E_mlp1.advance_state
                     advance_process >> block.mlp.E_mlp2.advance_state
-                   
-                   
-                   
+                    advance_process >> block.ln2_grad.advance_state   # backward norm
+
+                    # e nodes
+                    advance_process >> block.attention.e_qkv.advance_state
+                    advance_process >> block.attention.e_attn.advance_state
+                    advance_process >> block.mlp.e_mlp1.advance_state
+                    advance_process >> block.mlp.e_mlp2.advance_state
+
+                # output layers
+                advance_process >> self.output.z_out.advance_state
+                advance_process >> self.z_target.advance_state
+                advance_process >> self.output.W_out.advance_state
+                advance_process >> self.Outgrad.advance_state
+                advance_process >> self.output.E_out.advance_state
+                advance_process >> self.z_actfx.advance_state
+                advance_process >> self.output.e_out.advance_state
+
+                # RESET PROCESS
+
+                # embedding 
+                reset_process >> self.embedding.z_embed.reset
+                reset_process >> self.embedding.e_embed.reset
+                reset_process >> self.reshape_3d_to_2d_embed.reset
+                reset_process >> self.reshape_2d_to_3d_embed.reset
+
+                # transformer blocks 
+                for i in range(n_layers):
+                    block = self.blocks[i]
+
+                    reset_process >> block.ln1.reset
+                    reset_process >> block.ln1_grad_q.reset
+                    reset_process >> block.ln1_grad_k.reset
+                    reset_process >> block.ln1_grad_v.reset
+                    #reset_process >> block.ln1_grad.reset
                     reset_process >> block.attention.z_qkv.reset
                     reset_process >> block.attention.z_attn.reset
                     reset_process >> block.attention.e_qkv.reset
                     reset_process >> block.attention.e_attn.reset
-                    reset_process >> block.mlp.z_mlp1.reset
-                    reset_process >> block.mlp.z_mlp2.reset
-                    reset_process >> block.mlp.e_mlp2.reset
-                    reset_process >> block.mlp.e_mlp1.reset
                     reset_process >> block.reshape_3d_to_2d.reset
                     reset_process >> block.reshape_2d_to_3d_q.reset
                     reset_process >> block.reshape_2d_to_3d_k.reset
                     reset_process >> block.reshape_2d_to_3d_v.reset
                     reset_process >> block.reshape_3d_to_2d_attnout.reset
-            
+                    reset_process >> block.ln2.reset
+                    reset_process >> block.ln2_grad.reset
+                    reset_process >> block.mlp.z_mlp1.reset
+                    reset_process >> block.mlp.z_mlp2.reset
+                    reset_process >> block.mlp.e_mlp2.reset
+                    reset_process >> block.mlp.e_mlp1.reset
+                
+                # output
+                reset_process >> self.output.z_out.reset
+                reset_process >> self.z_target.reset
+                reset_process >> self.z_actfx.reset
+                reset_process >> self.output.e_out.reset
+                reset_process >> self.output.W_out.reset
+                reset_process >> self.Outgrad.reset
+
+                # projection network 
+                reset_process >> self.projection.q_embed_Ratecell.reset
+                reset_process >> self.projection.q_out_Ratecell.reset
+                reset_process >> self.projection.q_target_Ratecell.reset
+                reset_process >> self.projection.eq_target.reset
+
+                for b in range(n_layers):
+                    block_proj = self.projection.blocks[b]
+                    reset_process >> block_proj.q_qkv_Ratecell.reset
+                    reset_process >> block_proj.q_attn_block.reset
+                    reset_process >> block_proj.q_attn_Ratecell.reset
+                    reset_process >> block_proj.q_mlp_Ratecell.reset
+                    reset_process >> block_proj.q_mlp2_Ratecell.reset
+
+                
+                # EVOLVE PROCESS
+
+                for i in range(n_layers):
+                    block = self.blocks[i]
+
                     evolve_process >> block.attention.W_q.evolve
                     evolve_process >> block.attention.W_k.evolve
                     evolve_process >> block.attention.W_v.evolve
@@ -360,53 +439,27 @@ class NGCTransformer:
                     evolve_process >> block.mlp.W_mlp1.evolve
                     evolve_process >> block.mlp.W_mlp2.evolve
 
-                # Add non-block components to advance_process, reset_process, evolve_process
-                advance_process >> self.output.E_out.advance_state
-                advance_process >> self.output.z_out.advance_state
-                advance_process >> self.output.W_out.advance_state
-                advance_process >> self.z_actfx.advance_state
-                advance_process >> self.z_target.advance_state
-                advance_process >> self.output.e_out.advance_state
-                advance_process >> self.Outgrad.advance_state
-
-                reset_process >> self.projection.q_embed_Ratecell.reset
-                reset_process >> self.projection.q_out_Ratecell.reset
-                reset_process >> self.projection.q_target_Ratecell.reset
-                reset_process >> self.projection.eq_target.reset
-                reset_process >> self.embedding.z_embed.reset
-                reset_process >> self.output.z_out.reset
-                reset_process >> self.z_target.reset
-                reset_process >> self.z_actfx.reset
-                reset_process >> self.embedding.e_embed.reset
-                reset_process >> self.output.e_out.reset
-                reset_process >> self.output.W_out.reset
-                reset_process >> self.reshape_3d_to_2d_embed.reset
-                reset_process >> self.reshape_2d_to_3d_embed.reset
-                reset_process >> self.Outgrad.reset
-
                 evolve_process >> self.output.W_out.evolve
+
+                # PROJECT PROCESS Q / inference network 
                 project_process >> self.projection.q_embed_Ratecell.advance_state
                 project_process >> self.projection.Q_embed.advance_state
                 project_process >> self.projection.reshape_3d_to_2d_proj.advance_state
+
                 for b in range(n_layers):
-                    block_proj= self.projection.blocks[b]
+                    block_proj = self.projection.blocks[b]
                     project_process >> block_proj.q_qkv_Ratecell.advance_state
                     project_process >> block_proj.Q_q.advance_state
                     project_process >> block_proj.Q_k.advance_state
                     project_process >> block_proj.Q_v.advance_state
+                    project_process >> block_proj.q_attn_Ratecell.advance_state
                     project_process >> block_proj.q_attn_block.advance_state
                     project_process >> block_proj.reshape_3d_to_2d_proj1.advance_state
-                    project_process >> block_proj.q_attn_Ratecell.advance_state
                     project_process >> block_proj.Q_attn_out.advance_state
                     project_process >> block_proj.q_mlp_Ratecell.advance_state
-                    project_process >> block_proj.Q_mlp1.advance_state
                     project_process >> block_proj.q_mlp2_Ratecell.advance_state
+                    project_process >> block_proj.Q_mlp1.advance_state
                     project_process >> block_proj.Q_mlp2.advance_state
-                    reset_process >> block_proj.q_qkv_Ratecell.reset
-                    reset_process >> block_proj.q_attn_block.reset
-                    reset_process >> block_proj.q_attn_Ratecell.reset
-                    reset_process >> block_proj.q_mlp_Ratecell.reset
-                    reset_process >> block_proj.q_mlp2_Ratecell.reset 
                 project_process >> self.projection.q_out_Ratecell.advance_state
                 project_process >> self.projection.Q_out.advance_state
                 project_process >> self.projection.q_target_Ratecell.advance_state
@@ -508,10 +561,10 @@ class NGCTransformer:
             block.attention.W_attn_out.biases.set(self.circuit.get_components(f"{b_prefix}_W_attn_out").biases.get())
 
             block.attention.e_attn.L.set(self.circuit.get_components(f"{b_prefix}_e_attn").L.get())
-            block.mlp.e_mlp2.L.set(self.circuit.get_components(f"{b_prefix}_e_mlp2").L.get())
+            block.mlp.e_mlp2.L.set(self.circuit.get_components(f"{b_prefix}_e_mlp").L.get())
             block.mlp.e_mlp1.L.set(self.circuit.get_components(f"{b_prefix}_e_mlp1").L.get())
             # --- Map MLP Sub-block ---
-            block.mlp.z_mlp1.z.set(   self.circuit.get_components(f"{b_prefix}_z_mlp1"))
+            block.mlp.z_mlp1.z.set(   self.circuit.get_components(f"{b_prefix}_z_mlp"))
             block.mlp.z_mlp2.z.set(  self.circuit.get_components(f"{b_prefix}_z_mlp2"))
             block.mlp.W_mlp1.weights.set(self.circuit.get_components(f"{b_prefix}_W_mlp1").weights.get())
             block.mlp.W_mlp2.weights.set(self.circuit.get_components(f"{b_prefix}_W_mlp2").weights.get())
@@ -528,54 +581,61 @@ class NGCTransformer:
             block_proj.reshape_3d_to_2d_proj1.outputs.set(self.circuit.get_components(f"{p_prefix}_reshape_3d_to_2d_proj1").outputs.get())
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
           
-
+    
     def process(self, obs, lab, adapt_synapses=True):
-        
         self.reset.run()
-        ## PROJECTION PHASE (disabled) ##
         # self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
         # if self.embedding.W_embed.pos_learnable:
         #    self.projection.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.get())
         # for i in range(self.n_layers):
         #     block_proj= self.projection.blocks[i]
-        #     block= self.blocks[i]
+        #     block= self.blocks[i] 
         #     block_proj.Q_q.weights.set(block.attention.W_q.weights.get())
+        #     block_proj.Q_q.biases.set(block.attention.W_q.biases.get())
         #     block_proj.Q_k.weights.set(block.attention.W_k.weights.get())
+        #     block_proj.Q_k.biases.set(block.attention.W_k.biases.get())
         #     block_proj.Q_v.weights.set(block.attention.W_v.weights.get())
+        #     block_proj.Q_v.biases.set(block.attention.W_v.biases.get())
         #     block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get())
         #     block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
         #     block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
         #     block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
+        #     block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get())
         #     block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get())
+        #     block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get())
         #     block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get())
+        #     block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get())
+
         # self.projection.Q_out.weights.set(self.output.W_out.weights.get())
+        # self.projection.Q_out.biases.set(self.output.W_out.biases.get())
         # self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
-
+        
+       
         self.clamp_input(obs)
-        # self.clamp_infer_target(lab)
+        self.clamp_infer_target(lab)
+        
+        #self.project.run(t=0., dt=1.)
 
-        # self.project.run(t=0., dt=1.)
 
         for i in range(self.n_layers):
-            # block_proj= self.projection.blocks[i]
+        #     block_proj= self.projection.blocks[i]   
             b= self.blocks[i]
-            # b.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
-            # b.attention.z_attn.z.set(block_proj.q_attn_Ratecell.z.get())
-            # b.mlp.z_mlp1.z.set(block_proj.q_mlp_Ratecell.z.get())
-            # b.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
+        #     b.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
+        #     b.mlp.z_mlp1.z.set(block_proj.q_mlp_Ratecell.z.get())
+        #     b.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
             b.attention.E_q.weights.set(jnp.transpose(b.attention.W_q.weights.get()))
             b.attention.E_k.weights.set(jnp.transpose(b.attention.W_k.weights.get()))
             b.attention.E_v.weights.set(jnp.transpose(b.attention.W_v.weights.get()))
             b.attention.E_attn.weights.set(jnp.transpose(b.attention.W_attn_out.weights.get()))
-            b.mlp.E_mlp2.weights.set(jnp.transpose(b.mlp.W_mlp2.weights.get()))
+            b.mlp.E_mlp2.weights.set(jnp.transpose(b.mlp.W_mlp2.weights.get()))  
             b.mlp.E_mlp1.weights.set(jnp.transpose(b.mlp.W_mlp1.weights.get()))
-
+       
         self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
         # self.output.z_out.z.set(self.projection.q_out_Ratecell.z.get())
         # self.output.e_out.dmu.set(self.projection.eq_target.dmu.get())
         # self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.get())
-
-
+        
+        
         ## get projected prediction (from the P-step)
         y_mu_inf = self.projection.q_target_Ratecell.z.get()
     
@@ -593,35 +653,25 @@ class NGCTransformer:
         y_mu = self.z_actfx.zF.get() 
 
         L1 = self.embedding.e_embed.L.get()
-        
         L4 = self.output.e_out.L.get()
-
+        
         block_errors = 0.
         for i in range(self.n_layers):
-                block = self.blocks[i]
-                L_qkv = block.attention.e_qkv.L.get()
-                L_attn = block.attention.e_attn.L.get()
-                L_mlp2 = block.mlp.e_mlp2.L.get()
-                L_mlp1 = block.mlp.e_mlp1.L.get()
-                block_errors += L_qkv + L_attn + L_mlp2 + L_mlp1
-        #         jax.debug.print("  block {i}: L_qkv={a:.8f} L_attn={b:.8f} L_mlp1={c:.8f} L_mlp2={d:.8f}", i=i, a=L_qkv, b=L_attn, c=L_mlp1, d=L_mlp2)
-        # jax.debug.print("  L_embed={a:.8f} L_out={b:.8f}", a=L1, b=L4)
+            block = self.blocks[i]
+            block_term = block.attention.e_attn.L.get() + block.mlp.e_mlp2.L.get() + block.mlp.e_mlp1.L.get()
+            # print(f"Block {i} energy | {float(block_term):.4f}")
+            block_errors += block_term
 
-        EFE =  block_errors + L1
+        EFE = L4 + block_errors + L1
+        # print(f"Energy | L1={float(L1):.4f} | L4={float(L4):.4f} | EFE={float(EFE):.4f}")
+        
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()
                 self.evolve.run(t=self.T,dt=1.)
-                # Clip biases — w_bound only constrains weights, not biases
-                bias_bound = 0.5
-                for b in self.blocks:
-                    for syn in [b.attention.W_q, b.attention.W_k, b.attention.W_v,
-                                b.attention.W_attn_out, b.mlp.W_mlp1, b.mlp.W_mlp2]:
-                        syn.biases.set(jnp.clip(syn.biases.get(), -bias_bound, bias_bound))
-                self.output.W_out.biases.set(jnp.clip(self.output.W_out.biases.get(), -bias_bound, bias_bound))
-
+                
         ## skip E/M steps if just doing test-time inference
-        return y_mu, EFE
+        return y_mu_inf, y_mu, EFE 
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()

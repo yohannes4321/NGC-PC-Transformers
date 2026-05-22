@@ -42,7 +42,7 @@ def main():
 
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
 
-            _, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE
 
             y_pred = y_mu.reshape(-1, vocab_size)

@@ -212,7 +212,7 @@ class NGCTransformer:
 
                     block.ln2.outputs       >> block.mlp.W_mlp1.pre
                     #block.ln2_grad.dmu_      >> block.mlp.W_mlp1.pre
-                    block.ln2_grad.dmu_mlp1_out   >> block.mlp.W_mlp1.post
+                    block.mlp.e_mlp1.dmu     >> block.mlp.W_mlp1.post
 
                     block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.pre
                     block.mlp.e_mlp2.dmu  >> block.mlp.W_mlp2.post
@@ -324,7 +324,7 @@ class NGCTransformer:
                     advance_process >> block.ln1_grad_v.advance_state
                     advance_process >> block.ln2.advance_state
                     advance_process >> block.ln2_grad.advance_state
-
+                    
                     advance_process >> block.mlp.W_mlp1.advance_state
                     advance_process >> block.mlp.e_mlp1.advance_state
                     advance_process >> block.mlp.E_mlp1.advance_state

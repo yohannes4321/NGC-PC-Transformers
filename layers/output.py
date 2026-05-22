@@ -1,7 +1,7 @@
 from jax import numpy as jnp, random
 from ngclearn.components import GaussianErrorCell as ErrorCell, RateCell, HebbianSynapse, StaticSynapse
 from ngclearn.utils.distribution_generator import DistributionGenerator as dist
-
+from config import Config as config
 
 class Output:
      """

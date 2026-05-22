@@ -577,7 +577,7 @@ class NGCTransformer:
         #         jax.debug.print("  block {i}: L_qkv={a:.8f} L_attn={b:.8f} L_mlp1={c:.8f} L_mlp2={d:.8f}", i=i, a=L_qkv, b=L_attn, c=L_mlp1, d=L_mlp2)
         # jax.debug.print("  L_embed={a:.8f} L_out={b:.8f}", a=L1, b=L4)
 
-        EFE =  block_errors + L1
+        EFE =  block_errors + L1+ L4
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()

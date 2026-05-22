@@ -593,18 +593,38 @@ class NGCTransformer:
             # NaN detection: check core compartments for NaNs after each advance
             for i in range(self.n_layers):
                 block = self.blocks[i]
-                # check critical compartments
-                comps = [
-                    block.mlp.z_mlp1.z.get(),
-                    block.mlp.z_mlp2.z.get(),
-                    block.mlp.W_mlp1.weights.get(),
-                    block.mlp.W_mlp2.weights.get(),
-                    block.attention.z_attn.z.get(),
+                # check critical compartments with names for debugging
+                comps_with_names = [
+                    # MLP forward states
+                    ("mlp.z_mlp1.z", block.mlp.z_mlp1.z.get()),
+                    ("mlp.z_mlp2.z", block.mlp.z_mlp2.z.get()),
+                    # MLP error cells
+                    ("mlp.e_mlp1.mu", block.mlp.e_mlp1.mu.get()),
+                    ("mlp.e_mlp2.mu", block.mlp.e_mlp2.mu.get()),
+                    ("mlp.e_mlp1.dmu", block.mlp.e_mlp1.dmu.get()),
+                    ("mlp.e_mlp2.dmu", block.mlp.e_mlp2.dmu.get()),
+                    # Attention forward
+                    ("attn.z_attn.z", block.attention.z_attn.z.get()),
+                    ("attn.z_qkv.z", block.attention.z_qkv.z.get()),
+                    # Synapses
+                    ("W_mlp1.weights", block.mlp.W_mlp1.weights.get()),
+                    ("W_mlp2.weights", block.mlp.W_mlp2.weights.get()),
                 ]
-                for arr in comps:
+                for name, arr in comps_with_names:
                     if jnp.any(jnp.isnan(arr)):
-                        jax.debug.print("NaN detected at ts={ts}, block={i}", ts=ts, i=i)
-                        raise FloatingPointError(f"NaN detected at ts={ts}, block={i}")
+                        # Log statistics before NaN
+                        has_nan_count = jnp.sum(jnp.isnan(arr))
+                        non_nan_vals = arr[~jnp.isnan(arr)]
+                        jax.debug.print(
+                            "NaN in {name} at ts={ts}, block={i} | NaN count: {nan_cnt}, shape: {sh}",
+                            name=name, ts=ts, i=i, nan_cnt=has_nan_count, sh=arr.shape
+                        )
+                        if jnp.size(non_nan_vals) > 0:
+                            jax.debug.print(
+                                "  Non-NaN range: min={mn:.4f}, max={mx:.4f}, mean={avg:.4f}",
+                                mn=jnp.min(non_nan_vals), mx=jnp.max(non_nan_vals), avg=jnp.mean(non_nan_vals)
+                            )
+                        raise FloatingPointError(f"NaN in {name} at ts={ts}, block={i}")
            
         # y_mu = self.output.W_out.outputs.get() 
         y_mu = self.z_actfx.zF.get() 
@@ -621,6 +641,8 @@ class NGCTransformer:
                 L_mlp2 = block.mlp.e_mlp2.L.get()
                 L_mlp1 = block.mlp.e_mlp1.L.get()
                 block_errors += L_qkv + L_attn + L_mlp2 + L_mlp1
+                print(f"Block {i} errors: L_qkv={L_qkv:.8f} L_attn={L_attn:.8f} L_mlp1={L_mlp1:.8f} L_mlp2={L_mlp2:.8f}")
+        print(f"{L1}     {  L4}")
         #         jax.debug.print("  block {i}: L_qkv={a:.8f} L_attn={b:.8f} L_mlp1={c:.8f} L_mlp2={d:.8f}", i=i, a=L_qkv, b=L_attn, c=L_mlp1, d=L_mlp2)
         # jax.debug.print("  L_embed={a:.8f} L_out={b:.8f}", a=L1, b=L4)
 

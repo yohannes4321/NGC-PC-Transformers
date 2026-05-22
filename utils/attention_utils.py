@@ -43,6 +43,9 @@ def _compute_attention(Q, K, V, mask, n_heads, d_head, dropout_rate, seq_len, ba
         
     attention = jnp.einsum("BHTS,BHSE->BHTE", score, v)
     attention = attention.transpose([0, 2, 1, 3]).reshape((B, S, -1))
+    
+    # Clip attention block outputs to prevent gradient explosion
+    attention = jnp.clip(attention, -5.0, 5.0)
     attention = jnp.clip(attention, -3.0, 3.0)
     return attention, s_c, q, k, v
 
@@ -75,6 +78,11 @@ def compute_grads(Q, K, V, mask, s_c, dmu, n_heads, d_head, dropout_rate, seq_le
     dq = dQ.transpose(0, 2, 1, 3).reshape(B * S, H * D)
     dk = dK.transpose(0, 2, 1, 3).reshape(B * S, H * D)
     dv = dV.transpose(0, 2, 1, 3).reshape(B * S, H * D)
+    
+    # Clip gradients to prevent explosion
+    dq = jnp.clip(dq, -10.0, 10.0)
+    dk = jnp.clip(dk, -10.0, 10.0)
+    dv = jnp.clip(dv, -10.0, 10.0)
     
     return dq, dk, dv
     

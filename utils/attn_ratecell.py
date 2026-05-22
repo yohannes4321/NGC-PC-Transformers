@@ -220,6 +220,12 @@ class AttnRateCell(JaxComponent): ## Rate-coded/real-valued cell
         jk = self.jk.get()
         j_td = self.j_td.get()
 
+        # Clip inputs to prevent gradient explosion
+        jv = jnp.clip(jv, -10.0, 10.0)
+        jq = jnp.clip(jq, -10.0, 10.0)
+        jk = jnp.clip(jk, -10.0, 10.0)
+        j_td = jnp.clip(j_td, -10.0, 10.0)
+
         j = (jv + jq + jk)
         z = self.z.get()
 

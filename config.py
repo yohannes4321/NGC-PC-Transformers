@@ -15,12 +15,13 @@ class Config:
     epoch = 1
     n_iter= 26
     tau_o = 2
-    # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
-    wub = 0.035284728580901155
-    wlb =  -0.07318664527441558
-    wu = 0.035284728580901155
-    wl = -0.035284728580901155
-    tau_m = 2.7
+    # Reduced weight bounds for stability with small learning rates
+    wub = 0.02
+    wlb = -0.02
+    wu = 0.02
+    wl = -0.02
+    # Increased tau_m for slower, more stable dynamics
+    tau_m = 3.5
     act_fx = "identity"
     act_fx_o = "identity"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"

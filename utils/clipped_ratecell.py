@@ -152,6 +152,9 @@ class ClippedRateCell(JaxComponent):
         j_td = self.j_td.get()
         z = self.z.get()
 
+        # Clip inputs to prevent gradient explosion
+        j = jnp.clip(j, -10.0, 10.0)
+        j_td = jnp.clip(j_td, -10.0, 10.0)
 
         if self.is_stateful:
             dfx_val = self.dfx(z)

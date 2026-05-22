@@ -159,7 +159,7 @@ class NGCTransformer:
                     block.ln1.rms               >> block.ln1_grad_q.rms
                     block.attention.attn_block.dq >> block.attention.E_q.inputs
                     block.attention.E_q.outputs      >> block.ln1_grad_q.dmu_attn
-                    block.ln1_grad_q.dmu_out >> block.attention.z_qkv.jq
+                    block. >> block.attention.z_qkv.jq
  
                     #  K path 
                     
@@ -167,13 +167,13 @@ class NGCTransformer:
                     block.ln1.rms               >> block.ln1_grad_k.rms
                     block.attention.attn_block.dk >> block.attention.E_k.inputs
                     block.attention.E_k.outputs      >> block.ln1_grad_k.dmu_attn
-                    block.ln1_grad_k.dmu_out  >> block.attention.z_qkv.jk
+                    block.ln1_grad_k.dmu_out >> block.attention.z_qkv.jk
                     #  V path  
                     block.attention.z_qkv.zF  >> block.ln1_grad_v.z
                     block.ln1.rms  >> block.ln1_grad_v.rms
                     block.attention.attn_block.dv >> block.attention.E_v.inputs
                     block.attention.E_v.outputs      >> block.ln1_grad_v.dmu_attn
-                    block.ln1_grad_v.dmu_out >> block.attention.z_qkv.jv
+                block.ln1_grad_k.dmu_out >> block.attention.z_qkv.jv
                     block.attention.e_attn.dmu >> block.attention.E_attn.inputs
                     block.attention.E_attn.outputs >> block.attention.z_attn.j
                     if blocks == 0:
@@ -198,13 +198,13 @@ class NGCTransformer:
 
 
                     block.ln1.outputs       >> block.attention.W_q.pre
-                    block.ln1_grad_q.dmu_out   >> block.attention.W_q.post
+                    block.attention.e_qkv.dmu   >> block.attention.W_q.post
  
                     block.ln1.outputs       >> block.attention.W_k.pre
-                    block.ln1_grad_k.dmu_out   >> block.attention.W_k.post
+                    block.attention.e_qkv.dmu   >> block.attention.W_k.post
  
                     block.ln1.outputs       >> block.attention.W_v.pre
-                    block.ln1_grad_v.dmu_out  >> block.attention.W_v.post
+                    block.attention.e_qkv.dmu  >> block.attention.W_v.post
 
                     block.attention.z_attn.zF >> block.attention.W_attn_out.pre
                     block.attention.e_attn.dmu >> block.attention.W_attn_out.post
@@ -649,9 +649,60 @@ class NGCTransformer:
         EFE =  block_errors + L1
         
         # Normalize EFE by total number of elements to get reasonable loss magnitude
-        # (error cells sum squared errors over all dimensions and timesteps)
-        # total_elements = self.batch_size * self.seq_len
-        # EFE_normalized = EFE / total_elements
+        total_elements = self.batch_size * self.seq_len
+        EFE_normalized = EFE / total_elements
+        
+        # Add regularization losses
+        reg_loss = 0.0
+        lambda_l2_state = 1e-5  # L2 regularization on RateCell states
+        lambda_l1_weight = 1e-6  # L1 regularization on weights
+        lambda_l2_weight = 1e-5  # L2 regularization on weights
+        
+        # L2 regularization on embedding state
+        reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.embedding.z_embed.z.get()))
+        
+        # Regularization on block components
+        for i in range(self.n_layers):
+            block = self.blocks[i]
+            
+            # L2 regularization on RateCell states to prevent unbounded growth
+            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.z_qkv.z.get()))
+            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.z_attn.z.get()))
+            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.z_mlp1.z.get()))
+            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.z_mlp2.z.get()))
+            
+            # L2 regularization on error cell outputs to prevent error explosion
+            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.e_qkv.dmu.get()))
+            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.e_attn.dmu.get()))
+            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.e_mlp1.dmu.get()))
+            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.e_mlp2.dmu.get()))
+            
+            # L1 + L2 regularization on synaptic weights
+            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_q.weights.get()))
+            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_k.weights.get()))
+            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_v.weights.get()))
+            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_attn_out.weights.get()))
+            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.mlp.W_mlp1.weights.get()))
+            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.mlp.W_mlp2.weights.get()))
+            
+            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_q.weights.get()))
+            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_k.weights.get()))
+            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_v.weights.get()))
+            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_attn_out.weights.get()))
+            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.mlp.W_mlp1.weights.get()))
+            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.mlp.W_mlp2.weights.get()))
+        
+        # L2 regularization on output layer
+        reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.output.z_out.z.get()))
+        reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.output.e_out.dmu.get()))
+        reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(self.output.W_out.weights.get()))
+        reg_loss += lambda_l2_weight * jnp.sum(jnp.square(self.output.W_out.weights.get()))
+        
+        # Normalize regularization loss
+        reg_loss_normalized = reg_loss / total_elements
+        
+        # Combine prediction loss with regularization
+        total_loss = EFE_normalized + reg_loss_normalized
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()
@@ -665,7 +716,7 @@ class NGCTransformer:
                 self.output.W_out.biases.set(jnp.clip(self.output.W_out.biases.get(), -bias_bound, bias_bound))
 
         ## skip E/M steps if just doing test-time inference
-        return y_mu, EFE_normalized
+        return y_mu, total_loss
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()

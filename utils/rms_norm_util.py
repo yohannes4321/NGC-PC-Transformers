@@ -60,15 +60,20 @@ class RMSNorm(JaxComponent):
         self.gamma      = jnp.ones((n_embed,))
 
         self.inputs  = Compartment(jnp.zeros((batch_size, n_embed)))
+        self.inputs_mlp1  = Compartment(jnp.zeros((batch_size, 4*n_embed)))
         self.outputs = Compartment(jnp.zeros((batch_size, n_embed)))
         self.rms     = Compartment(jnp.ones((batch_size, 1)))
 
     @compilable
     def advance_state(self):
         x        = self.inputs.get()
+        x_mlp1=self.inputs_mlp1.get()
         out, rms = rms_normalize(x, self.gamma)
         self.outputs.set(out)
         self.rms.set(rms)
+        out_mlp1, rms = rms_normalize(x_mlp1, self.gamma)
+        self.outputs_mlp.set(out)
+        self.rms_mlp.set(rms)
 
     @compilable
     def reset(self):

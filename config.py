@@ -14,7 +14,7 @@ class Config:
     dropout_rate = 0.0
     eta = 1.534019603677043e-05
     eta_o = 2.9e-03
-    optim_type = "adam"
+    optim_type = "sgd"
 
     # Predictive coding parameters
     epoch = 1

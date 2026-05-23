@@ -177,11 +177,11 @@ def run_single_trial_efe(trial):
             ppl_list.append(batch_ppl)
             
             # Early sanity check: if PPL is exploding, prune immediately
-            if batch_ppl > PPL_SANITY_THRESHOLD:
-                reason = f"PPL exploded at batch {batch_idx}: {batch_ppl:.2f} > {PPL_SANITY_THRESHOLD}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+            # if batch_ppl > PPL_SANITY_THRESHOLD:
+            #     reason = f"PPL exploded at batch {batch_idx}: {batch_ppl:.2f} > {PPL_SANITY_THRESHOLD}"
+            #     trial.set_user_attr("prune_reason", reason)
+            #     print(reason)
+            #     raise optuna.TrialPruned()
 
             trial.report(current_efe, batch_idx)
             if trial.should_prune():

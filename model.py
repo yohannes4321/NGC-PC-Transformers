@@ -130,7 +130,7 @@ class NGCTransformer:
 
                     
                     block.z_residual_attn.zF >>block.attention.W_attn_out.inputs
-                    block.z_residual_attn.zF >> block.z_residual_mlp.j_td
+                    block.z_residual_attn.zF >> block.z_residual_mlp.j
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
                     
                     

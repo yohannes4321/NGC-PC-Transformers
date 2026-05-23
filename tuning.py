@@ -114,6 +114,30 @@ def create_model_with_all_params(trial_number, params, cfg):
 
     model = NGCTransformer(**model_args)
     return model, train_loader, valid_loader
+
+
+def _extract_process_outputs(process_result):
+    """
+    Handle both old and new model.process return signatures.
+
+    Supported forms:
+    - (y_mu, EFE)
+    - (y_mu_inf, y_mu, EFE, ...)
+    """
+    if not isinstance(process_result, tuple):
+        raise ValueError("model.process returned a non-tuple result")
+
+    if len(process_result) >= 3:
+        y_pred = process_result[0]
+        efe = process_result[2]
+    elif len(process_result) == 2:
+        y_pred, efe = process_result
+    else:
+        raise ValueError(f"Unexpected model.process return length: {len(process_result)}")
+
+    return y_pred, efe
+
+
 def run_single_trial_efe(trial):
     try:
         params = define_search_space(trial)
@@ -148,7 +172,8 @@ def run_single_trial_efe(trial):
             targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                process_result = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _, EFE = _extract_process_outputs(process_result)
                 EFE = abs(float(EFE))
             except Exception as e:
                 reason = f"model.process failed: {e}"
@@ -252,10 +277,11 @@ def run_phase2_trial(trial, best_params):
         targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
         try:
-            yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            process_result = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            y_pred_raw, EFE = _extract_process_outputs(process_result)
             EFE = abs(float(EFE))
-            
-            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
+
+            y_pred = y_pred_raw.reshape(-1, cfg.vocab_size)
             batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
             batch_train_ce = batch_nll / targets_flat.shape[0]
             

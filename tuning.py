@@ -164,11 +164,11 @@ def run_single_trial_efe(trial):
                 print(reason)
                 raise optuna.TrialPruned()
 
-            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-                reason = f"Unstable EFE: {EFE}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+            # if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
+            #     reason = f"Unstable EFE: {EFE}"
+            #     trial.set_user_attr("prune_reason", reason)
+            #     print(reason)
+            #     raise optuna.TrialPruned()
 
             total_EFE += EFE
             batches_processed += 1
@@ -288,11 +288,11 @@ def run_phase2_trial(trial, best_params):
             batch_train_ce = float(batch_nll / targets_flat.shape[0])
             batch_ppl = float(jnp.exp(batch_train_ce))
             
-            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-                reason = f"Unstable EFE during CE: {EFE}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+            # if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
+            #     reason = f"Unstable EFE during CE: {EFE}"
+            #     trial.set_user_attr("prune_reason", reason)
+            #     print(reason)
+            #     raise optuna.TrialPruned()
         except Exception as e:
             reason = f"model.process failed during CE: {e}"
             trial.set_user_attr("prune_reason", reason)

@@ -108,7 +108,8 @@ class NGCTransformer:
                 # self.reshape_4d_to_2d.inputs >> self.attention.z_qkv.zF
                 for blocks in range(n_layers):
                     block= self.blocks[blocks]
-                    block.attention.z_qkv.zF >> block.ln1.inputs
+                    block.attention.z_qkv.zF >> block.attention.z_residual_attn.j
+                    block.attention.z_qkv.zF >>  block.ln1.inputs
                     block.ln1.outputs >> block.attention.W_q.inputs
                     block.ln1.outputs >> block.attention.W_k.inputs
                     block.ln1.outputs >> block.attention.W_v.inputs
@@ -125,8 +126,14 @@ class NGCTransformer:
                     block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
                     block.attention.z_attn.z >> block.attention.e_qkv.target
                     
-                    block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
+                    block.attention.z_attn.zF >> block.attention.z_residual_attn.j_td
+
+                    
+                    block.attention.z_residual_attn.zF >>block.attention.W_attn_out.inputs 
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
+                    block.mlp.z_mlp1.z >> block.attention.z_residual_mlp.j
+                    
+                    
                     block.mlp.z_mlp1.z >> block.attention.e_attn.target
 
                     
@@ -139,7 +146,10 @@ class NGCTransformer:
                     block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
 
 
-                    block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.inputs
+                    block.mlp.z_mlp2.zF >> block.attention.z_residual_mlp.j_td
+                    block.attention.z_residual_mlp.zF >>block.mlp.W_mlp2.inputs
+                    
+                    
                     block.mlp.W_mlp2.outputs >> block.mlp.e_mlp2.mu
 
      
@@ -324,6 +334,8 @@ class NGCTransformer:
                     advance_process >> block.ln1_grad_k.advance_state
                     advance_process >> block.ln1_grad_v.advance_state
                     advance_process >> block.ln2.advance_state
+                    advance_process >> block.attention.z_residual_attn.advance_state
+                    advance_process >> block.attention.z_residual_mlp.advance_state
                     advance_process >> block.ln2_grad.advance_state
                     
                     advance_process >> block.mlp.W_mlp1.advance_state
@@ -339,6 +351,9 @@ class NGCTransformer:
                    
                     reset_process >> block.attention.z_qkv.reset
                     reset_process >> block.attention.z_attn.reset
+                    
+                    reset_process >> block.attention.z_residual_attn.reset
+                    reset_process >> block.attention.z_residual_mlp.reset
                     reset_process >> block.attention.e_qkv.reset
                     reset_process >> block.attention.e_attn.reset
                     reset_process >> block.mlp.z_mlp1.reset

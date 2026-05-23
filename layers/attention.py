@@ -34,24 +34,24 @@ class Attention:
         dkey, *subkeys = random.split(dkey, 10)
 
         self.z_qkv = AttnRateCell(f"{prefix}z_qkv", n_units=n_embed, tau_m=tau_m,
-                            act_fx="identity", batch_size=batch_size * seq_len, prior=("gaussian", 0.1) )
+                            act_fx="identity", batch_size=batch_size * seq_len, prior=("gaussian", 0.05) )
         self.z_attn = ClippedRateCell(f"{prefix}z_attn", n_units=n_embed, tau_m=tau_m,
-                            act_fx="identity", batch_size=batch_size * seq_len, prior=("gaussian", 0.1) )
+                            act_fx="identity", batch_size=batch_size * seq_len, prior=("gaussian", 0.05) )
         
         self.W_q = HebbianSynapse(f"{prefix}W_q", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.gaussian(mean=0.0, std=0.02),
                                 bias_init=dist.constant(value=0.), w_bound=0.5,
-                                optim_type=optim_type, sign_value= -1.0, key=subkeys[0],prior=("l1l2", (0.01, 0.01)))
+                                optim_type=optim_type, sign_value= -1.0, key=subkeys[0],prior=("l1l2", (0.005, 0.005)))
 
         self.W_k = HebbianSynapse(f"{prefix}W_k", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.gaussian(mean=0.0, std=0.02),
                                 bias_init=dist.constant(value=0.), w_bound=0.5,
-                                optim_type=optim_type, sign_value= -1.0, key=subkeys[1],prior=("l1l2", (0.01, 0.01)))
+                                optim_type=optim_type, sign_value= -1.0, key=subkeys[1],prior=("l1l2", (0.005, 0.005)))
 
         self.W_v = HebbianSynapse(f"{prefix}W_v", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                                 weight_init=dist.gaussian(mean=0.0, std=0.02),
                                 bias_init=dist.constant(value=0.), w_bound=0.5,
-                                optim_type=optim_type, sign_value= -1.0, key=subkeys[2],prior=("l1l2", (0.01, 0.01)))
+                                optim_type=optim_type, sign_value= -1.0, key=subkeys[2],prior=("l1l2", (0.005, 0.005)))
        
         self.attn_block = AttentionBlock(f"{prefix}attn_block", n_heads=n_heads, 
                                        n_embed=n_embed, seq_len=seq_len,
@@ -61,7 +61,7 @@ class Attention:
         self.W_attn_out = HebbianSynapse(f"{prefix}W_attn_out", shape=(n_embed, n_embed), batch_size=batch_size * seq_len, eta=eta,
                             weight_init=dist.gaussian(mean=0.0, std=0.02),
                             bias_init=dist.constant(value=0.), w_bound=0.5,
-                            optim_type=optim_type, sign_value= -1.0, key=subkeys[3])
+                            optim_type=optim_type, sign_value= -1.0, key=subkeys[3], prior=("l1l2", (0.005, 0.005)))
         self.e_qkv = ErrorCell(f"{prefix}e_qkv", n_units=n_embed, batch_size=batch_size * seq_len) 
         self.e_attn = ErrorCell(f"{prefix}e_attn", n_units=n_embed, 
                                   batch_size=batch_size * seq_len) # shape=(seq_len, n_embed, 1),

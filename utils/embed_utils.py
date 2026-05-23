@@ -183,6 +183,13 @@ class EmbeddingSynapse(JaxComponent):
             embed_dim, batch_size, self.pos_learnable
         )
         
+        # Apply L2 regularization to embedding weights (prevent unbounded growth)
+        # prior=('l2', 0.005) equivalent: -0.005 * W per component (reduced from 0.01)
+        lambda_l2_embed = 0.005
+        d_word_weights = d_word_weights - lambda_l2_embed * word_weights
+        if self.pos_learnable:
+            d_pos_weights = d_pos_weights - lambda_l2_embed * pos_weights
+        
         word_opt_params, [new_word_weights] = opt(
             word_opt_params, [word_weights], [d_word_weights]
         )

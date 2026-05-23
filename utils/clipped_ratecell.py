@@ -167,7 +167,7 @@ class ClippedRateCell(JaxComponent):
                 tmp_z = threshold_soft(tmp_z, self.thr_lmbda)
             elif self.thresholdType == "cauchy_threshold":
                 tmp_z = threshold_cauchy(tmp_z, self.thr_lmbda)
-            z = jnp.clip(tmp_z, -3.0, 3.0)  ## pre-activation clipping
+            z = jnp.clip(tmp_z, -5.0, 5.0)  ## pre-activation clipping (looser bounds)
             zF = self.fx(z) * self.output_scale
         else:
             j_total = j + j_td

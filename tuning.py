@@ -2,6 +2,9 @@ import os
 import sys
 import warnings
 import logging
+PHASE1_MAX_BATCHES = 10
+PHASE2_MAX_BATCHES = 10
+PHASE1_TRIALS = 30
 import optuna
 
 warnings.filterwarnings('ignore')
@@ -20,7 +23,6 @@ import jax.random as random
 from pathlib import Path
 from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
-from eval import eval_model
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 
@@ -66,12 +68,12 @@ def define_search_space_phase2(trial, best_params):
     # Only tune these continuous parameters with narrow search
     return {
         "eta": trial.suggest_float("eta",
-                                   eta_best * 0.2,      
-                                   eta_best * 5.0,      
+                                   eta_best * 0.2,
+                                   eta_best * 5.0,
                                    log=True),
         "dropout_rate": trial.suggest_float("dropout_rate",
-                                           max(0.0, dropout_rate_best - 0.05),
-                                           min(0.3, dropout_rate_best + 0.05)),
+                                            max(0.0, dropout_rate_best - 0.05),
+                                            min(0.3, dropout_rate_best + 0.05)),
         "wub": trial.suggest_float("wub",
                                   max(0.01, wub_best - 0.02),
                                   min(0.1, wub_best + 0.02)),
@@ -86,7 +88,7 @@ def define_search_space_phase2(trial, best_params):
 
 def create_model_with_all_params(trial_number, params, cfg):
     data_loader = DataLoader(seq_len=cfg.seq_len, batch_size=cfg.batch_size)
-    train_loader, valid_loader, _ = data_loader.load_and_prepare_data()
+    train_loader, _, _ = data_loader.load_and_prepare_data()
     dkey = random.PRNGKey(trial_number * 1000 + 42)
 
     model_args = {
@@ -113,7 +115,7 @@ def create_model_with_all_params(trial_number, params, cfg):
     }
 
     model = NGCTransformer(**model_args)
-    return model, train_loader, valid_loader
+    return model, train_loader
 
 
 def _extract_process_outputs(process_result):
@@ -153,7 +155,7 @@ def run_single_trial_efe(trial):
             cfg.vocab_size = base_config.vocab_size
 
         try:
-            model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
+            model, train_loader = create_model_with_all_params(trial.number, params, cfg)
         except Exception as e:
             reason = f"Failed to create model: {e}"
             trial.set_user_attr("prune_reason", reason)
@@ -161,9 +163,10 @@ def run_single_trial_efe(trial):
             raise optuna.TrialPruned()
 
         total_EFE = 0.0
+        total_train_ce = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 20
+        max_batches = PHASE1_MAX_BATCHES
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
@@ -173,8 +176,10 @@ def run_single_trial_efe(trial):
 
             try:
                 process_result = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-                _, EFE = _extract_process_outputs(process_result)
+                y_pred_raw, EFE = _extract_process_outputs(process_result)
                 EFE = abs(float(EFE))
+                y_pred = y_pred_raw.reshape(-1, cfg.vocab_size)
+                batch_train_ce = float(measure_CatNLL(y_pred, targets_flat).mean())
             except Exception as e:
                 reason = f"model.process failed: {e}"
                 trial.set_user_attr("prune_reason", reason)
@@ -188,27 +193,20 @@ def run_single_trial_efe(trial):
                 raise optuna.TrialPruned()
 
             total_EFE += EFE
+            total_train_ce += batch_train_ce
             batches_processed += 1
             current_efe = total_EFE / batches_processed
+            current_train_ce = total_train_ce / batches_processed
 
             trial.report(current_efe, batch_idx)
-            if trial.should_prune():
-                reason = f"TPE pruned at batch {batch_idx} | current EFE={current_efe:.4f}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
 
             if batch_idx % 2 == 0:
                 elapsed = time.time() - start_time
-                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
-
-        try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        except:
-            final_ce = 1000.0
-            final_ppl = float('inf')
+                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Train CE={batch_train_ce:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
+        final_ce = total_train_ce / batches_processed if batches_processed > 0 else 1000.0
+        final_ppl = float(jnp.exp(final_ce))
         total_time = time.time() - start_time
 
         trial.set_user_attr("ce", float(final_ce))
@@ -218,12 +216,12 @@ def run_single_trial_efe(trial):
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
+        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Train CE={final_ce:.4f} | Time={total_time:.1f}s")
         return float(final_efe)
     finally:
         
         # Delete Python objects
-        for obj_name in ['model', 'train_loader', 'valid_loader']:
+        for obj_name in ['model', 'train_loader']:
             if obj_name in locals() and locals()[obj_name] is not None:
                 del locals()[obj_name]
         
@@ -257,7 +255,7 @@ def run_phase2_trial(trial, best_params):
         cfg.vocab_size = base_config.vocab_size
 
     try:
-        model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
+        model, train_loader = create_model_with_all_params(trial.number, params, cfg)
     except Exception as e:
         reason = f"Failed to create model: {e}"
         trial.set_user_attr("prune_reason", reason)
@@ -267,7 +265,7 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 20
+    max_batches = PHASE2_MAX_BATCHES
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
@@ -301,23 +299,14 @@ def run_phase2_trial(trial, best_params):
         avg_train_ce = total_train_ce / batches_processed
 
         trial.report(avg_train_ce, batch_idx)
-        if trial.should_prune():
-            reason = f"TPE pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
         if batch_idx % 2 == 0:
             elapsed = time.time() - start_time
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
-    try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        final_ce = float(final_ce)
-    except:
-        final_ce = avg_train_ce if batches_processed > 0 else 100.0
-        final_ppl = float('inf')
+    final_ce = avg_train_ce if batches_processed > 0 else 100.0
+    final_ppl = float(jnp.exp(final_ce))
 
     total_time = time.time() - start_time
     trial.set_user_attr("ppl", float(final_ppl))
@@ -326,7 +315,7 @@ def run_phase2_trial(trial, best_params):
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
+    print(f"Trial {trial.number} Complete | Final Train CE={final_ce:.4f} | Time={total_time:.1f}s")
     return float(final_ce)  
 
 def case1_efe_to_ce_complete():
@@ -339,10 +328,10 @@ def case1_efe_to_ce_complete():
         load_if_exists=True,
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=42, n_startup_trials=2),
-        pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
+        pruner=optuna.pruners.NopPruner()
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=PHASE1_TRIALS, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
@@ -353,7 +342,7 @@ def case1_efe_to_ce_complete():
         print("PHASE 1 COMPLETE")
         print(f"{'='*60}")
         print(f"Best EFE: {best_efe:.4f}")
-        print(f"Corresponding CE: {best_efe_ce}")
+        print(f"Corresponding Train CE: {best_efe_ce}")
         print(f"\nBest Architecture Parameters (FIXED for Phase 2):")
         for key in ['n_layers', 'n_heads', 'n_embed', 'tau_m', 'n_iter', 
                    'batch_size', 'seq_len', 'pos_learnable', 'optim_type', 'act_fx']:
@@ -417,7 +406,7 @@ def case1_efe_to_ce_complete():
             f.write("PHASE 1 - BEST FOR EFE:\n")
             f.write("-"*40 + "\n")
             f.write(f"Best EFE: {best_efe:.6f}\n")
-            f.write(f"Corresponding CE: {best_efe_ce:.6f}\n")
+            f.write(f"Corresponding Train CE: {float(best_efe_ce):.6f}\n")
             f.write("-"*40 + "\n")
             
             for key, value in best_params.items():
@@ -460,7 +449,7 @@ def main():
             print(f"{'='*60}")
             print(f"Final Results:")
             print(f"- Phase 1 Best EFE: {results['phase1_best_efe']:.4f}")
-            print(f"- Phase 1 Corresponding CE: {results['phase1_best_ce']:.4f}")
+            print(f"- Phase 1 Corresponding Train CE: {results['phase1_best_ce']:.4f}")
             print(f"- Phase 2 Best CE: {results['phase2_best_ce']:.4f}")
             if 'improvement_pct' in results:
                 print(f"- Improvement: {results['improvement_pct']:+.1f}%")

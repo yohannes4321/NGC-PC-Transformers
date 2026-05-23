@@ -191,7 +191,8 @@ def run_single_trial_efe(trial):
                 raise optuna.TrialPruned()
 
             elapsed = time.time() - start_time
-            print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_ce:.4f} | PPL={batch_ppl:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+            if batch_idx % 10 == 0:
+                print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_ce:.4f} | PPL={batch_ppl:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
         # Check for steady decrease in both EFE and PPL (final check)
         def is_steady_decrease(metric_list):
@@ -323,7 +324,8 @@ def run_phase2_trial(trial, best_params):
         if batch_train_ce < best_train_ce:
             best_train_ce = batch_train_ce
         elapsed = time.time() - start_time
-        print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_train_ce:.4f} | PPL={batch_ppl:.4f} | Avg CE={avg_train_ce:.4f} | Avg EFE={avg_efe:.4f} | Time={elapsed:.1f}s")
+        if batch_idx % 10 == 0:
+            print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_train_ce:.4f} | PPL={batch_ppl:.4f} | Avg CE={avg_train_ce:.4f} | Avg EFE={avg_efe:.4f} | Time={elapsed:.1f}s")
 
     try:
         final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)

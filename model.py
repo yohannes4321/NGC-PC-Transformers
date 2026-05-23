@@ -129,8 +129,8 @@ class NGCTransformer:
                     block.z_residual_attn.zF >> block.z_residual_mlp.j
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
                     block.mlp.z_mlp1.z >> block.attention.e_attn.target
-                    block.mlp.z_mlp1.zF  >> block.ln2.inputs_mlp1
-                    block.ln2.outputs_mlp        >> block.mlp.W_mlp1.inputs    # n_embed → expand
+                    block.mlp.z_mlp1.zF  >> block.ln2.inputs
+                    block.ln2.outputs        >> block.mlp.W_mlp1.inputs    # n_embed → expand
                     block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu        # predicts z_mlp1 (4n)
                     block.mlp.z_mlp2.z       >> block.mlp.e_mlp1.target    
                     block.mlp.z_mlp2.zF      >> block.z_residual_mlp.j_td
@@ -176,7 +176,7 @@ class NGCTransformer:
                         self.blocks[blocks - 1].mlp.e_mlp2.dtarget >> block.attention.z_qkv.j_td
                     block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
 
-                    block.ln2.rms_mlp >> block.ln2_grad.rms
+                    block.ln2.rms >> block.ln2_grad.rms
                     block.mlp.z_mlp1.zF >> block.ln2_grad.z 
 
                     # E_mlp1 — backward signal for z_mlp2 state 
@@ -204,7 +204,7 @@ class NGCTransformer:
                     block.attention.e_attn.dmu >> block.attention.W_attn_out.post
 
 
-                    block.ln2.outputs_mlp      >> block.mlp.W_mlp1.pre
+                    block.ln2.outputs      >> block.mlp.W_mlp1.pre
                     #block.ln2_grad.dmu_      >> block.mlp.W_mlp1.pre
                     block.mlp.e_mlp1.dmu     >> block.mlp.W_mlp1.post
 

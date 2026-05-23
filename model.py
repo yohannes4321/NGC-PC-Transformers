@@ -108,7 +108,7 @@ class NGCTransformer:
                 # self.reshape_4d_to_2d.inputs >> self.attention.z_qkv.zF
                 for blocks in range(n_layers):
                     block= self.blocks[blocks]
-                    # block.attention.z_qkv.zF >> block.z_residual_attn.j
+                    block.attention.z_qkv.zF >> block.z_residual_attn.j
                     block.attention.z_qkv.zF >>  block.ln1.inputs
                     block.ln1.outputs >> block.attention.W_q.inputs
                     block.ln1.outputs >> block.attention.W_k.inputs
@@ -126,7 +126,7 @@ class NGCTransformer:
                     block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
                     block.attention.z_attn.z >> block.attention.e_qkv.target
                     
-                    # block.attention.z_attn.zF >> block.z_residual_attn.j_td
+                    block.attention.z_attn.zF >> block.z_residual_attn.j_td
 
                     
                     block.z_residual_attn.zF >>block.attention.W_attn_out.inputs 

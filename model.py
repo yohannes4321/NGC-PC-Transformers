@@ -126,8 +126,10 @@ class NGCTransformer:
                     block.attention.z_attn.z >> block.attention.e_qkv.target
                     block.attention.z_attn.zF >> block.z_residual_attn.j_td                    
                     block.z_residual_attn.zF >>block.attention.W_attn_out.inputs
-                    block.z_residual_attn.zF >> block.z_residual_mlp.j
+                
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
+                    block.mlp.z_mlp1.z >> block.z_residual_mlp.j
+                    
                     block.mlp.z_mlp1.z >> block.attention.e_attn.target
                     block.mlp.z_mlp1.zF  >> block.ln2.inputs
                     block.ln2.outputs        >> block.mlp.W_mlp1.inputs    # n_embed → expand

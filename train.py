@@ -50,7 +50,7 @@ def main():
             total_nll += batch_ce_loss * targets_flat.shape[0]
             total_tokens += targets_flat.shape[0]
 
-            if batch_idx % 10 == 0:
+            if batch_idx % 20 == 0:
                 batch_ppl = jnp.exp(batch_ce_loss)
                 print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
 

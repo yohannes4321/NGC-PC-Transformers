@@ -1,50 +1,49 @@
+import numpy as np
+
 class Config:
     SEED = 42
 
-    # Architecture (Phase 1 best: Trial 3)
+    # Architecture
     seq_len = 8
     n_embed = 64
-    batch_size = 2
-    vocab_size = 11710  # data vocab size + special tokens = 11706 + 4
+    batch_size = 4      # Scaled up slightly for stable batch gradients
+    vocab_size = 11710  # data vocab size + special tokens
     n_heads = 8
     n_layers = 8
     embed_mult = 8
 
-    # Regularization / optimization
-    dropout_rate = 0.0
-    eta = 1.0315873044754272e-06
-    eta_o = 2.9e-03
-    optim_type = "adam"
+    # Regularization / Optimization
+    dropout_rate = 0.01 # Small amount of regularized noise to break uniform plateaus
+    eta = 1.5e-5        # Stable predictive coding state step-size
+    eta_o = 1.0e-3      # Adam weight learning rate
+    optim_type = "adam" # Switch back to adam for non-zero gradient moment tracking
 
-    # Predictive coding parameters
-    epoch = 1
-    n_iter = 50
-    tau_o = 5
-    tau_m = 10
+    # Predictive Coding Core Dynamics (Fixed for continuous reduction)
+    epoch = 5
+    n_iter = 25         # CRITICAL: Budget for settling internal states to minimize EFE
+    tau_o = 5           # Time constant for output error settling
+    tau_m = 12          # Time constant for internal layer representations
 
-    # Weight initialization bounds
-    wub = 0.08590467449638088
-    wlb = -0.09407300665329076
+    # Weight Initialization Bounds (Xavier-adjusted for predictive scaling)
+    wub = 0.05
+    wlb = -0.05
 
-    # Internal state init
-    wu = 0.035284728580901155
-    wl = -0.035284728580901155
+    # Internal State Initializations
+    wu = 0.01
+    wl = -0.01
 
     # Activations
-    act_fx = "identity"
-    act_fx_o = "relu"
+    act_fx = "relu"     # Non-linear internal representation to handle token non-linearities
+    act_fx_o = "identity"
 
-    # Positional embeddings
+    # Positional Embeddings
+    # NOTE: If absolute learnable embeddings are False, ensure you have
+    # switched to a relative scheme like Rotary Positional Embedding (RoPE) 
+    # to avoid semantic word-position entanglement.
     pos_learnable = False
 
     # Misc
     exp_dir = "exp"
-
-    # Tokenizer selection: "BPE" or "tiktoken"
     tokenizer = "BPE"
-
-    # When tokenizer == "tiktoken"
     tokenizer_name = "gpt2"
-
-    # When tokenizer == "BPE"
     tokenizer_vocab_file = None

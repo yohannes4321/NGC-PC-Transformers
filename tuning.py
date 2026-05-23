@@ -182,16 +182,6 @@ def run_single_trial_efe(trial):
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
-            
-            # Early pruning: check for steady decrease after first 3 batches
-            if batch_idx >= 3:
-                def is_steady_decrease(metric_list):
-                    return all(x >= y for x, y in zip(metric_list, metric_list[1:]))
-                if not (is_steady_decrease(efe_list) and is_steady_decrease(ppl_list)):
-                    reason = f"Metrics not decreasing steadily at batch {batch_idx}. EFE sequence: {[f'{x:.1f}' for x in efe_list]}. PPL sequence: {[f'{x:.1f}' for x in ppl_list]}"
-                    trial.set_user_attr("prune_reason", reason)
-                    print(reason)
-                    raise optuna.TrialPruned()
 
             trial.report(current_efe, batch_idx)
             if trial.should_prune():
@@ -323,16 +313,6 @@ def run_phase2_trial(trial, best_params):
             trial.set_user_attr("prune_reason", reason)
             print(reason)
             raise optuna.TrialPruned()
-        
-        # Early pruning: check for steady decrease after first 3 batches
-        if batch_idx >= 3:
-            def is_steady_decrease(metric_list):
-                return all(x >= y for x, y in zip(metric_list, metric_list[1:]))
-            if not is_steady_decrease(ce_list) and not is_steady_decrease(ppl_list_phase2):
-                reason = f"CE and PPL not decreasing steadily at batch {batch_idx}. CE: {[f'{x:.2f}' for x in ce_list[-4:]]}, PPL: {[f'{x:.1f}' for x in ppl_list_phase2[-4:]]}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
 
         trial.report(avg_train_ce, batch_idx)
         if trial.should_prune():

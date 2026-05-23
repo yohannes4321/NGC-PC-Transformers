@@ -1,27 +1,28 @@
 class Config:
     SEED = 42
-    seq_len = 64
-    n_embed = 96
-    batch_size = 32
+    seq_len = 8
+    n_embed = 64
+    batch_size = 2
     vocab_size = 11710# data vocab size + special tokens = 11706 + 4
     n_heads = 8
-    n_layers = 2
+    n_layers = 8
     dropout_rate = 0.0
-    eta = 5e-4  # Increased 100x from 4.9e-6 to improve learning
+    eta = 1.0315873044754272e-06
     eta_o = 2.9e-03
     exp_dir = "exp"
-    pos_learnable = True
-    optim_type = "adam"
+    pos_learnable = False
+    optim_type = "sgd"
     epoch = 1
-    n_iter= 26
+    n_iter = 1
     tau_o = 2
     # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
-    wub = 0.035284728580901155
-    wlb =  -0.07318664527441558
+    wub = 0.08590467449638088
+    wlb = -0.09407300665329076
     wu = 0.035284728580901155
     wl = -0.035284728580901155
-    tau_m = 2.7
-    act_fx = "gelu"  # Changed from "identity" to enable nonlinearity
+    tau_m = 10
+    act_fx = "identity"
+    embed_mult = 8
     act_fx_o = "identity"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"

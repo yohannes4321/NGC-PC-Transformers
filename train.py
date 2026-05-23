@@ -43,7 +43,9 @@ def main():
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
 
             y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            train_EFE += _EFE
+            # Ensure we accumulate a Python float (avoid DeviceArray accumulation issues)
+            _EFE_f = float(_EFE)
+            train_EFE += _EFE_f
 
             y_pred = y_mu.reshape(-1, vocab_size)
             batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()

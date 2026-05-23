@@ -1,30 +1,30 @@
 class Config:
     SEED = 42
 
-    # Architecture (updated from Trial 22)
-    seq_len = 11
-    n_embed = 64
+    # Architecture (updated per user)
+    seq_len = 20
+    n_embed = 80
     batch_size = 3
     vocab_size = 11710  # data vocab size + special tokens = 11706 + 4
-    n_heads = 8
-    n_layers = 3
-    embed_mult = 8
+    n_heads = 5
+    n_layers = 1
+    embed_mult = 16
 
     # Regularization / optimization
     dropout_rate = 0.0
-    eta = 1.534019603677043e-05
+    eta = 7.082985879191883e-05
     eta_o = 2.9e-03
-    optim_type = "sgd"
+    optim_type = "adam"
 
     # Predictive coding parameters
     epoch = 1
-    n_iter = 1
+    n_iter = 25
     tau_o = 2
-    tau_m = 16
+    tau_m = 15
 
     # Weight initialization bounds
-    wub = 0.08258106460608025
-    wlb = -0.08039278154210332
+    wub = 0.010347072497916304
+    wlb = -0.09374572836668062
 
     # Internal state init
     wu = 0.035284728580901155

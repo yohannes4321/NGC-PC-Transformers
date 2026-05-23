@@ -7,7 +7,9 @@ class Config:
     n_heads = 8
     n_layers = 2
     dropout_rate = 0.0
-    eta = 4.919042890915579e-06
+    # FIXED: Increased learning rate 100x from 4.9e-6 to 5e-4 to improve gradient updates
+    # The tiny original LR caused near-zero weight updates despite large gradients
+    eta = 5e-4  # was 4.919042890915579e-06
     eta_o = 2.9e-03
     exp_dir = "exp"
     pos_learnable = True
@@ -21,7 +23,9 @@ class Config:
     wu = 0.035284728580901155
     wl = -0.035284728580901155
     tau_m = 2.7
-    act_fx = "identity"
+    # FIXED: Changed from identity to gelu activation for better gradient flow
+    # Identity activation limits representational capacity and can saturate gradients
+    act_fx = "gelu"  # was "identity"
     act_fx_o = "identity"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"

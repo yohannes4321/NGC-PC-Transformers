@@ -426,6 +426,23 @@ class NGCTransformer:
 
 
     
+    def initialize_error_cells(self):
+        """Initialize all error cells to zero to prevent massive initial loss."""
+        # Initialize embedding error cell
+        self.embedding.e_embed.dmu.set(jnp.zeros_like(self.embedding.e_embed.dmu.get()))
+        
+        # Initialize block error cells
+        for i in range(self.n_layers):
+            block = self.blocks[i]
+            block.attention.e_qkv.dmu.set(jnp.zeros_like(block.attention.e_qkv.dmu.get()))
+            block.attention.e_attn.dmu.set(jnp.zeros_like(block.attention.e_attn.dmu.get()))
+            block.mlp.e_mlp1.dmu.set(jnp.zeros_like(block.mlp.e_mlp1.dmu.get()))
+            block.mlp.e_mlp2.dmu.set(jnp.zeros_like(block.mlp.e_mlp2.dmu.get()))
+        
+        # Initialize output error cell
+        self.output.e_out.dmu.set(jnp.zeros_like(self.output.e_out.dmu.get()))
+        self.output.e_out.dtarget.set(jnp.zeros_like(self.output.e_out.dtarget.get()))
+    
     def clamp_input(self,x):
         self.embedding.z_embed.j.set(x)
         self.projection.q_embed_Ratecell.j.set(x) 
@@ -535,6 +552,8 @@ class NGCTransformer:
     def process(self, obs, lab, adapt_synapses=True):
         
         self.reset.run()
+        # FIXED: Initialize all error cells to zero to prevent massive initial EFE loss
+        self.initialize_error_cells()
         ## PROJECTION PHASE (disabled) ##
         # self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
         # if self.embedding.W_embed.pos_learnable:
@@ -652,11 +671,11 @@ class NGCTransformer:
         total_elements = self.batch_size * self.seq_len
         EFE_normalized = EFE / total_elements
         
-        # Add regularization losses
+        # Add regularization losses (REDUCED 100x to prevent regularization dominance)
         reg_loss = 0.0
-        lambda_l2_state = 1e-5  # L2 regularization on RateCell states
-        lambda_l1_weight = 1e-6  # L1 regularization on weights
-        lambda_l2_weight = 1e-5  # L2 regularization on weights
+        lambda_l2_state = 1e-7  # L2 regularization on RateCell states (was 1e-5)
+        lambda_l1_weight = 1e-8  # L1 regularization on weights (was 1e-6)
+        lambda_l2_weight = 1e-7  # L2 regularization on weights (was 1e-5)
         
         # L2 regularization on embedding state
         reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.embedding.z_embed.z.get()))
@@ -703,6 +722,15 @@ class NGCTransformer:
         
         # Combine prediction loss with regularization
         total_loss = EFE_normalized + reg_loss_normalized
+        
+        # Clip loss to prevent NaN/Inf explosion
+        # If loss is too large (>1e6), something is wrong with initialization
+        total_loss = jnp.clip(total_loss, -1e6, 1e6)
+        
+        # Debug: log if loss is suspiciously large
+        if ts == self.T - 1:  # Print at last timestep
+            jax.debug.print("EFE_normalized={efe}, reg_loss_normalized={reg}, total_loss={tl}",
+                          efe=EFE_normalized, reg=reg_loss_normalized, tl=total_loss)
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()

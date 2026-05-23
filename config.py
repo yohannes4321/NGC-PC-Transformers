@@ -14,7 +14,7 @@ class Config:
     dropout_rate = 0.0
     eta = 1.534019603677043e-05
     eta_o = 2.9e-03
-    optim_type = "sgd"
+    optim_type = "adam"
 
     # Predictive coding parameters
     epoch = 1
@@ -32,7 +32,7 @@ class Config:
 
     # Activations
     act_fx = "relu"
-    act_fx_o = "identity"
+    act_fx_o = "relu"
 
     # Positional embeddings
     pos_learnable = True

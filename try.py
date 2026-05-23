@@ -108,10 +108,15 @@ class NGCTransformer:
                 # self.reshape_4d_to_2d.inputs >> self.attention.z_qkv.zF
                 for blocks in range(n_layers):
                     block= self.blocks[blocks]
-                    block.attention.z_qkv.zF >> block.ln1.inputs
-                    block.ln1.outputs >> block.attention.W_q.inputs
-                    block.ln1.outputs >> block.attention.W_k.inputs
-                    block.ln1.outputs >> block.attention.W_v.inputs
+                    
+                    # ===== RESIDUAL CONNECTION: ATTENTION LAYER =====
+                    # Store input to attention block for residual skip connection
+                    block.attention.z_qkv.zF >> block.z_residual_attn.j
+                    # block.z_residual_attn.advance_state(1.  # propagate residual value
+                    
+                    block.attention.z_qkv.zF >> block.attention.W_q.inputs
+                    block.attention.z_qkv.zF>> block.attention.W_k.inputs 
+                    block.attention.z_qkv.zF >> block.attention.W_v.inputs
                     
                     block.attention.W_q.outputs >> block.reshape_2d_to_3d_q.inputs 
                     block.attention.W_k.outputs >> block.reshape_2d_to_3d_k.inputs 
@@ -125,10 +130,16 @@ class NGCTransformer:
                     block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
                     block.attention.z_attn.z >> block.attention.e_qkv.target
                     
-                    block.attention.z_attn.zF >>block.attention.W_attn_out.inputs 
+                    block.attention.z_attn.zF >>  block.z_residual_attn.j_td
+                    block.z_residual_attn.zF >>block.attention.W_attn_out.inputs 
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
                     block.mlp.z_mlp1.z >> block.attention.e_attn.target
 
+                    
+                    # ===== RESIDUAL CONNECTION: MLP LAYER =====
+                    # Store input to MLP block for residual skip connection
+                    block.mlp.z_mlp1.z >> block.z_residual_mlp.j
+                    # block.z_residual_mlp.advance_state(1.)  # propagate residual value
                     
                     block.mlp.z_mlp1.zF  >> block.ln2.inputs
                     block.ln2.outputs   >> block.mlp.W_mlp1.inputs
@@ -177,6 +188,9 @@ class NGCTransformer:
                     block.ln1_grad_k.dmu_out >> block.attention.z_qkv.jv
                     block.attention.e_attn.dmu >> block.attention.E_attn.inputs
                     block.attention.E_attn.outputs >> block.attention.z_attn.j
+                    
+
+                    
                     if blocks == 0:
                         self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
                     else:
@@ -194,6 +208,13 @@ class NGCTransformer:
                     # E_mlp2 — backward signal for z_mlp2 from output error
                     block.mlp.e_mlp2.dmu      >> block.mlp.E_mlp2.inputs
                     block.mlp.E_mlp2.outputs  >> block.mlp.z_mlp2.j 
+                    
+                    # ===== ADD RESIDUAL TO MLP OUTPUT =====
+                    # Project residual from n_embed to 4*n_embed dimensions
+                    block.z_residual_mlp.z >> block.W_residual_mlp_proj.inputs
+                    # Inject projected residual through j_td: z_mlp2 += project(z_residual_mlp)
+                    block.W_residual_mlp_proj.outputs >> block.mlp.z_mlp2.j_td
+                    
                     block.attention.e_attn.dtarget >> block.mlp.z_mlp1.j_td
                     block.mlp.e_mlp1.dtarget >> block.mlp.z_mlp2.j_td
 

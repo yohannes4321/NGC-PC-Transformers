@@ -5,6 +5,8 @@ from jax import random
 import jax.numpy as jnp
 from utils.model_util import ReshapeComponent
 from utils.rms_norm_util import RMSNorm,RMSNormGrad
+from ngclearn.components import RateCell, HebbianSynapse, StaticSynapse
+from ngclearn.utils.distribution_generator import DistributionGenerator as dist
 
 class Block:
     def __init__(self, dkey, block_id, n_embed, seq_len, vocab_size,
@@ -48,4 +50,18 @@ class Block:
                                             output_shape=(batch_size * seq_len, n_embed))
         self.reshape_3d_to_2d = ReshapeComponent(f"{prefix}reshape_3d_to_2d",
                                             input_shape=(batch_size, seq_len, n_embed),
-                                            output_shape=(batch_size * seq_len, n_embed))        
+                                            output_shape=(batch_size * seq_len, n_embed))
+        
+        # ===== RESIDUAL CONNECTION COMPONENTS =====
+        # Residual storage cells - keep track of layer inputs for skip connections
+        # tau_m=0 means stateless (identity pass-through) for storing residual values
+        self.z_residual_attn = RateCell(f"{prefix}z_residual_attn", n_units=n_embed, tau_m=0., 
+                                        act_fx="identity", batch_size=batch_size * seq_len)
+        self.z_residual_mlp = RateCell(f"{prefix}z_residual_mlp", n_units=n_embed, tau_m=0., 
+                                       act_fx="identity", batch_size=batch_size * seq_len)
+        
+        # Residual projection: projects n_embed residual to 4*n_embed to match z_mlp2 hidden dimension
+        self.W_residual_mlp_proj = StaticSynapse(f"{prefix}W_residual_mlp_proj", 
+                                                shape=(n_embed, 4 * n_embed),
+                                                weight_init=dist.gaussian(mean=0.0, std=0.02),
+                                                key=random.PRNGKey(42))

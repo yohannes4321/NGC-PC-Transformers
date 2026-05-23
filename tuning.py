@@ -155,7 +155,8 @@ def run_single_trial_efe(trial):
                 EFE = abs(float(EFE))
                 y_pred = y_mu.reshape(-1, cfg.vocab_size)
                 batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
-                batch_ppl = float(jnp.exp(batch_nll / targets_flat.shape[0]))
+                batch_ce = float(batch_nll / targets_flat.shape[0])
+                batch_ppl = float(jnp.exp(batch_ce))
             except Exception as e:
                 reason = f"model.process failed: {e}"
                 trial.set_user_attr("prune_reason", reason)
@@ -183,7 +184,7 @@ def run_single_trial_efe(trial):
 
             if batch_idx % 10 == 0:
                 elapsed = time.time() - start_time
-                print(f"Batch {batch_idx} | EFE={EFE:.4f} | PPL={batch_ppl:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+                print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_ce:.4f} | PPL={batch_ppl:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
         # Check for steady decrease in both EFE and PPL
         def is_steady_decrease(metric_list):
@@ -256,9 +257,10 @@ def run_phase2_trial(trial, best_params):
         raise optuna.TrialPruned()
 
     total_train_ce = 0.0  
+    total_efe = 0.0
     batches_processed = 0
     start_time = time.time()
-    max_batches = 20
+    max_batches = 40
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
@@ -273,7 +275,8 @@ def run_phase2_trial(trial, best_params):
             
             y_pred = y_mu.reshape(-1, cfg.vocab_size)
             batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
-            batch_train_ce = batch_nll / targets_flat.shape[0]
+            batch_train_ce = float(batch_nll / targets_flat.shape[0])
+            batch_ppl = float(jnp.exp(batch_train_ce))
             
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
                 reason = f"Unstable EFE during CE: {EFE}"
@@ -286,9 +289,11 @@ def run_phase2_trial(trial, best_params):
             print(reason)
             raise optuna.TrialPruned()
 
-        total_train_ce += float(batch_train_ce)
+        total_train_ce += batch_train_ce
+        total_efe += EFE
         batches_processed += 1
         avg_train_ce = total_train_ce / batches_processed
+        avg_efe = total_efe / batches_processed
 
         trial.report(avg_train_ce, batch_idx)
         if trial.should_prune():
@@ -296,11 +301,11 @@ def run_phase2_trial(trial, best_params):
             trial.set_user_attr("prune_reason", reason)
             print(reason)
             raise optuna.TrialPruned()
-        if float(batch_train_ce) < best_train_ce:
-            best_train_ce = float(batch_train_ce)
-        if batch_idx % 2 == 0:
+        if batch_train_ce < best_train_ce:
+            best_train_ce = batch_train_ce
+        if batch_idx % 10 == 0:
             elapsed = time.time() - start_time
-            print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
+            print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_train_ce:.4f} | PPL={batch_ppl:.4f} | Avg CE={avg_train_ce:.4f} | Avg EFE={avg_efe:.4f} | Time={elapsed:.1f}s")
 
     try:
         final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)

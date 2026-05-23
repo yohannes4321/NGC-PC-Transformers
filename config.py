@@ -11,38 +11,18 @@ class Config:
     eta_o = 2.9e-03
     exp_dir = "exp"
     pos_learnable = True
-    # Switch to Adam optimizer for better gradient handling with large loss magnitudes
-    optim_type = "adam"
+    optim_type = "sgd"
     epoch = 1
     n_iter= 26
     tau_o = 2
-    
-    # === OPTIMIZED FOR MONOTONIC ENERGY DECREASE ===
-    # Slower, more stable hidden layer dynamics
-    tau_m = 4.0
-    
-    # Increased learning rate for hidden layers (was 4.919e-06)
-    # Now 20× larger to match output layer learning speed
-    eta = 1e-04
-    eta_o = 2.9e-03
-    
-    # Relaxed weight bounds (was ±0.02)
-    # Allow more dynamic range for weight representation
-    wub = 0.1
-    wlb = -0.1
-    wu = 0.1
-    wl = -0.1
-    
-    # === ACTIVATION FUNCTIONS (DO NOT CHANGE) ===
-    # Identity on hidden layers: unbounded rate neurons
-    # This is correct for rate-coded RateCell dynamics
+    # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
+    wub = 0.035284728580901155
+    wlb =  -0.07318664527441558
+    wu = 0.035284728580901155
+    wl = -0.035284728580901155
+    tau_m = 2.7
     act_fx = "identity"
-    
-    # Tanh on output layer: CRITICAL for energy stability
-    # Bounds predictions to [-1, 1] → error always ≤ 1
-    # → Energy naturally decreases monotonically
-    # (without tanh: Energy oscillates wildly)
-    act_fx_o = "tanh"
+    act_fx_o = "identity"
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"
     # When tokenizer == "tiktoken", tokenizer_name is used (e.g. "gpt2" or "cl100k_base")

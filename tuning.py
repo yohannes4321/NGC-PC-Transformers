@@ -47,7 +47,7 @@ def define_search_space(trial):
         "wub": trial.suggest_float("wub", 0.01, 0.1),
         "wlb": trial.suggest_float("wlb", -0.1, -0.01),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["relu", "identity"]),  # Prioritize relu
+        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,

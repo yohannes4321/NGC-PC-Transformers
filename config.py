@@ -14,12 +14,12 @@ class Config:
     dropout_rate = 0.0
     eta = 1.0315873044754272e-06
     eta_o = 2.9e-03
-    optim_type = "sgd"
+    optim_type = "adam"
 
     # Predictive coding parameters
     epoch = 1
-    n_iter = 1
-    tau_o = 2
+    n_iter = 50
+    tau_o = 5
     tau_m = 10
 
     # Weight initialization bounds

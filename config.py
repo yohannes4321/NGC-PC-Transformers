@@ -44,6 +44,9 @@ class Config:
 
     # Misc
     exp_dir = "exp"
+    tuning_max_batches = 51
+    tuning_print_every = 10
+    efe_trend_weight = 0.1
     tokenizer = "BPE"
     tokenizer_name = "gpt2"
     tokenizer_vocab_file = None

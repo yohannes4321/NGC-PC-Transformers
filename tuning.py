@@ -26,7 +26,15 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 
+DEFAULT_TUNING_MAX_BATCHES = 51
+DEFAULT_TUNING_PRINT_EVERY = 10
+DEFAULT_EFE_TREND_WEIGHT = 0.1
 EFE_STABILITY_THRESHOLD = 1e4
+
+
+def _get_tuning_value(cfg, name, default):
+    value = getattr(cfg, name, default)
+    return int(value) if isinstance(default, int) else float(value)
 
 
 def define_search_space(trial):
@@ -165,8 +173,12 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         total_train_ce = 0.0
         batches_processed = 0
+        trend_penalty = 0.0
+        previous_efe = None
         start_time = time.time()
-        max_batches = 1
+        max_batches = min(_get_tuning_value(cfg, "tuning_max_batches", DEFAULT_TUNING_MAX_BATCHES), DEFAULT_TUNING_MAX_BATCHES)
+        print_every = _get_tuning_value(cfg, "tuning_print_every", DEFAULT_TUNING_PRINT_EVERY)
+        trend_weight = _get_tuning_value(cfg, "efe_trend_weight", DEFAULT_EFE_TREND_WEIGHT)
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
@@ -192,32 +204,47 @@ def run_single_trial_efe(trial):
                 print(reason)
                 raise optuna.TrialPruned()
 
+            if previous_efe is not None:
+                trend_penalty += max(0.0, EFE - previous_efe)
+            previous_efe = EFE
+
             total_EFE += EFE
             total_train_ce += batch_train_ce
             batches_processed += 1
             current_efe = total_EFE / batches_processed
-            current_train_ce = total_train_ce / batches_processed
+            trend_score = trend_penalty / max(1, batches_processed - 1)
+            current_score = current_efe + (trend_weight * trend_score)
 
-            trial.report(current_efe, batch_idx)
+            trial.report(current_score, batch_idx)
 
-            if batch_idx % 2 == 0:
+            if batch_idx % print_every == 0 or batch_idx == max_batches - 1:
                 elapsed = time.time() - start_time
-                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Train CE={batch_train_ce:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+                print(
+                    f"Batch {batch_idx} | EFE={EFE:.4f} | Train CE={batch_train_ce:.4f} | "
+                    f"Avg EFE={current_efe:.4f} | Trend={trend_score:.4f} | Score={current_score:.4f} | Time={elapsed:.1f}s"
+                )
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         final_ce = total_train_ce / batches_processed if batches_processed > 0 else 1000.0
+        final_trend = trend_penalty / max(1, batches_processed - 1)
+        final_score = final_efe + (trend_weight * final_trend)
         final_ppl = float(jnp.exp(final_ce))
         total_time = time.time() - start_time
 
         trial.set_user_attr("ce", float(final_ce))
         trial.set_user_attr("ppl", float(final_ppl))
         trial.set_user_attr("time", total_time)
+        trial.set_user_attr("trend_penalty", float(final_trend))
+        trial.set_user_attr("tuning_score", float(final_score))
 
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Train CE={final_ce:.4f} | Time={total_time:.1f}s")
-        return float(final_efe)
+        print(
+            f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Trend={final_trend:.4f} | "
+            f"Score={final_score:.4f} | Train CE={final_ce:.4f} | Time={total_time:.1f}s"
+        )
+        return float(final_score)
     finally:
         
         # Delete Python objects
@@ -265,7 +292,8 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 1
+    max_batches = min(_get_tuning_value(cfg, "tuning_max_batches", DEFAULT_TUNING_MAX_BATCHES), DEFAULT_TUNING_MAX_BATCHES)
+    print_every = _get_tuning_value(cfg, "tuning_print_every", DEFAULT_TUNING_PRINT_EVERY)
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
@@ -301,7 +329,7 @@ def run_phase2_trial(trial, best_params):
         trial.report(avg_train_ce, batch_idx)
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
-        if batch_idx % 2 == 0:
+        if batch_idx % print_every == 0 or batch_idx == max_batches - 1:
             elapsed = time.time() - start_time
             print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 

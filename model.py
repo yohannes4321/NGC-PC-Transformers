@@ -122,27 +122,35 @@ class NGCTransformer:
                     block.reshape_2d_to_3d_k.outputs >> block.attention.attn_block.inputs_k
                     block.reshape_2d_to_3d_v.outputs >> block.attention.attn_block.inputs_v
                     block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
+
                     block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
                     block.attention.z_attn.z >> block.attention.e_qkv.target
-                    block.attention.z_attn.zF >> block.z_residual_attn.j_td                    
-                    block.z_residual_attn.zF >>block.attention.W_attn_out.inputs
-                
-                    block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
-                    # block.mlp.z_mlp1.z >> block.z_residual_mlp.j
                     
+                    block.attention.z_attn.zF >> block.z_residual_attn.j_td
+
+                    
+                    block.z_residual_attn.zF >>block.attention.W_attn_out.inputs
+                    block.z_residual_attn.zF >> block.z_residual_mlp.j
+                    block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
+                    
+
                     block.mlp.z_mlp1.z >> block.attention.e_attn.target
                     block.mlp.z_mlp1.zF  >> block.ln2.inputs
-                    block.ln2.outputs        >> block.mlp.W_mlp1.inputs    # n_embed → expand
-                    block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu        # predicts z_mlp1 (4n)
-                    block.mlp.z_mlp2.z       >> block.mlp.e_mlp1.target    
-                    # block.mlp.z_mlp2.zF      >> block.z_residual_mlp.j_td
-                    block.z_residual_mlp.zF      >> block.mlp.W_mlp2.inputs    
-                    block.mlp.W_mlp2.outputs >> block.mlp.e_mlp2.mu        
-                   
+                    block.ln2.outputs   >> block.mlp.W_mlp1.inputs
+                    block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu
+                    block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
+                    block.mlp.z_mlp2.zF >>block.mlp.W_mlp2.inputs
+                    block.mlp.W_mlp2.outputs >> block.mlp.e_mlp2.mu
+
+
+     
+                    
                     if blocks == n_layers - 1:
-                        self.output.z_out.z >> block.mlp.e_mlp2.target
+                        self.output.z_out.z >> block.z_residual_mlp.j_td 
+                        block.z_residual_mlp.j_td >> block.mlp.e_mlp2.target
                     else:
-                        self.blocks[blocks + 1].attention.z_qkv.z >> block.mlp.e_mlp2.target
+                        self.blocks[blocks + 1].attention.z_qkv.z >> block.z_residual_mlp.j_td 
+                        block.z_residual_mlp.j_td >> block.mlp.e_mlp2.target
 
 
 
@@ -206,7 +214,7 @@ class NGCTransformer:
                     block.attention.e_attn.dmu >> block.attention.W_attn_out.post
 
 
-                    block.ln2.outputs      >> block.mlp.W_mlp1.pre
+                    block.ln2.outputs       >> block.mlp.W_mlp1.pre
                     #block.ln2_grad.dmu_      >> block.mlp.W_mlp1.pre
                     block.mlp.e_mlp1.dmu     >> block.mlp.W_mlp1.post
 

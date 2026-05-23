@@ -23,9 +23,8 @@ from data_preprocess.data_loader import DataLoader
 from eval import eval_model
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
-import gc
 
-# EFE_STABILITY_THRESHOLD = 1e3  # Increased from 20 to 1000 to accommodate regularized loss
+EFE_STABILITY_THRESHOLD = 1e3
 
 
 def define_search_space(trial):
@@ -34,16 +33,16 @@ def define_search_space(trial):
     embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
     n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 4, 12)  # Avoid too small batches
-    seq_len = trial.suggest_int("seq_len", 16, 32)  # Avoid too small sequences
+    batch_size = trial.suggest_int("batch_size", 2, 12)
+    seq_len = trial.suggest_int("seq_len", 8, 32)
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 5),  # Reduced from 8 to 5 for stability
+        "n_layers": trial.suggest_int("n_layers", 1, 8),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-5, 1e-4, log=True),  # Increased min from 1e-6 to 1e-5
-        "tau_m": trial.suggest_int("tau_m", 12, 20),  # Increased min from 10 to 12
-        "n_iter": trial.suggest_int("n_iter", 10, 30),  # Increased min from 1 to 10 - need more iterations!
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.1),  # Allow small dropout
+        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
+        "tau_m": trial.suggest_int("tau_m", 10, 20),
+        "n_iter": trial.suggest_int("n_iter", 1, 30),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
         "wub": trial.suggest_float("wub", 0.01, 0.1),
         "wlb": trial.suggest_float("wlb", -0.1, -0.01),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
@@ -140,48 +139,32 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 40
-        ppl_list = []
-        efe_list = []
-        PPL_SANITY_THRESHOLD = 100.0  # Prune if PPL exceeds this (1000+ is clearly broken)
+        max_batches = 20
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
             inputs = batch[0][1]
             targets = batch[1][1]
-            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+            targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
             try:
-                y_mu, EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
-                y_pred = y_mu.reshape(-1, cfg.vocab_size)
-                batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
-                batch_ce = float(batch_nll / targets_flat.shape[0])
-                batch_ppl = float(jnp.exp(batch_ce))
             except Exception as e:
                 reason = f"model.process failed: {e}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
 
-            # if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-            #     reason = f"Unstable EFE: {EFE}"
-            #     trial.set_user_attr("prune_reason", reason)
-            #     print(reason)
-            #     raise optuna.TrialPruned()
+            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
+                reason = f"Unstable EFE: {EFE}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
 
             total_EFE += EFE
             batches_processed += 1
             current_efe = total_EFE / batches_processed
-            efe_list.append(EFE)
-            ppl_list.append(batch_ppl)
-            
-            # Early sanity check: if PPL is exploding, prune immediately
-            # if batch_ppl > PPL_SANITY_THRESHOLD:
-            #     reason = f"PPL exploded at batch {batch_idx}: {batch_ppl:.2f} > {PPL_SANITY_THRESHOLD}"
-            #     trial.set_user_attr("prune_reason", reason)
-            #     print(reason)
-            #     raise optuna.TrialPruned()
 
             trial.report(current_efe, batch_idx)
             if trial.should_prune():
@@ -190,18 +173,9 @@ def run_single_trial_efe(trial):
                 print(reason)
                 raise optuna.TrialPruned()
 
-            elapsed = time.time() - start_time
-            if batch_idx % 10 == 0:
-                print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_ce:.4f} | PPL={batch_ppl:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
-
-        # Check for steady decrease in both EFE and PPL (final check)
-        def is_steady_decrease(metric_list):
-            return all(x >= y for x, y in zip(metric_list, metric_list[1:]))
-        if not (is_steady_decrease(efe_list) and is_steady_decrease(ppl_list)):
-            reason = "EFE and/or PPL did not steadily decrease throughout training. Pruned."
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
+            if batch_idx % 2 == 0:
+                elapsed = time.time() - start_time
+                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
         try:
             final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
@@ -229,6 +203,7 @@ def run_single_trial_efe(trial):
                 del locals()[obj_name]
         
         # Force garbage collection
+        import gc
         for _ in range(2):
             gc.collect()
         
@@ -265,55 +240,39 @@ def run_phase2_trial(trial, best_params):
         raise optuna.TrialPruned()
 
     total_train_ce = 0.0  
-    total_efe = 0.0
     batches_processed = 0
     start_time = time.time()
-    max_batches = 40
+    max_batches = 20
     best_train_ce = float('inf')
-    ce_list = []
-    ppl_list_phase2 = []
-    PPL_SANITY_THRESHOLD = 100.0  # Prune if PPL exceeds this (100+ is bad)
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
             break
         inputs = batch[0][1]
         targets = batch[1][1]
-        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+        targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
         try:
-            y_mu, EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             EFE = abs(float(EFE))
             
-            y_pred = y_mu.reshape(-1, cfg.vocab_size)
+            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
             batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
-            batch_train_ce = float(batch_nll / targets_flat.shape[0])
-            batch_ppl = float(jnp.exp(batch_train_ce))
+            batch_train_ce = batch_nll / targets_flat.shape[0]
             
-            # if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-            #     reason = f"Unstable EFE during CE: {EFE}"
-            #     trial.set_user_attr("prune_reason", reason)
-            #     print(reason)
-            #     raise optuna.TrialPruned()
+            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
+                reason = f"Unstable EFE during CE: {EFE}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
         except Exception as e:
             reason = f"model.process failed during CE: {e}"
             trial.set_user_attr("prune_reason", reason)
             print(reason)
             raise optuna.TrialPruned()
 
-        total_train_ce += batch_train_ce
-        total_efe += EFE
+        total_train_ce += float(batch_train_ce)
         batches_processed += 1
         avg_train_ce = total_train_ce / batches_processed
-        avg_efe = total_efe / batches_processed
-        ce_list.append(batch_train_ce)
-        ppl_list_phase2.append(batch_ppl)
-        
-        # Early sanity check: if PPL is exploding, prune immediately
-        if batch_ppl > PPL_SANITY_THRESHOLD:
-            reason = f"PPL exploded at batch {batch_idx}: {batch_ppl:.2f} > {PPL_SANITY_THRESHOLD}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
 
         trial.report(avg_train_ce, batch_idx)
         if trial.should_prune():
@@ -321,11 +280,11 @@ def run_phase2_trial(trial, best_params):
             trial.set_user_attr("prune_reason", reason)
             print(reason)
             raise optuna.TrialPruned()
-        if batch_train_ce < best_train_ce:
-            best_train_ce = batch_train_ce
-        elapsed = time.time() - start_time
-        if batch_idx % 10 == 0:
-            print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_train_ce:.4f} | PPL={batch_ppl:.4f} | Avg CE={avg_train_ce:.4f} | Avg EFE={avg_efe:.4f} | Time={elapsed:.1f}s")
+        if float(batch_train_ce) < best_train_ce:
+            best_train_ce = float(batch_train_ce)
+        if batch_idx % 2 == 0:
+            elapsed = time.time() - start_time
+            print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
 
     try:
         final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
@@ -357,7 +316,7 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=30, n_jobs= 1, show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
@@ -406,7 +365,7 @@ def case1_efe_to_ce_complete():
     def phase2_trial_wrapper(trial):
         return run_phase2_trial(trial, best_params)
 
-    study_ce.optimize(phase2_trial_wrapper, n_trials=30, n_jobs= 1, show_progress_bar=False)
+    study_ce.optimize(phase2_trial_wrapper, n_trials=25, n_jobs= 1, show_progress_bar=False)
 
     if study_ce.best_trial:
         best_ce = study_ce.best_value

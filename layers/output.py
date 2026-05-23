@@ -25,11 +25,11 @@ class Output:
      
         dkey, *subkeys = random.split(dkey, 10)
       
-        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=config.tau_o, act_fx=config.act_fx_o, batch_size=batch_size * seq_len)
+        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=config.tau_o, act_fx=config.act_fx_o, batch_size=batch_size * seq_len, prior=("gaussian", 0.1))
 
         self.W_out = HebbianSynapse(
                     "W_out", shape=(n_embed, vocab_size), batch_size= batch_size * seq_len, eta=config.eta_o, weight_init=dist.gaussian(mean=0.0, std=0.02),
-                    bias_init=dist.constant(value=0.), w_bound=0.5, optim_type="adam", sign_value=1.0, key=subkeys[4], prior=("l1l2", (0.005, 0.005)))
+                    bias_init=dist.constant(value=0.), w_bound=0.5, optim_type="adam", sign_value=1.0, key=subkeys[4], prior=("l1l2", (0.01, 0.01)))
         self.e_out = ErrorCell("e_out", n_units=vocab_size,
                                   batch_size=batch_size * seq_len) # shape=(seq_len, vocab_size, 1),
         self.E_out = StaticSynapse(

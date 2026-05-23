@@ -15,7 +15,7 @@ class EMBEDDING:
     
         # RateCell expects a 3D shape tuple for image components (seq_len, embed_dim, channels)so here we use the third dim as a placeholder
         self.z_embed = RateCell("z_embed", n_units=seq_len, tau_m=0., 
-                                  act_fx="identity", batch_size=batch_size)            
+                      act_fx="identity", batch_size=batch_size, prior=("gaussian", 0.1))            
             # EmbeddingSynapse (handles both word + position internally)
         self.W_embed = EmbeddingSynapse(
                 "W_embed", 

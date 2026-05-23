@@ -666,7 +666,7 @@ class NGCTransformer:
         #         jax.debug.print("  block {i}: L_qkv={a:.8f} L_attn={b:.8f} L_mlp1={c:.8f} L_mlp2={d:.8f}", i=i, a=L_qkv, b=L_attn, c=L_mlp1, d=L_mlp2)
         # jax.debug.print("  L_embed={a:.8f} L_out={b:.8f}", a=L1, b=L4)
 
-        EFE =  block_errors + L1
+        EFE =  block_errors + L1 + L4
         
         # Normalize EFE by total number of elements to get reasonable loss magnitude
         total_elements = self.batch_size * self.seq_len
@@ -685,53 +685,53 @@ class NGCTransformer:
         for i in range(self.n_layers):
             block = self.blocks[i]
             
-            # L2 regularization on RateCell states to prevent unbounded growth
-            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.z_qkv.z.get()))
-            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.z_attn.z.get()))
-            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.z_mlp1.z.get()))
-            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.z_mlp2.z.get()))
+        #     # L2 regularization on RateCell states to prevent unbounded growth
+        #     reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.z_qkv.z.get()))
+        #     reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.z_attn.z.get()))
+        #     reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.z_mlp1.z.get()))
+        #     reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.z_mlp2.z.get()))
             
-            # L2 regularization on error cell outputs to prevent error explosion
-            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.e_qkv.dmu.get()))
-            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.e_attn.dmu.get()))
-            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.e_mlp1.dmu.get()))
-            reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.e_mlp2.dmu.get()))
+        #     # L2 regularization on error cell outputs to prevent error explosion
+        #     reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.e_qkv.dmu.get()))
+        #     reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.attention.e_attn.dmu.get()))
+        #     reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.e_mlp1.dmu.get()))
+        #     reg_loss += lambda_l2_state * jnp.sum(jnp.square(block.mlp.e_mlp2.dmu.get()))
             
-            # L1 + L2 regularization on synaptic weights
-            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_q.weights.get()))
-            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_k.weights.get()))
-            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_v.weights.get()))
-            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_attn_out.weights.get()))
-            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.mlp.W_mlp1.weights.get()))
-            reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.mlp.W_mlp2.weights.get()))
+        #     # L1 + L2 regularization on synaptic weights
+        #     reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_q.weights.get()))
+        #     reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_k.weights.get()))
+        #     reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_v.weights.get()))
+        #     reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.attention.W_attn_out.weights.get()))
+        #     reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.mlp.W_mlp1.weights.get()))
+        #     reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(block.mlp.W_mlp2.weights.get()))
             
-            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_q.weights.get()))
-            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_k.weights.get()))
-            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_v.weights.get()))
-            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_attn_out.weights.get()))
-            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.mlp.W_mlp1.weights.get()))
-            reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.mlp.W_mlp2.weights.get()))
+        #     reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_q.weights.get()))
+        #     reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_k.weights.get()))
+        #     reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_v.weights.get()))
+        #     reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.attention.W_attn_out.weights.get()))
+        #     reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.mlp.W_mlp1.weights.get()))
+        #     reg_loss += lambda_l2_weight * jnp.sum(jnp.square(block.mlp.W_mlp2.weights.get()))
         
-        # L2 regularization on output layer
-        reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.output.z_out.z.get()))
-        reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.output.e_out.dmu.get()))
-        reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(self.output.W_out.weights.get()))
-        reg_loss += lambda_l2_weight * jnp.sum(jnp.square(self.output.W_out.weights.get()))
+        # # L2 regularization on output layer
+        # reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.output.z_out.z.get()))
+        # reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.output.e_out.dmu.get()))
+        # reg_loss += lambda_l1_weight * jnp.sum(jnp.abs(self.output.W_out.weights.get()))
+        # reg_loss += lambda_l2_weight * jnp.sum(jnp.square(self.output.W_out.weights.get()))
         
-        # Normalize regularization loss
-        reg_loss_normalized = reg_loss / total_elements
+        # # Normalize regularization loss
+        # reg_loss_normalized = reg_loss / total_elements
         
         # Combine prediction loss with regularization
-        total_loss = EFE_normalized + reg_loss_normalized
+        # total_loss = EFE_normalized + reg_loss_normalized
         
-        # Clip loss to prevent NaN/Inf explosion
-        # If loss is too large (>1e6), something is wrong with initialization
-        total_loss = jnp.clip(total_loss, -1e6, 1e6)
+        # # Clip loss to prevent NaN/Inf explosion
+        # # If loss is too large (>1e6), something is wrong with initialization
+        # total_loss = jnp.clip(total_loss, -1e6, 1e6)
         
         # Debug: log if loss is suspiciously large
-        if ts == self.T - 1:  # Print at last timestep
-            jax.debug.print("EFE_normalized={efe}, reg_loss_normalized={reg}, total_loss={tl}",
-                          efe=EFE_normalized, reg=reg_loss_normalized, tl=total_loss)
+        # if ts == self.T - 1:  # Print at last timestep
+        #     jax.debug.print("EFE_normalized={efe}, reg_loss_normalized={reg}, total_loss={tl}",
+        #                   efe=EFE_normalized, reg=reg_loss_normalized, tl=total_loss)
 
         if adapt_synapses == True:
                 self.embedding_evolve.run()

@@ -25,7 +25,7 @@ class Output:
      
         dkey, *subkeys = random.split(dkey, 10)
       
-        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=config.tau_o, act_fx=config.act_fx, batch_size=batch_size * seq_len, prior=("gaussian", 0.1))
+        self.z_out = RateCell("z_out", n_units=n_embed, tau_m=config.tau_o, act_fx=config.act_fx_o, batch_size=batch_size * seq_len, prior=("gaussian", 0.1))
 
         self.W_out = HebbianSynapse(
                     "W_out", shape=(n_embed, vocab_size), batch_size= batch_size * seq_len, eta=config.eta_o, weight_init=dist.gaussian(mean=0.0, std=0.02),

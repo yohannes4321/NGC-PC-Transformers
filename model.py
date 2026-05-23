@@ -147,7 +147,8 @@ class NGCTransformer:
                     block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
 
 
-                    block.mlp.z_mlp2.zF >> block.z_residual_mlp.j_td
+                    block.mlp.z_mlp2.zF >> self.reshape_4d_to_2d.inputs
+                    self.reshape_4d_to_2d.outputs >> block.z_residual_mlp.j_td
                     block.z_residual_mlp.zF >>block.mlp.W_mlp2.inputs
                     
                     

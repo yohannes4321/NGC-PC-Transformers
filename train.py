@@ -33,8 +33,22 @@ def main():
                   loadDir= None, pos_learnable= pos_learnable, optim_type=optim_type, wub = wub, wlb= wlb, model_name="ngc_transformer" )
 
     def train_model(data_loader):
-        train_EFE = 0.
+        total_EFE = 0.0
         total_nll, total_tokens = 0., 0
+        batches_processed = 0
+        start_time = time.time()
+
+        def _extract_process_outputs(process_result):
+            if not isinstance(process_result, tuple):
+                raise ValueError("model.process returned a non-tuple result")
+            if len(process_result) >= 3:
+                y_pred = process_result[0]
+                efe = process_result[2]
+            elif len(process_result) == 2:
+                y_pred, efe = process_result
+            else:
+                raise ValueError(f"Unexpected model.process return length: {len(process_result)}")
+            return y_pred, efe
 
         for batch_idx, batch in enumerate(data_loader):
             inputs = batch[0][1]
@@ -42,25 +56,28 @@ def main():
 
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
 
-            y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
-            # Ensure we accumulate a Python float (avoid DeviceArray accumulation issues)
-            _EFE_f = float(_EFE)
-            train_EFE += _EFE_f
+            process_result = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            y_pred_raw, EFE = _extract_process_outputs(process_result)
+            EFE = abs(float(EFE))
 
-            y_pred = y_mu.reshape(-1, vocab_size)
+            y_pred = y_pred_raw.reshape(-1, vocab_size)
             batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()
             total_nll += batch_ce_loss * targets_flat.shape[0]
             total_tokens += targets_flat.shape[0]
 
-            if batch_idx % 10 == 0:
-                batch_ppl = jnp.exp(batch_ce_loss)
-                print(f"  Batch {batch_idx}: EFE = {_EFE:.4f}, CE = {batch_ce_loss:.4f}, PPL = {batch_ppl:.4f}")
+            total_EFE += EFE
+            batches_processed += 1
+            current_efe = total_EFE / batches_processed
 
-        num_batches = batch_idx + 1
-        avg_train_EFE = train_EFE / num_batches
+            if batch_idx % 10 == 0:
+                elapsed = time.time() - start_time
+                batch_ppl = jnp.exp(batch_ce_loss)
+                print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_ce_loss:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+
+        final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         ce_loss = total_nll / total_tokens
         ppl = jnp.exp(ce_loss)
-        return avg_train_EFE, ce_loss, ppl
+        return float(final_efe), ce_loss, ppl
 
     start_time = time.time()
 

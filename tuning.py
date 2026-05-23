@@ -140,7 +140,9 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 20
+        max_batches = 40
+        ppl_list = []
+        efe_list = []
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break
@@ -148,10 +150,12 @@ def run_single_trial_efe(trial):
             targets = batch[1][1]
             targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
 
-
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                yMu_inf, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
+                y_pred = y_mu.reshape(-1, cfg.vocab_size)
+                batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
+                batch_ppl = float(jnp.exp(batch_nll / targets_flat.shape[0]))
             except Exception as e:
                 reason = f"model.process failed: {e}"
                 trial.set_user_attr("prune_reason", reason)
@@ -167,6 +171,8 @@ def run_single_trial_efe(trial):
             total_EFE += EFE
             batches_processed += 1
             current_efe = total_EFE / batches_processed
+            efe_list.append(EFE)
+            ppl_list.append(batch_ppl)
 
             trial.report(current_efe, batch_idx)
             if trial.should_prune():
@@ -175,9 +181,18 @@ def run_single_trial_efe(trial):
                 print(reason)
                 raise optuna.TrialPruned()
 
-            if batch_idx % 2 == 0:
+            if batch_idx % 10 == 0:
                 elapsed = time.time() - start_time
-                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+                print(f"Batch {batch_idx} | EFE={EFE:.4f} | PPL={batch_ppl:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+
+        # Check for steady decrease in both EFE and PPL
+        def is_steady_decrease(metric_list):
+            return all(x >= y for x, y in zip(metric_list, metric_list[1:]))
+        if not (is_steady_decrease(efe_list) and is_steady_decrease(ppl_list)):
+            reason = "EFE and/or PPL did not steadily decrease. Pruned."
+            trial.set_user_attr("prune_reason", reason)
+            print(reason)
+            raise optuna.TrialPruned()
 
         try:
             final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
@@ -317,7 +332,7 @@ def case1_efe_to_ce_complete():
         pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
-    study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
+    study_efe.optimize(run_single_trial_efe, n_trials=20, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value

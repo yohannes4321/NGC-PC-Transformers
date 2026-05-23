@@ -670,16 +670,16 @@ class NGCTransformer:
         
         # Normalize EFE by total number of elements to get reasonable loss magnitude
         total_elements = self.batch_size * self.seq_len
-        EFE_normalized = EFE / total_elements
+        # EFE_normalized = EFE / total_elements
         
-        # Add regularization losses (REDUCED 100x to prevent regularization dominance)
-        reg_loss = 0.0
-        lambda_l2_state = 1e-7  # L2 regularization on RateCell states (was 1e-5)
-        lambda_l1_weight = 1e-8  # L1 regularization on weights (was 1e-6)
-        lambda_l2_weight = 1e-7  # L2 regularization on weights (was 1e-5)
+        # # Add regularization losses (REDUCED 100x to prevent regularization dominance)
+        # reg_loss = 0.0
+        # lambda_l2_state = 1e-7  # L2 regularization on RateCell states (was 1e-5)
+        # lambda_l1_weight = 1e-8  # L1 regularization on weights (was 1e-6)
+        # lambda_l2_weight = 1e-7  # L2 regularization on weights (was 1e-5)
         
         # L2 regularization on embedding state
-        reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.embedding.z_embed.z.get()))
+        # reg_loss += lambda_l2_state * jnp.sum(jnp.square(self.embedding.z_embed.z.get()))
         
         # Regularization on block components
         for i in range(self.n_layers):
@@ -745,7 +745,7 @@ class NGCTransformer:
                 self.output.W_out.biases.set(jnp.clip(self.output.W_out.biases.get(), -bias_bound, bias_bound))
 
         ## skip E/M steps if just doing test-time inference
-        return y_mu, total_loss
+        return y_mu, EFE
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()

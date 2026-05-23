@@ -128,14 +128,14 @@ class NGCTransformer:
                     block.z_residual_attn.zF >>block.attention.W_attn_out.inputs
                 
                     block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
-                    block.mlp.z_mlp1.z >> block.z_residual_mlp.j
+                    # block.mlp.z_mlp1.z >> block.z_residual_mlp.j
                     
                     block.mlp.z_mlp1.z >> block.attention.e_attn.target
                     block.mlp.z_mlp1.zF  >> block.ln2.inputs
                     block.ln2.outputs        >> block.mlp.W_mlp1.inputs    # n_embed → expand
                     block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu        # predicts z_mlp1 (4n)
                     block.mlp.z_mlp2.z       >> block.mlp.e_mlp1.target    
-                    block.mlp.z_mlp2.zF      >> block.z_residual_mlp.j_td
+                    # block.mlp.z_mlp2.zF      >> block.z_residual_mlp.j_td
                     block.z_residual_mlp.zF      >> block.mlp.W_mlp2.inputs    
                     block.mlp.W_mlp2.outputs >> block.mlp.e_mlp2.mu        
                    

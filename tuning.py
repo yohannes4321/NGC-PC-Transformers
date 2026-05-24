@@ -82,6 +82,8 @@ def define_search_space(trial):
         "optim_type": trial.suggest_categorical("optim_type", ["adam","sgd"]),
 
         "act_fx": trial.suggest_categorical("act_fx", ["relu", "elu"]),
+
+        "act_fx_o": trial.suggest_categorical("act_fx_o", ["identity", "relu", "elu", "gelu"]),
     }
 def define_search_space_phase2(trial, best_params):
     """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
@@ -130,6 +132,7 @@ def create_model_with_all_params(trial_number, params, cfg):
         "dt": 1.0,
         "tau_m": cfg.tau_m,
         "act_fx": cfg.act_fx,
+        "act_fx_o": cfg.act_fx_o,
         "eta": cfg.eta,
         "dropout_rate": cfg.dropout_rate,
         "exp_dir": None,
@@ -203,6 +206,7 @@ def run_single_trial_efe(trial):
             current_ce = total_CE / batches_processed
             current_ppl = float(jnp.exp(current_ce))
             if batches_processed % LOG_EVERY_N_BATCHES == 0:
+                trend_score = current_efe
                 if last_checkpoint_efe is not None and EFE > last_checkpoint_efe + EFE_INCREASE_TOLERANCE:
                     reason = (
                         f"Free energy increased at batch {batch_idx} checkpoint | "
@@ -213,16 +217,13 @@ def run_single_trial_efe(trial):
                     raise optuna.TrialPruned()
                 last_checkpoint_efe = EFE
 
-            trend_score = current_efe
+                trial.report(trend_score, batch_idx)
+                if trial.should_prune():
+                    reason = f"TPE pruned at batch {batch_idx} | trend score={trend_score:.4f} | current EFE={current_efe:.4f}"
+                    trial.set_user_attr("prune_reason", reason)
+                    print(reason)
+                    raise optuna.TrialPruned()
 
-            trial.report(trend_score, batch_idx)
-            if trial.should_prune():
-                reason = f"TPE pruned at batch {batch_idx} | trend score={trend_score:.4f} | current EFE={current_efe:.4f}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
-
-            if batch_idx % LOG_EVERY_N_BATCHES == 0:
                 elapsed = time.time() - start_time
                 print(
                     f"Batch {batch_idx} | Free Energy (EFE)={EFE:.4f} | CE={batch_ce:.4f} | PPL={current_ppl:.4f} | "
@@ -298,7 +299,7 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 40
+    max_batches = MAX_TRAIN_BATCH_INDEX + 1
     best_train_ce = float('inf')
     last_checkpoint_efe = None
     for batch_idx, batch in enumerate(train_loader):
@@ -332,13 +333,6 @@ def run_phase2_trial(trial, best_params):
         batches_processed += 1
         avg_efe = total_EFE / batches_processed
         avg_train_ce = total_train_ce / batches_processed
-
-        trial.report(avg_train_ce, batch_idx)
-        if trial.should_prune():
-            reason = f"TPE pruned at batch {batch_idx} | CE={batch_train_ce:.4f}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
         if batches_processed % LOG_EVERY_N_BATCHES == 0:
@@ -351,6 +345,14 @@ def run_phase2_trial(trial, best_params):
                 print(reason)
                 raise optuna.TrialPruned()
             last_checkpoint_efe = EFE
+
+            trial.report(avg_train_ce, batch_idx)
+            if trial.should_prune():
+                reason = f"TPE pruned at batch {batch_idx} | CE={batch_train_ce:.4f}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
+
             elapsed = time.time() - start_time
             ppl = float(jnp.exp(float(batch_train_ce)))
             print(f"Batch {batch_idx} | Free Energy (EFE)={EFE:.4f} | CE={float(batch_train_ce):.4f} | PPL={ppl:.4f} | Time={elapsed:.1f}s")
@@ -404,8 +406,8 @@ def case1_efe_to_ce_complete():
     print(f"Best trial: {study_efe.best_trial.number}")
     print(f"\nBest Parameters:")
     for key in ['n_layers', 'n_heads', 'n_embed', 'tau_m', 'n_iter',
-               'batch_size', 'seq_len', 'pos_learnable', 'optim_type', 'act_fx',
-               'eta', 'dropout_rate', 'wub', 'wlb']:
+             'batch_size', 'seq_len', 'pos_learnable', 'optim_type', 'act_fx', 'act_fx_o',
+             'eta', 'dropout_rate', 'wub', 'wlb']:
         print(f"  {key}: {best_params.get(key)}")
 
     with open("tuning/best_hyperparameters.txt", "w") as f:

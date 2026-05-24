@@ -30,10 +30,8 @@ import gc
 
 EFE_STABILITY_THRESHOLD = 1e4
 MAX_TRAIN_BATCH_INDEX = 9
-LOG_EVERY_N_BATCHES = 3
+LOG_EVERY_N_BATCHES = 10
 EFE_INCREASE_TOLERANCE = 1e-6
-EFE_TREND_PENALTY_WEIGHT = 2.0
-MAX_CONSECUTIVE_EFE_INCREASES = 2
 
 
 def _safe_float(value, default=float('nan')):
@@ -168,10 +166,7 @@ def run_single_trial_efe(trial):
         total_CE = 0.0
         batches_processed = 0
         start_time = time.time()
-        best_efe_seen = float('inf')
-        previous_efe = None
-        consecutive_increase_count = 0
-        trend_penalty = 0.0
+        last_checkpoint_efe = None
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx > MAX_TRAIN_BATCH_INDEX:
                 break
@@ -204,29 +199,18 @@ def run_single_trial_efe(trial):
             current_efe = total_EFE / batches_processed
             current_ce = total_CE / batches_processed
             current_ppl = float(jnp.exp(current_ce))
-            if EFE < best_efe_seen:
-                best_efe_seen = EFE
+            if batches_processed % LOG_EVERY_N_BATCHES == 0:
+                if last_checkpoint_efe is not None and EFE > last_checkpoint_efe + EFE_INCREASE_TOLERANCE:
+                    reason = (
+                        f"Free energy increased at batch {batch_idx} checkpoint | "
+                        f"previous={last_checkpoint_efe:.4f} current={EFE:.4f}"
+                    )
+                    trial.set_user_attr("prune_reason", reason)
+                    print(reason)
+                    raise optuna.TrialPruned()
+                last_checkpoint_efe = EFE
 
-            if previous_efe is not None:
-                delta = EFE - previous_efe
-                if delta > EFE_INCREASE_TOLERANCE:
-                    consecutive_increase_count += 1
-                    trend_penalty += delta
-                else:
-                    consecutive_increase_count = 0
-
-            if consecutive_increase_count >= MAX_CONSECUTIVE_EFE_INCREASES:
-                reason = (
-                    f"EFE increased for {consecutive_increase_count} consecutive batches | "
-                    f"last={previous_efe:.4f} current={EFE:.4f}"
-                )
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
-
-            previous_efe = EFE
-
-            trend_score = current_efe + (trend_penalty * EFE_TREND_PENALTY_WEIGHT)
+            trend_score = current_efe
 
             trial.report(trend_score, batch_idx)
             if trial.should_prune():
@@ -238,20 +222,19 @@ def run_single_trial_efe(trial):
             if batch_idx % LOG_EVERY_N_BATCHES == 0:
                 elapsed = time.time() - start_time
                 print(
-                    f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_ce:.4f} | PPL={current_ppl:.4f} | "
+                    f"Batch {batch_idx} | Free Energy (EFE)={EFE:.4f} | CE={batch_ce:.4f} | PPL={current_ppl:.4f} | "
                     f"Time={elapsed:.1f}s"
                 )
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         final_ce = total_CE / batches_processed if batches_processed > 0 else 1000.0
         final_ppl = float(jnp.exp(final_ce))
-        final_trend_score = final_efe + (trend_penalty * EFE_TREND_PENALTY_WEIGHT)
+        final_trend_score = final_efe
         total_time = time.time() - start_time
 
         trial.set_user_attr("train_efe", float(final_efe))
         trial.set_user_attr("train_ce", float(final_ce))
         trial.set_user_attr("train_ppl", float(final_ppl))
-        trial.set_user_attr("trend_penalty", float(trend_penalty))
         trial.set_user_attr("train_trend_score", float(final_trend_score))
         trial.set_user_attr("batches_processed", batches_processed)
         trial.set_user_attr("time", total_time)
@@ -314,6 +297,7 @@ def run_phase2_trial(trial, best_params):
     start_time = time.time()
     max_batches = 20
     best_train_ce = float('inf')
+    last_checkpoint_efe = None
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
             break
@@ -354,10 +338,19 @@ def run_phase2_trial(trial, best_params):
             raise optuna.TrialPruned()
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
-        if batch_idx % 2 == 0:
+        if batches_processed % LOG_EVERY_N_BATCHES == 0:
+            if last_checkpoint_efe is not None and EFE > last_checkpoint_efe + EFE_INCREASE_TOLERANCE:
+                reason = (
+                    f"Free energy increased at batch {batch_idx} checkpoint | "
+                    f"previous={last_checkpoint_efe:.4f} current={EFE:.4f}"
+                )
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
+            last_checkpoint_efe = EFE
             elapsed = time.time() - start_time
             ppl = float(jnp.exp(float(batch_train_ce)))
-            print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={float(batch_train_ce):.4f} | PPL={ppl:.4f} | Time={elapsed:.1f}s")
+            print(f"Batch {batch_idx} | Free Energy (EFE)={EFE:.4f} | CE={float(batch_train_ce):.4f} | PPL={ppl:.4f} | Time={elapsed:.1f}s")
 
     try:
         final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)

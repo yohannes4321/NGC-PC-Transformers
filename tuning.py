@@ -42,9 +42,9 @@ def define_search_space(trial):
         # Narrower eta range biased toward smaller values to encourage lower EFE
         "eta": trial.suggest_float("eta", 1e-7, 1e-4, log=True),
         # tau_m controls temporal smoothing; allow modest variation
-        "tau_m": trial.suggest_int("tau_m", 8, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
+        "tau_m": trial.suggest_int("tau_m", 8, 40),
+        "n_iter": trial.suggest_int("n_iter", 20, 150),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.5),
         # weight initialization ranges focused for stable predictive coding
         "wub": trial.suggest_float("wub", 0.005, 0.08),
         "wlb": trial.suggest_float("wlb", -0.08, -0.005),
@@ -153,9 +153,8 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         batches_processed = 0
         start_time = time.time()
-        # Respect config but cap to 40 batches for faster EFE-focused tuning
-        cfg_max = getattr(cfg, 'tuning_max_batches', 51)
-        max_batches = min(cfg_max, 40)
+        # Stop after batch 8 for each trial
+        max_batches = 8
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx >= max_batches:
                 break

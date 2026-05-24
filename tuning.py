@@ -45,7 +45,13 @@ def _safe_float(value, default=float('nan')):
 
 def _safe_fmt(value, precision=4):
     numeric_value = _safe_float(value)
-    return f"{numeric_value:.{precision}f}" if jnp.isfinite(numeric_value) else "nan"
+    if jnp.isnan(numeric_value):
+        return "nan"
+    if jnp.isposinf(numeric_value):
+        return "inf"
+    if jnp.isneginf(numeric_value):
+        return "-inf"
+    return f"{numeric_value:.{precision}f}"
 
 
 def define_search_space(trial):
@@ -197,7 +203,7 @@ def run_single_trial_efe(trial):
             batches_processed += 1
             current_efe = total_EFE / batches_processed
             current_ce = total_CE / batches_processed
-            current_ppl = float(jnp.exp(jnp.clip(current_ce, a_min=-20.0, a_max=20.0)))
+            current_ppl = float(jnp.exp(current_ce))
             if EFE < best_efe_seen:
                 best_efe_seen = EFE
 
@@ -238,7 +244,7 @@ def run_single_trial_efe(trial):
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         final_ce = total_CE / batches_processed if batches_processed > 0 else 1000.0
-        final_ppl = float(jnp.exp(jnp.clip(final_ce, a_min=-20.0, a_max=20.0)))
+        final_ppl = float(jnp.exp(final_ce))
         final_trend_score = final_efe + (trend_penalty * EFE_TREND_PENALTY_WEIGHT)
         total_time = time.time() - start_time
 
@@ -302,6 +308,7 @@ def run_phase2_trial(trial, best_params):
         print(reason)
         raise optuna.TrialPruned()
 
+    total_EFE = 0.0
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
@@ -334,12 +341,14 @@ def run_phase2_trial(trial, best_params):
             raise optuna.TrialPruned()
 
         total_train_ce += float(batch_train_ce)
+        total_EFE += EFE
         batches_processed += 1
+        avg_efe = total_EFE / batches_processed
         avg_train_ce = total_train_ce / batches_processed
 
         trial.report(avg_train_ce, batch_idx)
         if trial.should_prune():
-            reason = f"TPE pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
+            reason = f"TPE pruned at batch {batch_idx} | CE={batch_train_ce:.4f}"
             trial.set_user_attr("prune_reason", reason)
             print(reason)
             raise optuna.TrialPruned()
@@ -347,7 +356,8 @@ def run_phase2_trial(trial, best_params):
             best_train_ce = float(batch_train_ce)
         if batch_idx % 2 == 0:
             elapsed = time.time() - start_time
-            print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
+            ppl = float(jnp.exp(float(batch_train_ce)))
+            print(f"Batch {batch_idx} | EFE={EFE:.4f} | CE={float(batch_train_ce):.4f} | PPL={ppl:.4f} | Time={elapsed:.1f}s")
 
     try:
         final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
@@ -356,6 +366,7 @@ def run_phase2_trial(trial, best_params):
         final_ce = avg_train_ce if batches_processed > 0 else 100.0
         final_ppl = float('inf')
 
+    final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
     total_time = time.time() - start_time
     trial.set_user_attr("ppl", float(final_ppl))
     trial.set_user_attr("time", total_time)
@@ -364,8 +375,8 @@ def run_phase2_trial(trial, best_params):
         trial.set_user_attr(f"param_{key}", value)
 
     print(
-        f"Trial {trial.number} Complete | Final Val CE={_safe_fmt(final_ce)} | "
-        f"Time={_safe_fmt(total_time, precision=1)}s"
+        f"Trial {trial.number} Complete | EFE={_safe_fmt(final_efe)} | "
+        f"CE={_safe_fmt(final_ce)} | PPL={_safe_fmt(final_ppl)} | Time={_safe_fmt(total_time, precision=1)}s"
     )
     return float(final_ce)  
 

@@ -14,7 +14,7 @@ class DataLoader:
         seq_len,
         batch_size,
         data_dir=DIR / "outputs" / "tokenized_data",
-        max_samples=200  # NEW
+        max_samples=50  # NEW
     ):
         self.data_dir = Path(data_dir)
         self.seq_len = seq_len

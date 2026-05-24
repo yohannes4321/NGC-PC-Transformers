@@ -79,7 +79,7 @@ def define_search_space(trial):
         "wub": trial.suggest_float("wub", 0.01, 0.05),
         "wlb": trial.suggest_float("wlb", -0.05, -0.01),
 
-        "optim_type": trial.suggest_categorical("optim_type", ["adam"]),
+        "optim_type": trial.suggest_categorical("optim_type", ["adam","sgd"]),
 
         "act_fx": trial.suggest_categorical("act_fx", ["relu", "elu"]),
     }

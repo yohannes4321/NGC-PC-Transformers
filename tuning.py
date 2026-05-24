@@ -34,32 +34,33 @@ MAX_CONSECUTIVE_EFE_INCREASES = 2
 
 
 def define_search_space(trial):
-    # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
-    n_embed =  n_heads * embed_mult
-    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 8),
+        "n_layers": trial.suggest_int("n_layers", 1, 3),
+
+        "n_heads": trial.suggest_categorical("n_heads", [2, 4]),
+
+        "n_embed": trial.suggest_categorical("n_embed", [32, 48, 64]),
+
+        "seq_len": trial.suggest_categorical("seq_len", [8, 12, 16]),
+
+        "batch_size": trial.suggest_categorical("batch_size", [2, 4, 6]),
+
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
+
         "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
         "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
-        "wub": trial.suggest_float("wub", 0.01, 0.1),
-        "wlb": trial.suggest_float("wlb", -0.1, -0.01),
-        "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
-        "n_heads": n_heads,
-        "n_embed": n_embed,
-        "batch_size": batch_size,
-        "seq_len": seq_len,
-        "embed_mult": embed_mult
-    }
+        "n_iter": trial.suggest_int("n_iter", 5, 30),
 
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.2),
+
+        "wub": trial.suggest_float("wub", 0.01, 0.05),
+        "wlb": trial.suggest_float("wlb", -0.05, -0.01),
+
+        "optim_type": trial.suggest_categorical("optim_type", ["adam"]),
+
+        "act_fx": trial.suggest_categorical("act_fx", ["relu", "elu"]),
+    }
 def define_search_space_phase2(trial, best_params):
     """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
     

@@ -159,6 +159,7 @@ def run_single_trial_efe(trial):
             raise optuna.TrialPruned()
 
         total_EFE = 0.0
+        total_CE = 0.0
         batches_processed = 0
         start_time = time.time()
         best_efe_seen = float('inf')
@@ -174,23 +175,29 @@ def run_single_trial_efe(trial):
 
 
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
+                y_pred = y_mu.reshape(-1, cfg.vocab_size)
+                batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
+                batch_ce = float(batch_nll / targets_flat.shape[0])
             except Exception as e:
                 reason = f"model.process failed: {e}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
 
-            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
+            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD or jnp.isnan(batch_ce) or jnp.isinf(batch_ce):
                 reason = f"Unstable EFE: {EFE}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
 
             total_EFE += EFE
+            total_CE += batch_ce
             batches_processed += 1
             current_efe = total_EFE / batches_processed
+            current_ce = total_CE / batches_processed
+            current_ppl = float(jnp.exp(jnp.clip(current_ce, a_min=-20.0, a_max=20.0)))
             if EFE < best_efe_seen:
                 best_efe_seen = EFE
 
@@ -225,15 +232,19 @@ def run_single_trial_efe(trial):
             if batch_idx % LOG_EVERY_N_BATCHES == 0:
                 elapsed = time.time() - start_time
                 print(
-                    f"Batch {batch_idx} | EFE={EFE:.4f} | Best EFE={best_efe_seen:.4f} | "
-                    f"Avg EFE={current_efe:.4f} | Trend Score={trend_score:.4f} | Time={elapsed:.1f}s"
+                    f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_ce:.4f} | PPL={current_ppl:.4f} | "
+                    f"Time={elapsed:.1f}s"
                 )
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
+        final_ce = total_CE / batches_processed if batches_processed > 0 else 1000.0
+        final_ppl = float(jnp.exp(jnp.clip(final_ce, a_min=-20.0, a_max=20.0)))
         final_trend_score = final_efe + (trend_penalty * EFE_TREND_PENALTY_WEIGHT)
         total_time = time.time() - start_time
 
         trial.set_user_attr("train_efe", float(final_efe))
+        trial.set_user_attr("train_ce", float(final_ce))
+        trial.set_user_attr("train_ppl", float(final_ppl))
         trial.set_user_attr("trend_penalty", float(trend_penalty))
         trial.set_user_attr("train_trend_score", float(final_trend_score))
         trial.set_user_attr("batches_processed", batches_processed)
@@ -243,8 +254,9 @@ def run_single_trial_efe(trial):
             trial.set_user_attr(f"param_{key}", value)
 
         print(
-            f"Trial {trial.number} Complete | Train EFE={_safe_fmt(final_efe)} | "
-            f"Trend Score={_safe_fmt(final_trend_score)} | Time={_safe_fmt(total_time, precision=1)}s"
+            f"Trial {trial.number} Complete | EFE={_safe_fmt(final_efe)} | "
+            f"CE={_safe_fmt(final_ce)} | PPL={_safe_fmt(final_ppl)} | "
+            f"Time={_safe_fmt(total_time, precision=1)}s"
         )
         return float(final_trend_score)
     finally:

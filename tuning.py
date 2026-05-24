@@ -181,7 +181,7 @@ def run_single_trial_efe(trial):
 
 
             try:
-                _, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                y_mu, EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
                 y_pred = y_mu.reshape(-1, cfg.vocab_size)
                 batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
@@ -322,7 +322,7 @@ def run_phase2_trial(trial, best_params):
         targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
 
         try:
-            yMu_inf, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            y_mu, EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             EFE = abs(float(EFE))
             
             y_pred = y_mu.reshape(-1, cfg.vocab_size)

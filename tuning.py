@@ -3,7 +3,10 @@ import sys
 import warnings
 import logging
 import optuna
-
+os.environ["XLA_FLAGS"] = (
+    "--xla_gpu_autotune_level=0 "
+    "--xla_gpu_strict_conv_algorithm_picker=false"
+)
 warnings.filterwarnings('ignore')
 
 logging.getLogger().setLevel(logging.ERROR)

@@ -32,7 +32,7 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
 EFE_STABILITY_THRESHOLD = 1e4
-MAX_TRAIN_BATCH_INDEX = 9
+MAX_TRAIN_BATCH_INDEX = 40
 LOG_EVERY_N_BATCHES = 10
 EFE_INCREASE_TOLERANCE = 1e-6
 
@@ -298,7 +298,7 @@ def run_phase2_trial(trial, best_params):
     total_train_ce = 0.0  
     batches_processed = 0
     start_time = time.time()
-    max_batches = 20
+    max_batches = 40
     best_train_ce = float('inf')
     last_checkpoint_efe = None
     for batch_idx, batch in enumerate(train_loader):

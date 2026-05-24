@@ -163,11 +163,22 @@ def run_single_trial_efe(trial):
             targets = batch[1][1]
             targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
+
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                result = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                # Accept 2 or 3+ return values
+                if isinstance(result, tuple):
+                    if len(result) >= 3:
+                        _, _, EFE, *_ = result
+                    elif len(result) == 2:
+                        _, EFE = result
+                    else:
+                        raise ValueError(f"model.process returned unexpected number of values: {len(result)}")
+                else:
+                    EFE = result
                 EFE = abs(float(EFE))
             except Exception as e:
-                reason = f"model.process failed: {e}"
+                reason = f"model.process failed: {e} | params: {params}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()

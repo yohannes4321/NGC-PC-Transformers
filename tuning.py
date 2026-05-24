@@ -172,7 +172,6 @@ def run_single_trial_efe(trial):
         total_CE = 0.0
         batches_processed = 0
         start_time = time.time()
-        last_checkpoint_efe = None
         for batch_idx, batch in enumerate(train_loader):
             if batch_idx > MAX_TRAIN_BATCH_INDEX:
                 break
@@ -207,15 +206,6 @@ def run_single_trial_efe(trial):
             current_ppl = float(jnp.exp(current_ce))
             if batches_processed % LOG_EVERY_N_BATCHES == 0:
                 trend_score = current_efe
-                if last_checkpoint_efe is not None and EFE > last_checkpoint_efe + EFE_INCREASE_TOLERANCE:
-                    reason = (
-                        f"Free energy increased at batch {batch_idx} checkpoint | "
-                        f"previous={last_checkpoint_efe:.4f} current={EFE:.4f}"
-                    )
-                    trial.set_user_attr("prune_reason", reason)
-                    print(reason)
-                    raise optuna.TrialPruned()
-                last_checkpoint_efe = EFE
 
                 trial.report(trend_score, batch_idx)
                 if trial.should_prune():
@@ -301,7 +291,6 @@ def run_phase2_trial(trial, best_params):
     start_time = time.time()
     max_batches = MAX_TRAIN_BATCH_INDEX + 1
     best_train_ce = float('inf')
-    last_checkpoint_efe = None
     for batch_idx, batch in enumerate(train_loader):
         if batch_idx >= max_batches:
             break
@@ -336,16 +325,6 @@ def run_phase2_trial(trial, best_params):
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
         if batches_processed % LOG_EVERY_N_BATCHES == 0:
-            if last_checkpoint_efe is not None and EFE > last_checkpoint_efe + EFE_INCREASE_TOLERANCE:
-                reason = (
-                    f"Free energy increased at batch {batch_idx} checkpoint | "
-                    f"previous={last_checkpoint_efe:.4f} current={EFE:.4f}"
-                )
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
-            last_checkpoint_efe = EFE
-
             trial.report(avg_train_ce, batch_idx)
             if trial.should_prune():
                 reason = f"TPE pruned at batch {batch_idx} | CE={batch_train_ce:.4f}"

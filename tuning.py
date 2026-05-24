@@ -11,6 +11,9 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 logging.getLogger('optuna').setLevel(logging.WARNING)
 os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3' 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+existing_xla_flags = os.environ.get('XLA_FLAGS', '')
+if '--xla_gpu_autotune_level=0' not in existing_xla_flags:
+    os.environ['XLA_FLAGS'] = (existing_xla_flags + ' --xla_gpu_autotune_level=0').strip()
 
 
 import time
@@ -31,6 +34,18 @@ LOG_EVERY_N_BATCHES = 3
 EFE_INCREASE_TOLERANCE = 1e-6
 EFE_TREND_PENALTY_WEIGHT = 2.0
 MAX_CONSECUTIVE_EFE_INCREASES = 2
+
+
+def _safe_float(value, default=float('nan')):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _safe_fmt(value, precision=4):
+    numeric_value = _safe_float(value)
+    return f"{numeric_value:.{precision}f}" if jnp.isfinite(numeric_value) else "nan"
 
 
 def define_search_space(trial):
@@ -228,8 +243,8 @@ def run_single_trial_efe(trial):
             trial.set_user_attr(f"param_{key}", value)
 
         print(
-            f"Trial {trial.number} Complete | Train EFE={final_efe:.4f} | "
-            f"Trend Score={final_trend_score:.4f} | Time={total_time:.1f}s"
+            f"Trial {trial.number} Complete | Train EFE={_safe_fmt(final_efe)} | "
+            f"Trend Score={_safe_fmt(final_trend_score)} | Time={_safe_fmt(total_time, precision=1)}s"
         )
         return float(final_trend_score)
     finally:
@@ -336,7 +351,10 @@ def run_phase2_trial(trial, best_params):
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
+    print(
+        f"Trial {trial.number} Complete | Final Val CE={_safe_fmt(final_ce)} | "
+        f"Time={_safe_fmt(total_time, precision=1)}s"
+    )
     return float(final_ce)  
 
 def case1_efe_to_ce_complete():

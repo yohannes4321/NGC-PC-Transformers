@@ -5,7 +5,7 @@ from config import Config as config
 
 
 class Output:
-     """
+    """
     NGC Output Layer for final projection to vocabulary space.
     
     Projects hidden representations to vocabulary distribution with
@@ -22,9 +22,8 @@ class Output:
         eta: Learning rate for Hebbian synapses
     """
     def __init__(self, dkey, n_embed, seq_len, batch_size, vocab_size, eta, optim_type, wub, wlb, tau_m, act_fx_o=config.act_fx_o,  **kwargs):
-     
         dkey, *subkeys = random.split(dkey, 10)
-      
+
         self.z_out = RateCell("z_out", n_units=n_embed, tau_m=config.tau_o, act_fx=act_fx_o, batch_size=batch_size * seq_len, prior=("gaussian", 0.1))
 
         self.W_out = HebbianSynapse(

@@ -1,52 +1,33 @@
-import numpy as np
-
 class Config:
     SEED = 42
-
-    # Architecture
-    seq_len = 8
-    n_embed = 64
-    batch_size = 4      # Scaled up slightly for stable batch gradients
-    vocab_size = 11710  # data vocab size + special tokens
+    seq_len = 64
+    n_embed = 96
+    batch_size = 32
+    vocab_size = 11710# data vocab size + special tokens = 11706 + 4
     n_heads = 8
-    n_layers = 8
-    embed_mult = 8
-
-    # Regularization / Optimization
-    dropout_rate = 0.01 # Small amount of regularized noise to break uniform plateaus
-    eta = 1.5e-5        # Stable predictive coding state step-size
-    eta_o = 1.0e-3      # Adam weight learning rate
-    optim_type = "adam" # Switch back to adam for non-zero gradient moment tracking
-
-    # Predictive Coding Core Dynamics (Fixed for continuous reduction)
-    epoch = 5
-    n_iter = 25         # CRITICAL: Budget for settling internal states to minimize EFE
-    tau_o = 5           # Time constant for output error settling
-    tau_m = 12          # Time constant for internal layer representations
-
-    # Weight Initialization Bounds (Xavier-adjusted for predictive scaling)
-    wub = 0.05
-    wlb = -0.05
-
-    # Internal State Initializations
-    wu = 0.01
-    wl = -0.01
-
-    # Activations
-    act_fx = "relu"     # Non-linear internal representation to handle token non-linearities
-    act_fx_o = "identity"
-
-    # Positional Embeddings
-    # NOTE: If absolute learnable embeddings are False, ensure you have
-    # switched to a relative scheme like Rotary Positional Embedding (RoPE) 
-    # to avoid semantic word-position entanglement.
-    pos_learnable = False
-
-    # Misc
+    n_layers = 2
+    dropout_rate = 0.0
+    eta = 4.919042890915579e-06
+    eta_o = 2.9e-03
     exp_dir = "exp"
-    tuning_max_batches = 51
-    tuning_print_every = 10
-    efe_trend_weight = 0.1
+    pos_learnable = True
+    optim_type = "sgd"
+    epoch = 1
+    n_iter= 26
+    tau_o = 2
+    # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
+    wub = 0.035284728580901155
+    wlb =  -0.07318664527441558
+    wu = 0.035284728580901155
+    wl = -0.035284728580901155
+    tau_m = 2.7
+    act_fx = "identity"
+    act_fx_o = "identity"
+    # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "BPE"
+    # When tokenizer == "tiktoken", tokenizer_name is used (e.g. "gpt2" or "cl100k_base")
     tokenizer_name = "gpt2"
+
+    # When tokenizer == "BPE", tokenizer_vocab_file may point to a vocab json or a newline token list.
+    # Optional: set to None to use a simple fallback whitespace tokenizer.
     tokenizer_vocab_file = None

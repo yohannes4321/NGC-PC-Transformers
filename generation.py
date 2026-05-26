@@ -12,7 +12,7 @@ from pathlib import Path
 dkey = jax.random.PRNGKey(0)
 model = NGCTransformer(
     dkey, 
-    batch_size=config.batch_size, 
+    batch_size=1,  # ← FIXED: Use 1 for inference, not config.batch_size
     seq_len=config.seq_len, 
     n_embed=config.n_embed, 
     vocab_size=config.vocab_size, 
@@ -25,7 +25,7 @@ model = NGCTransformer(
     eta=config.eta, 
     dropout_rate=config.dropout_rate, 
     exp_dir="exp",
-    loadDir=None, 
+    loadDir="exp",  # ← FIXED: Load trained model from exp directory 
     pos_learnable=config.pos_learnable, 
     optim_type=config.optim_type, 
     wub=config.wub, 
@@ -59,7 +59,7 @@ def generate_text(
     tokenizer,
     prompt: str,
     max_new_tokens: int = 100,
-    seq_len: int = 8,
+    seq_len: int = None,  # ← FIXED: Use config.seq_len, not hardcoded 8
     temperature: float = 1.0,
     key=None
 ):
@@ -67,6 +67,8 @@ def generate_text(
     Generate text using the model and provided tokenizer.
     Works with both custom BPE and tiktoken backends.
     """
+    if seq_len is None:
+        seq_len = config.seq_len
     # Encode prompt - returns jnp.ndarray for both backends
     prompt_ids = tokenizer.encode(prompt)
     
@@ -92,11 +94,13 @@ def generate_text(
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=0)
         
         # Dummy target for inference (unused when adapt_synapses=False)
-        dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))  
+        # ← FIXED: Use batch_size=1 for inference, not config.batch_size
+        dummy_target = jnp.zeros((1 * seq_len, config.vocab_size))  
 
         # Forward pass
-        y_mu_inf, y_mu, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
-        logits = y_mu.reshape(config.batch_size, config.seq_len, config.vocab_size)
+        y_mu_inf, y_mu, EFE = model.process(input_seq, dummy_target, adapt_synapses=False)
+        # ← FIXED: Reshape for batch_size=1, not config.batch_size
+        logits = y_mu.reshape(1, seq_len, config.vocab_size)
 
         # Get logits for the last *real* token (excluding padding)
         actual_len = min(current_tokens.shape[1], seq_len)

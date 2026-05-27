@@ -37,7 +37,7 @@ try:
         optim_type=config.optim_type, 
         wub=config.wub, 
         wlb=config.wlb, 
-        model_name="ngc transformer"
+        model_name="ngc_transformer"
     )
     print("✓ Model loaded successfully")
 except Exception as e:

@@ -10,9 +10,10 @@ from pathlib import Path
 
 # Initialize the model
 dkey = jax.random.PRNGKey(0)
+generation_batch_size = config.batch_size
 model = NGCTransformer(
     dkey, 
-    batch_size=1,  # ← FIXED: Use 1 for inference, not config.batch_size
+    batch_size=generation_batch_size,
     seq_len=config.seq_len, 
     n_embed=config.n_embed, 
     vocab_size=config.vocab_size, 
@@ -72,9 +73,9 @@ def generate_text(
     # Encode prompt - returns jnp.ndarray for both backends
     prompt_ids = tokenizer.encode(prompt)
     
-    # Ensure batch dimension: (1, sequence_length)
+    # Match the checkpoint batch size so loaded component shapes stay consistent.
     if prompt_ids.ndim == 1:
-        prompt_tensor = prompt_ids[None, :]
+        prompt_tensor = jnp.repeat(prompt_ids[None, :], generation_batch_size, axis=0)
     else:
         prompt_tensor = prompt_ids
 
@@ -94,13 +95,11 @@ def generate_text(
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=0)
         
         # Dummy target for inference (unused when adapt_synapses=False)
-        # ← FIXED: Use batch_size=1 for inference, not config.batch_size
-        dummy_target = jnp.zeros((1 * seq_len, config.vocab_size))  
+        dummy_target = jnp.zeros((generation_batch_size * seq_len, config.vocab_size))  
 
         # Forward pass
         y_mu_inf, y_mu, EFE = model.process(input_seq, dummy_target, adapt_synapses=False)
-        # ← FIXED: Reshape for batch_size=1, not config.batch_size
-        logits = y_mu.reshape(1, seq_len, config.vocab_size)
+        logits = y_mu.reshape(generation_batch_size, seq_len, config.vocab_size)
 
         # Get logits for the last *real* token (excluding padding)
         actual_len = min(current_tokens.shape[1], seq_len)
@@ -116,7 +115,10 @@ def generate_text(
             next_token = jnp.argmax(next_logits)
 
         # Append new token
-        current_tokens = jnp.concatenate([current_tokens, next_token[None, None]], axis=1)
+        current_tokens = jnp.concatenate(
+            [current_tokens, jnp.full((generation_batch_size, 1), next_token, dtype=current_tokens.dtype)],
+            axis=1,
+        )
 
     # Decode generated IDs back to text
     generated_ids = current_tokens[0].tolist()

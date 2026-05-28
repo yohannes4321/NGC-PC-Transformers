@@ -123,6 +123,11 @@ def debug_model_internals(model, input_seq, embeddings=None, step=0):
         print(f"  z_embed zF shape: {z_embed.shape}, mean: {jnp.mean(z_embed):.6f}, std: {jnp.std(z_embed):.6f}, max: {jnp.max(z_embed):.6f}")
     except Exception as e:
         print(f"  z_embed: Error - {e}")
+    try:
+        attn_mu = model.attention.e_qkv.get()
+        print(f"  Block {i} e_qkv mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
+        except Exception as e:
+            print(f"  Block {i} attention: Error - {e}")
     
     # Check block outputs
     for i, block in enumerate(model.blocks):
@@ -131,6 +136,7 @@ def debug_model_internals(model, input_seq, embeddings=None, step=0):
             print(f"  Block {i} e_attn mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
         except Exception as e:
             print(f"  Block {i} attention: Error - {e}")
+        
     for i, block in enumerate(model.blocks):
         try:
             attn_mu = block.mlp.e_mlp.mu.get()

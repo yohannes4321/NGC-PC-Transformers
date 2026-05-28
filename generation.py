@@ -214,15 +214,15 @@ def generate_text(
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=0)
 
         # CORRECT FLOW: Convert token IDs to embeddings externally
-        embeddings = compute_embeddings_from_tokens(model, input_seq)
-        print(f"[DEBUG] Step {step}: Embeddings computed - shape: {embeddings.shape}, mean: {jnp.mean(embeddings):.6f}, std: {jnp.std(embeddings):.6f}")
+        # embeddings = compute_embeddings_from_tokens(model, input_seq)
+        # print(f"[DEBUG] Step {step}: Embeddings computed - shape: {embeddings.shape}, mean: {jnp.mean(embeddings):.6f}, std: {jnp.std(embeddings):.6f}")
 
         # Dummy target for inference
         dummy_target = jnp.zeros((generation_batch_size * seq_len, config.vocab_size))
 
         # Call debug on first few steps
-        if debug and (step < 2 or step == max_new_tokens - 1):
-            debug_model_internals(model, input_seq, embeddings=embeddings, step=step)
+        # if debug and (step < 2 or step == max_new_tokens - 1):
+        #     debug_model_internals(model, input_seq, embeddings=embeddings, step=step)
 
         # Forward pass with embeddings
         # model.process() will call clamp_input(embeddings) which sets z_embed.j
@@ -279,7 +279,7 @@ if __name__ == "__main__":
     print("TEST 2: Long prompt")
     print("="*80)
     prompt2 = "You common cry of curs! whose breath I hate As reek o' the rotten fens..."
-    generated2 = generate_text(model, tokenizer, prompt=prompt2, max_new_tokens=5, temperature=0.8, key=jax.random.PRNGKey(42), debug=True)
+    generated2 = generate_text(model, tokenizer, prompt=prompt2, max_new_tokens=5, temperature=0.4, key=jax.random.PRNGKey(42), debug=True)
     print("\n" + "="*80 + "\n")
     print("GENERATED TEXT (Prompt 2):")
     print(generated2)

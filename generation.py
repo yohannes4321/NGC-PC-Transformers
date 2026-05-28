@@ -128,7 +128,19 @@ def debug_model_internals(model, input_seq, embeddings=None, step=0):
     for i, block in enumerate(model.blocks):
         try:
             attn_mu = block.attention.e_attn.mu.get()
-            print(f"  Block {i} attention mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
+            print(f"  Block {i} e_attn mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
+        except Exception as e:
+            print(f"  Block {i} attention: Error - {e}")
+    for i, block in enumerate(model.blocks):
+        try:
+            attn_mu = block.attention.e_mlp.mu.get()
+            print(f"  Block {i} e_mlp mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
+        except Exception as e:
+            print(f"  Block {i} attention: Error - {e}")
+    for i, block in enumerate(model.blocks):
+        try:
+            attn_mu = block.attention.e_emlp1.mu.get()
+            print(f"  Block {i} e_e mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
         except Exception as e:
             print(f"  Block {i} attention: Error - {e}")
     

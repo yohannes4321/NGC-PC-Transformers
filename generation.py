@@ -140,7 +140,7 @@ def debug_model_internals(model, input_seq, embeddings=None, step=0):
             print(f"  Block {i} attention: Error - {e}")
     for i, block in enumerate(model.blocks):
         try:
-            attn_mu = block.mlp.e_qkv.mu.get()
+            attn_mu = block.attention.e_qkv.mu.get()
             print(f"  Block {i} e_qkv mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
         except Exception as e:
             print(f"  Block {i} attention: Error - {e}")

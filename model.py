@@ -505,7 +505,7 @@ class NGCTransformer:
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
           
 
-    def process(self, obs, lab, adapt_synapses=True):
+    def process(self, obs, lab, adapt_synapses=True, skip_embedding_clamp=False):
         
         self.reset.run()
         # self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
@@ -535,7 +535,9 @@ class NGCTransformer:
         # self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
         
        
-        self.clamp_input(obs)
+        # FIX: Only clamp input if not skipping (allows pre-computed embeddings from generation)
+        if not skip_embedding_clamp:
+            self.clamp_input(obs)
         self.clamp_infer_target(lab)
         
         # self.project.run(t=0., dt=1.)
@@ -568,7 +570,9 @@ class NGCTransformer:
         #if adapt_synapses:
         for ts in range(0, self.T):
         
-            self.clamp_input(obs)
+            # FIX: Only clamp input during loop if not skipping
+            if not skip_embedding_clamp:
+                self.clamp_input(obs)
             self.clamp_target(lab)
              
             self.advance.run(t=ts,dt=1.)
@@ -591,7 +595,7 @@ class NGCTransformer:
                 self.evolve.run(t=self.T,dt=1.)
                 
         ## skip E/M steps if just doing test-time inference
-        return y_mu_inf, y_mu, EFE 
+        return y_mu_inf, y_mu, EFEy_mu_inf, y_mu, EFE 
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()

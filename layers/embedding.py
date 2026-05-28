@@ -9,14 +9,20 @@ from jax import random
 class EMBEDDING:
     """
    embedding layer using the EmbeddingSynapse
+    
+    CORRECTED: 
+    - z_embed now stores embeddings (n_units=embed_dim, batch_size=batch_size*seq_len)
+    - W_embed processes token IDs -> embeddings
+    - e_embed receives error signals from predictive coding
     """
     def __init__(self, dkey, vocab_size, seq_len, embed_dim, batch_size, pos_learnable, eta, optim_type, **kwargs):
         
         dkey, *subkeys = random.split(dkey, 4)
     
-        # RateCell expects a 3D shape tuple for image components (seq_len, embed_dim, channels)so here we use the third dim as a placeholder
-        self.z_embed = RateCell("z_embed", n_units=seq_len, tau_m=0., 
-                                  act_fx="identity", batch_size=batch_size)            
+        # CORRECTED: z_embed stores embeddings, not token IDs
+        # Shape should be (batch_size*seq_len, embed_dim) to match output of W_embed
+        self.z_embed = RateCell("z_embed", n_units=embed_dim, tau_m=0., 
+                                  act_fx="identity", batch_size=batch_size * seq_len)            
             # EmbeddingSynapse (handles both word + position internally)
         self.W_embed = EmbeddingSynapse(
                 "W_embed", 
@@ -30,7 +36,7 @@ class EMBEDDING:
                 key=subkeys[0])
             
         self.e_embed = ErrorCell("e_embed", n_units=embed_dim, 
-                                  batch_size=batch_size * seq_len) # shape=(seq_len, embed_dim, 1),
+                                  batch_size=batch_size * seq_len) # shape=(batch_size*seq_len, embed_dim)
     
             
 

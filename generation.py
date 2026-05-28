@@ -57,7 +57,36 @@ if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is None:
         )
 
 
-def debug_model_internals(model, input_seq, step=0):
+def process_tokens_through_embedding(model, token_ids):
+    """
+    Process token IDs through the embedding layer to get embeddings.
+    
+    Args:
+        model: NGCTransformer model
+        token_ids: Token indices (batch_size, seq_len)
+    
+    Returns:
+        embeddings: Word + position embeddings (batch_size*seq_len, embed_dim)
+    """
+    batch_size = token_ids.shape[0]
+    seq_len = token_ids.shape[1]
+    
+    # Set token IDs as input to W_embed
+    model.embedding.W_embed.inputs.set(token_ids)
+    
+    # Compute embeddings (word + position)
+    model.embedding.W_embed.advance_state()
+    
+    # Get embeddings: shape (batch_size, seq_len, embed_dim)
+    embeddings_3d = model.embedding.W_embed.outputs.get()
+    
+    # Reshape to (batch_size*seq_len, embed_dim) for the z_embed RateCell
+    embeddings_2d = embeddings_3d.reshape(batch_size * seq_len, model.n_embed)
+    
+    return embeddings_2d
+
+
+def debug_model_internals(model, input_seq, embeddings=None, step=0):
     """
     Inspect internal model states to diagnose why outputs are identical.
     """
@@ -65,12 +94,22 @@ def debug_model_internals(model, input_seq, step=0):
     print(f"  Input shape: {input_seq.shape}")
     print(f"  Input tokens (first 10): {input_seq[0, :10]}")
     
+    if embeddings is not None:
+        print(f"  Embeddings shape: {embeddings.shape}, mean: {jnp.mean(embeddings):.6f}, std: {jnp.std(embeddings):.6f}, max: {jnp.max(embeddings):.6f}")
+    
     # Check embedding layer outputs
     try:
         emb_output = model.embedding.e_embed.mu.get()
         print(f"  Embedding mu shape: {emb_output.shape}, mean: {jnp.mean(emb_output):.6f}, std: {jnp.std(emb_output):.6f}, max: {jnp.max(emb_output):.6f}")
     except Exception as e:
         print(f"  Embedding mu: Error - {e}")
+    
+    # Check z_embed
+    try:
+        z_embed = model.embedding.z_embed.zF.get()
+        print(f"  z_embed zF shape: {z_embed.shape}, mean: {jnp.mean(z_embed):.6f}, std: {jnp.std(z_embed):.6f}, max: {jnp.max(z_embed):.6f}")
+    except Exception as e:
+        print(f"  z_embed: Error - {e}")
     
     # Check block outputs
     for i, block in enumerate(model.blocks):
@@ -86,6 +125,13 @@ def debug_model_internals(model, input_seq, step=0):
         print(f"  Output mu shape: {out_mu.shape}, mean: {jnp.mean(out_mu):.6f}, std: {jnp.std(out_mu):.6f}")
     except Exception as e:
         print(f"  Output mu: Error - {e}")
+    
+    # Check output z
+    try:
+        out_z = model.output.z_out.zF.get()
+        print(f"  Output z_out zF: mean={jnp.mean(out_z):.6f}, std={jnp.std(out_z):.6f}, max={jnp.max(out_z):.6f}")
+    except Exception as e:
+        print(f"  Output z_out: Error - {e}")
 
 
 def generate_text(
@@ -93,24 +139,24 @@ def generate_text(
     tokenizer,
     prompt: str,
     max_new_tokens: int = 100,
-    seq_len: int = None,  # ← FIXED: Use config.seq_len, not hardcoded 8
+    seq_len: int = None,
     temperature: float = 1.0,
     key=None,
     debug=False
 ):
     """
     Generate text using the model and provided tokenizer.
-    Works with both custom BPE and tiktoken backends.
+    FIXED: Properly process tokens through embedding layer before running model.
     
-    CRITICAL: The model must see all previous tokens (accumulated context) 
-    to generate the next token correctly. Otherwise all prompts produce identical output.
+    CRITICAL FIX: Token IDs must go through W_embed to get embeddings before
+    being used as input to z_embed. Otherwise all activations are zero.
     """
     if seq_len is None:
         seq_len = config.seq_len
     
     # Encode prompt - returns jnp.ndarray for both backends
     prompt_ids = tokenizer.encode(prompt)
-    print(f"[DEBUG] Prompt tokens shape: {prompt_ids.shape}, tokens: {prompt_ids[:20]}")  # Show first 20 tokens
+    print(f"[DEBUG] Prompt tokens shape: {prompt_ids.shape}, tokens: {prompt_ids[:20]}")
     
     # Match the checkpoint batch size so loaded component shapes stay consistent.
     if prompt_ids.ndim == 1:
@@ -123,38 +169,47 @@ def generate_text(
 
     for step in range(max_new_tokens):
         # IMPORTANT: Use FULL accumulated context (sliding window if needed)
-        # This ensures the model sees all previous tokens, not just a reset state
         if current_tokens.shape[1] > seq_len:
-            # If context exceeds seq_len, use sliding window of last seq_len tokens
             input_seq = current_tokens[:, -seq_len:]
             print(f"[DEBUG] Step {step}: Context exceeds seq_len, using sliding window. Shape: {input_seq.shape}")
         else:
-            # Use all accumulated tokens
             input_seq = current_tokens
             print(f"[DEBUG] Step {step}: Using full context. Shape: {input_seq.shape}")
 
-        # Pad to exactly seq_len if needed (assumes token ID 0 = padding)
+        # Pad to exactly seq_len if needed
         if input_seq.shape[1] < seq_len:
             pad_len = seq_len - input_seq.shape[1]
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=0)
 
-        # Dummy target for inference (unused when adapt_synapses=False)
+        # CRITICAL FIX: Process tokens through embedding first to get actual embeddings
+        embeddings = process_tokens_through_embedding(model, input_seq)
+        print(f"[DEBUG] Step {step}: Embeddings computed - shape: {embeddings.shape}, mean: {jnp.mean(embeddings):.6f}, std: {jnp.std(embeddings):.6f}")
+
+        # Now set embeddings as input current to z_embed
+        model.embedding.z_embed.j.set(embeddings)
+
+        # Dummy target for inference
         dummy_target = jnp.zeros((generation_batch_size * seq_len, config.vocab_size))  
 
-        # Call deep debug on first few and last steps
+        # Call debug on first few steps
         if debug and (step < 2 or step == max_new_tokens - 1):
-            debug_model_internals(model, input_seq, step=step)
+            debug_model_internals(model, input_seq, embeddings=embeddings, step=step)
 
-        # Forward pass - model.process() calls reset internally
-        y_mu_inf, y_mu, EFE = model.process(input_seq, dummy_target, adapt_synapses=False)
-        logits = y_mu.reshape(generation_batch_size, seq_len, config.vocab_size)
+        # Forward pass - model.process() runs the predictive coding dynamics
+        # Use skip_embedding_clamp=True because we already set embeddings via z_embed.j
+        y_mu_inf, y_mu, EFE = model.process(input_seq, dummy_target, adapt_synapses=False, skip_embedding_clamp=True)
+        
+        if y_mu is None:
+            print(f"[ERROR] Step {step}: model.process() returned None for y_mu!")
+            logits = jnp.zeros((generation_batch_size, seq_len, config.vocab_size))
+        else:
+            logits = y_mu.reshape(generation_batch_size, seq_len, config.vocab_size)
 
-        # CRITICAL FIX: Extract logits at the LAST real token position in the CURRENT window
-        # NOT at the position in the original sequence
+        # Extract logits at the LAST real token position
         last_pos = min(current_tokens.shape[1], seq_len) - 1
         next_logits = logits[0, last_pos, :] / temperature
         
-        print(f"[DEBUG] Step {step}: Last position: {last_pos}, Logit shape: {logits[0].shape}, Next logit stats - mean: {jnp.mean(next_logits):.4f}, max: {jnp.max(next_logits):.4f}, min: {jnp.min(next_logits):.4f}")
+        print(f"[DEBUG] Step {step}: Last position: {last_pos}, Logit stats - mean: {jnp.mean(next_logits):.4f}, max: {jnp.max(next_logits):.4f}, min: {jnp.min(next_logits):.4f}")
 
         # Sample or take argmax
         if current_key is not None:

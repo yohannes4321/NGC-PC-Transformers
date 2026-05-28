@@ -6,6 +6,47 @@ from data_preprocess.data_loader import DataLoader
 from config import Config as config
 from eval import eval_model
 import time
+from utils.embed_utils import EmbeddingSynapse
+
+
+def compute_embeddings_from_tokens(model, token_ids):
+    """
+    Convert token IDs to embeddings using EmbeddingSynapse.
+    
+    Args:
+        model: NGCTransformer model
+        token_ids: Token indices (batch_size, seq_len)
+    
+    Returns:
+        embeddings: Word + position embeddings (batch_size*seq_len, embed_dim)
+    """
+    batch_size = token_ids.shape[0]
+    seq_len = token_ids.shape[1]
+    
+    # Create a temporary EmbeddingSynapse for token→embedding conversion
+    temp_embed_synapse = EmbeddingSynapse(
+        "temp_embed",
+        vocab_size=model.vocab_size,
+        seq_len=seq_len,
+        embed_dim=model.n_embed,
+        batch_size=batch_size,
+        pos_learnable=config.pos_learnable,
+        eta=config.eta,
+        optim_type=config.optim_type,
+        key=random.PRNGKey(42)
+    )
+    
+    # Convert token IDs to embeddings
+    temp_embed_synapse.inputs.set(token_ids)
+    temp_embed_synapse.advance_state()
+    
+    # Get embeddings: shape (batch_size, seq_len, embed_dim)
+    embeddings_3d = temp_embed_synapse.outputs.get()
+    
+    # Reshape to (batch_size*seq_len, embed_dim) for z_embed
+    embeddings_2d = embeddings_3d.reshape(batch_size * seq_len, model.n_embed)
+    
+    return embeddings_2d
 
 
 jax.config.update("jax_default_matmul_precision", "high")
@@ -37,12 +78,15 @@ def main():
         total_nll, total_tokens = 0., 0
 
         for batch_idx, batch in enumerate(data_loader):
-            inputs = batch[0][1]
+            inputs = batch[0][1]  # Token IDs (batch_size, seq_len)
             targets = batch[1][1]
 
+            # Convert token IDs to embeddings (batch_size*seq_len, embed_dim)
+            embeddings = compute_embeddings_from_tokens(model, inputs)
+            
             targets_flat = jax.nn.one_hot(targets, vocab_size).reshape(-1, vocab_size)
 
-            _, y_mu, _EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            _, y_mu, _EFE = model.process(obs=embeddings, lab=targets_flat, adapt_synapses=True)
             train_EFE += _EFE
 
             y_pred = y_mu.reshape(-1, vocab_size)

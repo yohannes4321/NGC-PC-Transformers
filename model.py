@@ -102,12 +102,15 @@ class NGCTransformer:
             with Context("Circuit") as self.circuit:
             
                 # CORRECT PREDICTIVE CODING FLOW:
-                # z_embed (clamped with embeddings) → W_embed (HebbianSynapse) → z_qkv
+                # z_embed (clamped with token IDs) → W_embed (converts to embeddings) → reshape → z_qkv
                 self.embedding.z_embed.zF >> self.embedding.W_embed.inputs
-                self.embedding.W_embed.outputs >> self.blocks[0].attention.z_qkv.j
+                
+                # W_embed outputs (batch_size, seq_len, embed_dim) embeddings
+                # Reshape to (batch_size*seq_len, embed_dim) for attention layer
+                self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs
+                self.reshape_3d_to_2d_embed.outputs >> self.blocks[0].attention.z_qkv.j
                 
                 # Error propagation: z_qkv target from predictive coding error
-                self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs  
                 self.reshape_3d_to_2d_embed.outputs >> self.embedding.e_embed.mu
                 self.blocks[0].attention.z_qkv.z >> self.embedding.e_embed.target
                 
@@ -405,16 +408,13 @@ class NGCTransformer:
     
     def clamp_input(self, x):
         """
-        Clamp pre-computed embeddings to z_embed for predictive coding.
+        Clamp token IDs to z_embed for predictive coding.
         
         Args:
-            x: Embeddings with shape (batch_size*seq_len, embed_dim)
+            x: Token IDs with shape (batch_size, seq_len) = (12, 64)
         """
-        print(f"[DEBUG clamp_input] Input x shape: {x.shape}")
-        print(f"[DEBUG clamp_input] z_embed.j.get() shape BEFORE set: {self.embedding.z_embed.j.get().shape}")
-        # Clamp embeddings to z_embed (not token IDs!)
+        # Clamp token IDs to z_embed
         self.embedding.z_embed.j.set(x)
-        print(f"[DEBUG clamp_input] z_embed.j.get() shape AFTER set: {self.embedding.z_embed.j.get().shape}")
         self.projection.q_embed_Ratecell.j.set(x) 
         
     
@@ -582,16 +582,9 @@ class NGCTransformer:
         
         # Run predictive coding iterations
         for ts in range(0, self.T):
-            print(f"\n[DEBUG process] Iteration {ts}:")
-            print(f"  z_embed.z.get() shape: {self.embedding.z_embed.z.get().shape}")
-            print(f"  z_embed.zF.get() shape: {self.embedding.z_embed.zF.get().shape}")
-            print(f"  z_embed.j.get() shape: {self.embedding.z_embed.j.get().shape}")
-            print(f"  W_embed.inputs.get() shape: {self.embedding.W_embed.inputs.get().shape}")
             self.clamp_input(obs)
             self.clamp_target(lab)
-            print(f"  About to call advance.run()...")
             self.advance.run(t=ts,dt=1.)
-            print(f"  advance.run() completed successfully")
            
         # Get output predictions
         y_mu = self.z_actfx.zF.get() 

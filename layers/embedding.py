@@ -23,39 +23,34 @@ class EMBEDDING:
         
         dkey, *subkeys = random.split(dkey, 4)
     
-        # z_embed: RateCell that holds pre-computed embeddings
-        # Shape: (batch_size*seq_len, embed_dim) = (768, 96)
-        # This is CLAMPED with embeddings computed from token IDs externally
-        self.z_embed = RateCell("z_embed", n_units=embed_dim, tau_m=0., 
-                                  act_fx="identity", batch_size=batch_size * seq_len)
+        # z_embed: RateCell that holds token IDs (clamped from input)
+        # Shape: (batch_size, seq_len) = (12, 64) for token IDs
+        # z_embed.zF outputs token IDs with shape (batch_size, seq_len)
+        self.z_embed = RateCell("z_embed", n_units=seq_len, tau_m=0., 
+                                  act_fx="identity", batch_size=batch_size)
         
-        # W_embed: EmbeddingSynapse in 2D projection mode
-        # Projects embeddings (embed_dim) → projected embeddings (embed_dim)
-        # Using learned weight matrix (embed_dim × embed_dim) with Hebbian learning
+        # W_embed: EmbeddingSynapse in 3D mode (token IDs → embeddings)
+        # Converts token IDs (batch_size, seq_len) to embeddings (batch_size, seq_len, embed_dim)
+        # Using vocab_size x embed_dim word embeddings + learned position embeddings
         self.W_embed = EmbeddingSynapse(
                 "W_embed",
-                vocab_size=embed_dim,  # In 2D mode, this indicates output dimension
+                vocab_size=vocab_size,  # Vocabulary size for token→embedding lookup
                 seq_len=seq_len,
                 embed_dim=embed_dim,
                 batch_size=batch_size,
-                pos_learnable=False,  # No positional encoding in 2D mode
+                pos_learnable=pos_learnable,  # Position embeddings are learnable
                 eta=eta,
                 optim_type=optim_type,
                 weight_scale=0.02,
-                is_2d_mode=True,  # KEY: 2D projection mode
+                is_2d_mode=False,  # KEY: 3D mode for token→embedding conversion
                 key=subkeys[0]
         )
             
         # e_embed: ErrorCell receives prediction error from first attention block
         # Shape: (batch_size*seq_len, embed_dim) = (768, 96)
+        # This receives error signals after z_embed is reshaped
         self.e_embed = ErrorCell("e_embed", n_units=embed_dim, 
                                   batch_size=batch_size * seq_len)
-        
-        print(f"[DEBUG EMBEDDING] z_embed.z shape: {self.z_embed.z.get().shape}")
-        print(f"[DEBUG EMBEDDING] z_embed.zF shape: {self.z_embed.zF.get().shape}")
-        print(f"[DEBUG EMBEDDING] W_embed.inputs shape: {self.W_embed.inputs.get().shape}")
-        print(f"[DEBUG EMBEDDING] W_embed.outputs shape: {self.W_embed.outputs.get().shape}")
-        print(f"[DEBUG EMBEDDING] e_embed.L value: {self.e_embed.L.get()}")
     
             
 

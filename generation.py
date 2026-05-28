@@ -126,7 +126,7 @@ def debug_model_internals(model, input_seq, embeddings=None, step=0):
     try:
         attn_mu = model.attention.e_qkv.get()
         print(f"  Block {i} e_qkv mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
-        except Exception as e:
+    except Exception as e:
             print(f"  Block {i} attention: Error - {e}")
     
     # Check block outputs

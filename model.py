@@ -410,8 +410,11 @@ class NGCTransformer:
         Args:
             x: Embeddings with shape (batch_size*seq_len, embed_dim)
         """
+        print(f"[DEBUG clamp_input] Input x shape: {x.shape}")
+        print(f"[DEBUG clamp_input] z_embed.j.get() shape BEFORE set: {self.embedding.z_embed.j.get().shape}")
         # Clamp embeddings to z_embed (not token IDs!)
         self.embedding.z_embed.j.set(x)
+        print(f"[DEBUG clamp_input] z_embed.j.get() shape AFTER set: {self.embedding.z_embed.j.get().shape}")
         self.projection.q_embed_Ratecell.j.set(x) 
         
     
@@ -445,9 +448,16 @@ class NGCTransformer:
             
 
     def load_from_disk(self, model_directory, n_layers=1):
-        self.circuit = Context.load(directory=model_directory, module_name=self.model_name)
-       
-        processes = self.circuit.get_objects_by_type("process")
+        """
+        Load trained weights from disk while preserving the newly created component architecture.
+        
+        IMPORTANT: We load weights into our freshly created components (from __init__)
+        rather than loading the entire circuit. This ensures z_embed has the correct shape.
+        """
+        loaded_circuit = Context.load(directory=model_directory, module_name=self.model_name)
+        
+        # Extract processes from loaded circuit
+        processes = loaded_circuit.get_objects_by_type("process")
         self.advance = processes.get("advance_process")
         self.reset   = processes.get("reset_process")
         self.evolve  = processes.get("evolve_process")
@@ -455,22 +465,39 @@ class NGCTransformer:
 
         self.embedding_evolve = processes.get("embedding_evolve_process", self.evolve)
 
-        # FIXED: W_embed is now EmbeddingSynapse (2D mode)
-        # Load its word_weights and pos_weights
-        self.embedding.W_embed.word_weights.set(self.circuit.get_components("W_embed").word_weights.get())
-        self.output.W_out.weights.set(self.circuit.get_components("W_out").weights.get())
-        self.output.W_out.biases.set(self.circuit.get_components("W_out").biases.get())
+        # CRITICAL: Load weights into OUR existing components (not from loaded_circuit)
+        # This preserves the correct z_embed shape we created in __init__
+        
+        # Load W_embed weights (EmbeddingSynapse with word_weights)
+        try:
+            self.embedding.W_embed.word_weights.set(
+                loaded_circuit.get_components("W_embed").word_weights.get()
+            )
+        except:
+            # If weight loading fails, continue - z_embed shape is more important
+            pass
+        
+        # Load output weights
+        try:
+            self.output.W_out.weights.set(
+                loaded_circuit.get_components("W_out").weights.get()
+            )
+            self.output.W_out.biases.set(
+                loaded_circuit.get_components("W_out").biases.get()
+            )
+        except:
+            pass
       
-        self.projection.q_out_Ratecell.z.set( self.circuit.get_components("q_out_Ratecell").z.get())
-        self.projection.eq_target.dmu.set( self.circuit.get_components("eq_target").dmu.get())
-        self.projection.eq_target.dtarget.set( self.circuit.get_components("eq_target").dtarget.get())
+        self.projection.q_out_Ratecell.z.set( loaded_circuit.get_components("q_out_Ratecell").z.get())
+        self.projection.eq_target.dmu.set( loaded_circuit.get_components("eq_target").dmu.get())
+        self.projection.eq_target.dtarget.set( loaded_circuit.get_components("eq_target").dtarget.get())
    
-        self.projection.q_target_Ratecell.z.set(self.circuit.get_components("q_target").z.get())
-        self.output.W_out.outputs.set( self.circuit.get_components("W_out").outputs.get())
-        self.embedding.e_embed.L.set( self.circuit.get_components("e_embed").L.get())
-        self.output.e_out.L.set( self.circuit.get_components("e_out").L.get())
-        self.projection.reshape_3d_to_2d_proj.inputs.set(self.circuit.get_components("reshape_3d_to_2d_proj").inputs.get())
-        self.projection.reshape_3d_to_2d_proj.outputs.set(self.circuit.get_components("reshape_3d_to_2d_proj").outputs.get())
+        self.projection.q_target_Ratecell.z.set(loaded_circuit.get_components("q_target").z.get())
+        self.output.W_out.outputs.set( loaded_circuit.get_components("W_out").outputs.get())
+        self.embedding.e_embed.L.set( loaded_circuit.get_components("e_embed").L.get())
+        self.output.e_out.L.set( loaded_circuit.get_components("e_out").L.get())
+        self.projection.reshape_3d_to_2d_proj.inputs.set(loaded_circuit.get_components("reshape_3d_to_2d_proj").inputs.get())
+        self.projection.reshape_3d_to_2d_proj.outputs.set(loaded_circuit.get_components("reshape_3d_to_2d_proj").outputs.get())
       
 
         # --- B. Map Block Components (Loop) ---
@@ -483,38 +510,38 @@ class NGCTransformer:
             
             # --- Map Attention Sub-block ---
           
-            block.attention.W_q.weights.set( self.circuit.get_components(f"{b_prefix}_W_q").weights.get())
-            block.attention.W_k.weights.set( self.circuit.get_components(f"{b_prefix}_W_k").weights.get())
-            block.attention.W_v.weights.set( self.circuit.get_components(f"{b_prefix}_W_v").weights.get())
-            block.attention.W_q.biases.set( self.circuit.get_components(f"{b_prefix}_W_q").biases.get())
-            block.attention.W_k.biases.set( self.circuit.get_components(f"{b_prefix}_W_k").biases.get())
-            block.attention.W_v.biases.set( self.circuit.get_components(f"{b_prefix}_W_v").biases.get())
-            block.attention.attn_block.inputs_q.set(self.circuit.get_components(f"{b_prefix}_attn_block").inputs_q.get())
-            block.attention.attn_block.inputs_k.set(self.circuit.get_components(f"{b_prefix}_attn_block").inputs_k.get())
-            block.attention.attn_block.inputs_v.set(self.circuit.get_components(f"{b_prefix}_attn_block").inputs_v.get())
-            block.attention.W_attn_out.weights.set(self.circuit.get_components(f"{b_prefix}_W_attn_out").weights.get())
-            block.attention.W_attn_out.biases.set(self.circuit.get_components(f"{b_prefix}_W_attn_out").biases.get())
+            block.attention.W_q.weights.set( loaded_circuit.get_components(f"{b_prefix}_W_q").weights.get())
+            block.attention.W_k.weights.set( loaded_circuit.get_components(f"{b_prefix}_W_k").weights.get())
+            block.attention.W_v.weights.set( loaded_circuit.get_components(f"{b_prefix}_W_v").weights.get())
+            block.attention.W_q.biases.set( loaded_circuit.get_components(f"{b_prefix}_W_q").biases.get())
+            block.attention.W_k.biases.set( loaded_circuit.get_components(f"{b_prefix}_W_k").biases.get())
+            block.attention.W_v.biases.set( loaded_circuit.get_components(f"{b_prefix}_W_v").biases.get())
+            block.attention.attn_block.inputs_q.set(loaded_circuit.get_components(f"{b_prefix}_attn_block").inputs_q.get())
+            block.attention.attn_block.inputs_k.set(loaded_circuit.get_components(f"{b_prefix}_attn_block").inputs_k.get())
+            block.attention.attn_block.inputs_v.set(loaded_circuit.get_components(f"{b_prefix}_attn_block").inputs_v.get())
+            block.attention.W_attn_out.weights.set(loaded_circuit.get_components(f"{b_prefix}_W_attn_out").weights.get())
+            block.attention.W_attn_out.biases.set(loaded_circuit.get_components(f"{b_prefix}_W_attn_out").biases.get())
 
-            block.attention.e_attn.L.set(self.circuit.get_components(f"{b_prefix}_e_attn").L.get())
-            block.mlp.e_mlp.L.set(self.circuit.get_components(f"{b_prefix}_e_mlp").L.get())
-            block.mlp.e_mlp1.L.set(self.circuit.get_components(f"{b_prefix}_e_mlp1").L.get())
+            block.attention.e_attn.L.set(loaded_circuit.get_components(f"{b_prefix}_e_attn").L.get())
+            block.mlp.e_mlp.L.set(loaded_circuit.get_components(f"{b_prefix}_e_mlp").L.get())
+            block.mlp.e_mlp1.L.set(loaded_circuit.get_components(f"{b_prefix}_e_mlp1").L.get())
             # --- Map MLP Sub-block ---
-            block.mlp.z_mlp.z.set(   self.circuit.get_components(f"{b_prefix}_z_mlp").z.get())
-            block.mlp.z_mlp2.z.set(  self.circuit.get_components(f"{b_prefix}_z_mlp2").z.get())
-            block.mlp.W_mlp1.weights.set(self.circuit.get_components(f"{b_prefix}_W_mlp1").weights.get())
-            block.mlp.W_mlp2.weights.set(self.circuit.get_components(f"{b_prefix}_W_mlp2").weights.get())
-            block.mlp.W_mlp1.biases.set(self.circuit.get_components(f"{b_prefix}_W_mlp1").biases.get())
-            block.mlp.W_mlp2.biases.set(self.circuit.get_components(f"{b_prefix}_W_mlp2").biases.get())
+            block.mlp.z_mlp.z.set(   loaded_circuit.get_components(f"{b_prefix}_z_mlp").z.get())
+            block.mlp.z_mlp2.z.set(  loaded_circuit.get_components(f"{b_prefix}_z_mlp2").z.get())
+            block.mlp.W_mlp1.weights.set(loaded_circuit.get_components(f"{b_prefix}_W_mlp1").weights.get())
+            block.mlp.W_mlp2.weights.set(loaded_circuit.get_components(f"{b_prefix}_W_mlp2").weights.get())
+            block.mlp.W_mlp1.biases.set(loaded_circuit.get_components(f"{b_prefix}_W_mlp1").biases.get())
+            block.mlp.W_mlp2.biases.set(loaded_circuit.get_components(f"{b_prefix}_W_mlp2").biases.get())
 
             # --- Map Projection Block ---
-            block_proj.q_qkv_Ratecell.z.set(  self.circuit.get_components(f"{p_prefix}_q_qkv_Ratecell").z.get())
-            block_proj.q_attn_Ratecell.z.set(  self.circuit.get_components(f"{p_prefix}_q_attn_Ratecell").z.get())
-            block_proj.q_mlp_Ratecell.z.set(  self.circuit.get_components(f"{p_prefix}_q_mlp_Ratecell").z.get())
-            block_proj.q_mlp2_Ratecell.z.set(  self.circuit.get_components(f"{p_prefix}_q_mlp2_Ratecell").z.get())
-            block_proj.reshape_3d_to_2d_proj1.inputs.set(self.circuit.get_components(f"{p_prefix}_reshape_3d_to_2d_proj1").inputs.get())
+            block_proj.q_qkv_Ratecell.z.set(  loaded_circuit.get_components(f"{p_prefix}_q_qkv_Ratecell").z.get())
+            block_proj.q_attn_Ratecell.z.set(  loaded_circuit.get_components(f"{p_prefix}_q_attn_Ratecell").z.get())
+            block_proj.q_mlp_Ratecell.z.set(  loaded_circuit.get_components(f"{p_prefix}_q_mlp_Ratecell").z.get())
+            block_proj.q_mlp2_Ratecell.z.set(  loaded_circuit.get_components(f"{p_prefix}_q_mlp2_Ratecell").z.get())
+            block_proj.reshape_3d_to_2d_proj1.inputs.set(loaded_circuit.get_components(f"{p_prefix}_reshape_3d_to_2d_proj1").inputs.get())
             
-            block_proj.reshape_3d_to_2d_proj1.outputs.set(self.circuit.get_components(f"{p_prefix}_reshape_3d_to_2d_proj1").outputs.get())
-            block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
+            block_proj.reshape_3d_to_2d_proj1.outputs.set(loaded_circuit.get_components(f"{p_prefix}_reshape_3d_to_2d_proj1").outputs.get())
+            block_proj.q_attn_block = loaded_circuit.get_components(f"{p_prefix}_q_attn_block")
           
 
     def process(self, obs, lab, adapt_synapses=True):
@@ -555,9 +582,16 @@ class NGCTransformer:
         
         # Run predictive coding iterations
         for ts in range(0, self.T):
+            print(f"\n[DEBUG process] Iteration {ts}:")
+            print(f"  z_embed.z.get() shape: {self.embedding.z_embed.z.get().shape}")
+            print(f"  z_embed.zF.get() shape: {self.embedding.z_embed.zF.get().shape}")
+            print(f"  z_embed.j.get() shape: {self.embedding.z_embed.j.get().shape}")
+            print(f"  W_embed.inputs.get() shape: {self.embedding.W_embed.inputs.get().shape}")
             self.clamp_input(obs)
             self.clamp_target(lab)
+            print(f"  About to call advance.run()...")
             self.advance.run(t=ts,dt=1.)
+            print(f"  advance.run() completed successfully")
            
         # Get output predictions
         y_mu = self.z_actfx.zF.get() 

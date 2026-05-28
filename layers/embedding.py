@@ -50,6 +50,12 @@ class EMBEDDING:
         # Shape: (batch_size*seq_len, embed_dim) = (768, 96)
         self.e_embed = ErrorCell("e_embed", n_units=embed_dim, 
                                   batch_size=batch_size * seq_len)
+        
+        print(f"[DEBUG EMBEDDING] z_embed.z shape: {self.z_embed.z.get().shape}")
+        print(f"[DEBUG EMBEDDING] z_embed.zF shape: {self.z_embed.zF.get().shape}")
+        print(f"[DEBUG EMBEDDING] W_embed.inputs shape: {self.W_embed.inputs.get().shape}")
+        print(f"[DEBUG EMBEDDING] W_embed.outputs shape: {self.W_embed.outputs.get().shape}")
+        print(f"[DEBUG EMBEDDING] e_embed.L shape: {self.e_embed.L.get().shape}")
     
             
 

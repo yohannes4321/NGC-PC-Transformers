@@ -57,113 +57,113 @@ if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is None:
         )
 
 
-def compute_embeddings_from_tokens(model, token_ids):
-    """
-    Convert token IDs to embeddings using EmbeddingSynapse.
+# def compute_embeddings_from_tokens(model, token_ids):
+#     """
+#     Convert token IDs to embeddings using EmbeddingSynapse.
     
-    Args:
-        model: NGCTransformer model
-        token_ids: Token indices (batch_size, seq_len)
+#     Args:
+#         model: NGCTransformer model
+#         token_ids: Token indices (batch_size, seq_len)
     
-    Returns:
-        embeddings: Word + position embeddings (batch_size*seq_len, embed_dim)
-    """
-    batch_size = token_ids.shape[0]
-    seq_len = token_ids.shape[1]
+#     Returns:
+#         embeddings: Word + position embeddings (batch_size*seq_len, embed_dim)
+#     """
+#     batch_size = token_ids.shape[0]
+#     seq_len = token_ids.shape[1]
     
-    # Create a temporary EmbeddingSynapse for token→embedding conversion
-    # Use the same parameters as model.embedding.W_embed
-    from utils.embed_utils import EmbeddingSynapse
-    temp_embed_synapse = EmbeddingSynapse(
-        "temp_embed",
-        vocab_size=model.vocab_size,
-        seq_len=seq_len,
-        embed_dim=model.n_embed,
-        batch_size=batch_size,
-        pos_learnable=config.pos_learnable,
-        eta=config.eta,
-        optim_type=config.optim_type,
-        key=jax.random.PRNGKey(42)
-    )
+#     # Create a temporary EmbeddingSynapse for token→embedding conversion
+#     # Use the same parameters as model.embedding.W_embed
+#     from utils.embed_utils import EmbeddingSynapse
+#     temp_embed_synapse = EmbeddingSynapse(
+#         "temp_embed",
+#         vocab_size=model.vocab_size,
+#         seq_len=seq_len,
+#         embed_dim=model.n_embed,
+#         batch_size=batch_size,
+#         pos_learnable=config.pos_learnable,
+#         eta=config.eta,
+#         optim_type=config.optim_type,
+#         key=jax.random.PRNGKey(42)
+#     )
     
-    # Convert token IDs to embeddings
-    temp_embed_synapse.inputs.set(token_ids)
-    temp_embed_synapse.advance_state()
+#     # Convert token IDs to embeddings
+#     temp_embed_synapse.inputs.set(token_ids)
+#     temp_embed_synapse.advance_state()
     
-    # Get embeddings: shape (batch_size, seq_len, embed_dim)
-    embeddings_3d = temp_embed_synapse.outputs.get()
+#     # Get embeddings: shape (batch_size, seq_len, embed_dim)
+#     embeddings_3d = temp_embed_synapse.outputs.get()
     
-    # Reshape to (batch_size*seq_len, embed_dim) for z_embed
-    embeddings_2d = embeddings_3d.reshape(batch_size * seq_len, model.n_embed)
+#     # Reshape to (batch_size*seq_len, embed_dim) for z_embed
+#     embeddings_2d = embeddings_3d.reshape(batch_size * seq_len, model.n_embed)
     
-    return embeddings_2d
+#     return embeddings_2d
 
 
-def debug_model_internals(model, input_seq, embeddings=None, step=0):
-    """
-    Inspect internal model states to diagnose why outputs are identical.
-    """
-    print(f"\n[DEEP DEBUG] Step {step}:")
-    print(f"  Input shape: {input_seq.shape}")
-    print(f"  Input tokens (first 10): {input_seq[0, :10]}")
+# def debug_model_internals(model, input_seq, embeddings=None, step=0):
+#     """
+#     Inspect internal model states to diagnose why outputs are identical.
+#     """
+#     print(f"\n[DEEP DEBUG] Step {step}:")
+#     print(f"  Input shape: {input_seq.shape}")
+#     print(f"  Input tokens (first 10): {input_seq[0, :10]}")
     
-    if embeddings is not None:
-        print(f"  Embeddings shape: {embeddings.shape}, mean: {jnp.mean(embeddings):.6f}, std: {jnp.std(embeddings):.6f}, max: {jnp.max(embeddings):.6f}")
+#     if embeddings is not None:
+#         print(f"  Embeddings shape: {embeddings.shape}, mean: {jnp.mean(embeddings):.6f}, std: {jnp.std(embeddings):.6f}, max: {jnp.max(embeddings):.6f}")
     
-    # Check embedding layer outputs
-    try:
-        emb_output = model.embedding.e_embed.mu.get()
-        print(f"  Embedding mu shape: {emb_output.shape}, mean: {jnp.mean(emb_output):.6f}, std: {jnp.std(emb_output):.6f}, max: {jnp.max(emb_output):.6f}")
-    except Exception as e:
-        print(f"  Embedding mu: Error - {e}")
+#     # Check embedding layer outputs
+#     try:
+#         emb_output = model.embedding.e_embed.mu.get()
+#         print(f"  Embedding mu shape: {emb_output.shape}, mean: {jnp.mean(emb_output):.6f}, std: {jnp.std(emb_output):.6f}, max: {jnp.max(emb_output):.6f}")
+#     except Exception as e:
+#         print(f"  Embedding mu: Error - {e}")
     
-    # Check z_embed
-    try:
-        z_embed = model.embedding.z_embed.zF.get()
-        print(f"  z_embed zF shape: {z_embed.shape}, mean: {jnp.mean(z_embed):.6f}, std: {jnp.std(z_embed):.6f}, max: {jnp.max(z_embed):.6f}")
-    except Exception as e:
-        print(f"  z_embed: Error - {e}")
+#     # Check z_embed
+#     try:
+#         z_embed = model.embedding.z_embed.zF.get()
+#         print(f"  z_embed zF shape: {z_embed.shape}, mean: {jnp.mean(z_embed):.6f}, std: {jnp.std(z_embed):.6f}, max: {jnp.max(z_embed):.6f}")
+#     except Exception as e:
+#         print(f"  z_embed: Error - {e}")
     
-    # Check block outputs
-    for i, block in enumerate(model.blocks):
-        try:
-            attn_mu = block.attention.e_attn.mu.get()
-            print(f"  Block {i} e_attn mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
-        except Exception as e:
-            print(f"  Block {i} attention: Error - {e}")
+#     # Check block outputs
+#     for i, block in enumerate(model.blocks):
+#         try:
+#             attn_mu = block.attention.e_attn.mu.get()
+#             print(f"  Block {i} e_attn mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
+#         except Exception as e:
+#             print(f"  Block {i} attention: Error - {e}")
         
-    for i, block in enumerate(model.blocks):
-        try:
-            attn_mu = block.mlp.e_mlp.mu.get()
-            print(f"  Block {i} e_mlp mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
-        except Exception as e:
-            print(f"  Block {i} attention: Error - {e}")
-    for i, block in enumerate(model.blocks):
-        try:
-            attn_mu = block.attention.e_qkv.mu.get()
-            print(f"  Block {i} e_qkv mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
-        except Exception as e:
-            print(f"  Block {i} attention: Error - {e}")
-    for i, block in enumerate(model.blocks):
-        try:
-            attn_mu = block.mlp.e_mlp1.mu.get()
-            print(f"  Block {i} e_e mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
-        except Exception as e:
-            print(f"  Block {i} attention: Error - {e}")
+#     for i, block in enumerate(model.blocks):
+#         try:
+#             attn_mu = block.mlp.e_mlp.mu.get()
+#             print(f"  Block {i} e_mlp mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
+#         except Exception as e:
+#             print(f"  Block {i} attention: Error - {e}")
+#     for i, block in enumerate(model.blocks):
+#         try:
+#             attn_mu = block.attention.e_qkv.mu.get()
+#             print(f"  Block {i} e_qkv mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
+#         except Exception as e:
+#             print(f"  Block {i} attention: Error - {e}")
+#     for i, block in enumerate(model.blocks):
+#         try:
+#             attn_mu = block.mlp.e_mlp1.mu.get()
+#             print(f"  Block {i} e_e mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
+#         except Exception as e:
+#             print(f"  Block {i} attention: Error - {e}")
     
-    # Check output layer
-    try:
-        out_mu = model.output.e_out.mu.get()
-        print(f"  Output mu shape: {out_mu.shape}, mean: {jnp.mean(out_mu):.6f}, std: {jnp.std(out_mu):.6f}")
-    except Exception as e:
-        print(f"  Output mu: Error - {e}")
+#     # Check output layer
+#     try:
+#         out_mu = model.output.e_out.mu.get()
+#         print(f"  Output mu shape: {out_mu.shape}, mean: {jnp.mean(out_mu):.6f}, std: {jnp.std(out_mu):.6f}")
+#     except Exception as e:
+#         print(f"  Output mu: Error - {e}")
     
-    # Check output z
-    try:
-        out_z = model.output.z_out.zF.get()
-        print(f"  Output z_out zF: mean={jnp.mean(out_z):.6f}, std={jnp.std(out_z):.6f}, max={jnp.max(out_z):.6f}")
-    except Exception as e:
-        print(f"  Output z_out: Error - {e}")
+#     # Check output z
+#     try:
+#         out_z = model.output.z_out.zF.get()
+#         print(f"  Output z_out zF: mean={jnp.mean(out_z):.6f}, std={jnp.std(out_z):.6f}, max={jnp.max(out_z):.6f}")
+#     except Exception as e:
+#         print(f"  Output z_out: Error - {e}")
 
 
 def generate_text(

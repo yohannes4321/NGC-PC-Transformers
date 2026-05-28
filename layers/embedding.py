@@ -55,7 +55,7 @@ class EMBEDDING:
         print(f"[DEBUG EMBEDDING] z_embed.zF shape: {self.z_embed.zF.get().shape}")
         print(f"[DEBUG EMBEDDING] W_embed.inputs shape: {self.W_embed.inputs.get().shape}")
         print(f"[DEBUG EMBEDDING] W_embed.outputs shape: {self.W_embed.outputs.get().shape}")
-        print(f"[DEBUG EMBEDDING] e_embed.L shape: {self.e_embed.L.get().shape}")
+        print(f"[DEBUG EMBEDDING] e_embed.L value: {self.e_embed.L.get()}")
     
             
 

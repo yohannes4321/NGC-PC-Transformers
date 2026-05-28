@@ -101,8 +101,12 @@ class NGCTransformer:
         else:
             with Context("Circuit") as self.circuit:
             
+                # CORRECT PREDICTIVE CODING FLOW:
+                # z_embed (clamped with embeddings) → W_embed (HebbianSynapse) → z_qkv
+                self.embedding.z_embed.zF >> self.embedding.W_embed.inputs
+                self.embedding.W_embed.outputs >> self.blocks[0].attention.z_qkv.j
                 
-                self.embedding.z_embed.zF   >> self.embedding.W_embed.inputs
+                # Error propagation: z_qkv target from predictive coding error
                 self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs  
                 self.reshape_3d_to_2d_embed.outputs >> self.embedding.e_embed.mu
                 self.blocks[0].attention.z_qkv.z >> self.embedding.e_embed.target
@@ -399,7 +403,14 @@ class NGCTransformer:
 
 
     
-    def clamp_input(self,x):
+    def clamp_input(self, x):
+        """
+        Clamp pre-computed embeddings to z_embed for predictive coding.
+        
+        Args:
+            x: Embeddings with shape (batch_size*seq_len, embed_dim)
+        """
+        # Clamp embeddings to z_embed (not token IDs!)
         self.embedding.z_embed.j.set(x)
         self.projection.q_embed_Ratecell.j.set(x) 
         
@@ -442,10 +453,11 @@ class NGCTransformer:
         self.evolve  = processes.get("evolve_process")
         self.project = processes.get("project_process")
 
-        self.embedding_evolve = processes.get("embedding_evolve_process", self.evolve) 
+        self.embedding_evolve = processes.get("embedding_evolve_process", self.evolve)
 
+        # FIXED: W_embed is now EmbeddingSynapse (2D mode)
+        # Load its word_weights and pos_weights
         self.embedding.W_embed.word_weights.set(self.circuit.get_components("W_embed").word_weights.get())
-        self.embedding.W_embed.pos_weights.set(self.circuit.get_components("W_embed").pos_weights.get())
         self.output.W_out.weights.set(self.circuit.get_components("W_out").weights.get())
         self.output.W_out.biases.set(self.circuit.get_components("W_out").biases.get())
       
@@ -505,50 +517,27 @@ class NGCTransformer:
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
           
 
-    def process(self, obs, lab, adapt_synapses=True, skip_embedding_clamp=False):
+    def process(self, obs, lab, adapt_synapses=True):
+        """
+        Run predictive coding forward pass.
+        
+        Args:
+            obs: Pre-computed embeddings (batch_size*seq_len, embed_dim)
+                These are clamped to z_embed for predictive coding
+            lab: Target (for error computation)
+            adapt_synapses: Whether to update synaptic weights via Hebbian learning
+        """
         
         self.reset.run()
-        # self.projection.Q_embed.word_weights.set(self.embedding.W_embed.word_weights.get())
-        # if self.embedding.W_embed.pos_learnable:
-        #    self.projection.Q_embed.pos_weights.set(self.embedding.W_embed.pos_weights.get())
-        # for i in range(self.n_layers):
-        #     block_proj= self.projection.blocks[i]
-        #     block= self.blocks[i] 
-        #     block_proj.Q_q.weights.set(block.attention.W_q.weights.get())
-        #     block_proj.Q_q.biases.set(block.attention.W_q.biases.get())
-        #     block_proj.Q_k.weights.set(block.attention.W_k.weights.get())
-        #     block_proj.Q_k.biases.set(block.attention.W_k.biases.get())
-        #     block_proj.Q_v.weights.set(block.attention.W_v.weights.get())
-        #     block_proj.Q_v.biases.set(block.attention.W_v.biases.get())
-        #     block_proj.Q_attn_out.weights.set(block.attention.W_attn_out.weights.get())
-        #     block_proj.q_attn_block.inputs_q.set(block.attention.attn_block.inputs_q.get())
-        #     block_proj.q_attn_block.inputs_k.set(block.attention.attn_block.inputs_k.get())
-        #     block_proj.q_attn_block.inputs_v.set(block.attention.attn_block.inputs_v.get())
-        #     block_proj.Q_attn_out.biases.set(block.attention.W_attn_out.biases.get())
-        #     block_proj.Q_mlp1.weights.set(block.mlp.W_mlp1.weights.get())
-        #     block_proj.Q_mlp1.biases.set(block.mlp.W_mlp1.biases.get())
-        #     block_proj.Q_mlp2.weights.set(block.mlp.W_mlp2.weights.get())
-        #     block_proj.Q_mlp2.biases.set(block.mlp.W_mlp2.biases.get())
-
-        # self.projection.Q_out.weights.set(self.output.W_out.weights.get())
-        # self.projection.Q_out.biases.set(self.output.W_out.biases.get())
-        # self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
         
-       
-        # FIX: Only clamp input if not skipping (allows pre-computed embeddings from generation)
-        if not skip_embedding_clamp:
-            self.clamp_input(obs)
+        # Clamp embeddings to z_embed for predictive coding
+        self.clamp_input(obs)
         self.clamp_infer_target(lab)
         
         # self.project.run(t=0., dt=1.)
 
-
         for i in range(self.n_layers):
-        #     block_proj= self.projection.blocks[i]   
             b= self.blocks[i]
-        #     b.attention.z_qkv.z.set(block_proj.q_qkv_Ratecell.z.get())
-        #     b.mlp.z_mlp.z.set(block_proj.q_mlp_Ratecell.z.get())
-        #     b.mlp.z_mlp2.z.set(block_proj.q_mlp2_Ratecell.z.get())
             b.attention.E_q.weights.set(jnp.transpose(b.attention.W_q.weights.get()))
             b.attention.E_k.weights.set(jnp.transpose(b.attention.W_k.weights.get()))
             b.attention.E_v.weights.set(jnp.transpose(b.attention.W_v.weights.get()))
@@ -557,27 +546,20 @@ class NGCTransformer:
             b.mlp.E_mlp1.weights.set(jnp.transpose(b.mlp.W_mlp1.weights.get()))
        
         self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
-        # self.output.z_out.z.set(self.projection.q_out_Ratecell.z.get())
-        # self.output.e_out.dmu.set(self.projection.eq_target.dmu.get())
-        # self.output.e_out.dtarget.set(self.projection.eq_target.dtarget.get())
-        
         
         ## get projected prediction (from the P-step)
         y_mu_inf = self.projection.q_target_Ratecell.z.get()
     
         EFE = 0. 
         y_mu = 0.
-        #if adapt_synapses:
-        for ts in range(0, self.T):
         
-            # FIX: Only clamp input during loop if not skipping
-            if not skip_embedding_clamp:
-                self.clamp_input(obs)
+        # Run predictive coding iterations
+        for ts in range(0, self.T):
+            self.clamp_input(obs)
             self.clamp_target(lab)
-             
             self.advance.run(t=ts,dt=1.)
            
-        # y_mu = self.output.W_out.outputs.get() 
+        # Get output predictions
         y_mu = self.z_actfx.zF.get() 
 
         L1 = self.embedding.e_embed.L.get()
@@ -595,7 +577,7 @@ class NGCTransformer:
                 self.evolve.run(t=self.T,dt=1.)
                 
         ## skip E/M steps if just doing test-time inference
-        return y_mu_inf, y_mu, EFEy_mu_inf, y_mu, EFE 
+        return y_mu_inf, y_mu, EFE 
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()

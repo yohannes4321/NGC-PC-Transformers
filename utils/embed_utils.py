@@ -88,15 +88,18 @@ class EmbeddingSynapse(JaxComponent):
 
     def __init__(
             self, name, vocab_size, seq_len, embed_dim, batch_size,
-            pos_learnable, eta, optim_type, weight_scale=0.02,
+            pos_learnable, eta, optim_type, weight_scale=0.02, is_2d_mode=False,
             **kwargs
     ):
         super().__init__(name, **kwargs)
 
+        ## Store dimensions as plain attributes (NOT Compartments) for JIT compatibility
         self.vocab_size = vocab_size
         self.seq_len = seq_len
         self.embed_dim = embed_dim
         self.batch_size = batch_size
+        self.is_2d_mode = is_2d_mode  # NEW: Support 2D projection mode
+        
         self.pos_learnable = pos_learnable
         self.eta = eta
         self.weight_scale = weight_scale
@@ -105,125 +108,197 @@ class EmbeddingSynapse(JaxComponent):
         key =random.PRNGKey(1234)
         word_key, pos_key = random.split(key, 2)
         
-        word_weights = random.normal(word_key, (vocab_size, embed_dim)) * weight_scale
-        
-        if pos_learnable:
-            pos_weights = random.normal(pos_key, (seq_len, embed_dim)) * weight_scale
+        if is_2d_mode:
+            # 2D MODE: Project embeddings (embed_dim → embed_dim)
+            # word_weights: (embed_dim, embed_dim) projection matrix
+            # inputs: (batch_size*seq_len, embed_dim) embeddings
+            # outputs: (batch_size*seq_len, embed_dim) projected embeddings
+            word_weights = random.normal(word_key, (embed_dim, embed_dim)) * weight_scale
+            pos_weights = None  # No positional embeddings in 2D mode
+            
+            # Compartments for 2D mode
+            self.inputs = Compartment(jnp.zeros((batch_size * seq_len, embed_dim)))
+            self.outputs = Compartment(jnp.zeros((batch_size * seq_len, embed_dim)))
+            self.post = Compartment(jnp.zeros((batch_size * seq_len, embed_dim)))
+            
+            self.dWordWeights = Compartment(jnp.zeros((embed_dim, embed_dim)))
         else:
-            pos_weights = _create_sinusoidal_embeddings(seq_len, embed_dim)
-
-        ## Compartments
-        self.inputs = Compartment(jnp.zeros((batch_size, seq_len), dtype=jnp.int32))
-        self.outputs = Compartment(jnp.zeros((batch_size, seq_len, embed_dim)))
-        self.word_weights = Compartment(word_weights)
-        self.pos_weights = Compartment(pos_weights)
-        self.post = Compartment(jnp.zeros((batch_size, seq_len, embed_dim)))
+            # 3D MODE: Convert token IDs to embeddings (current functionality)
+            # word_weights: (vocab_size, embed_dim) 
+            # inputs: (batch_size, seq_len) token IDs
+            # outputs: (batch_size, seq_len, embed_dim) embeddings
+            word_weights = random.normal(word_key, (vocab_size, embed_dim)) * weight_scale
+            
+            if pos_learnable:
+                pos_weights = random.normal(pos_key, (seq_len, embed_dim)) * weight_scale
+            else:
+                pos_weights = _create_sinusoidal_embeddings(seq_len, embed_dim)
+            
+            # Compartments for 3D mode
+            self.inputs = Compartment(jnp.zeros((batch_size, seq_len), dtype=jnp.int32))
+            self.outputs = Compartment(jnp.zeros((batch_size, seq_len, embed_dim)))
+            self.post = Compartment(jnp.zeros((batch_size, seq_len, embed_dim)))
+            
+            self.dWordWeights = Compartment(jnp.zeros((vocab_size, embed_dim)))
+            self.dPosWeights = Compartment(jnp.zeros((seq_len, embed_dim)))
         
-        self.dWordWeights = Compartment(jnp.zeros((vocab_size, embed_dim)))
-        self.dPosWeights = Compartment(jnp.zeros((seq_len, embed_dim)))
+        self.word_weights = Compartment(word_weights)
+        if pos_weights is not None:
+            self.pos_weights = Compartment(pos_weights)
         
         # Optimization
         self.opt = get_opt_step_fn(optim_type, eta=self.eta)
         self.word_opt_params = Compartment(
             get_opt_init_fn(optim_type)([self.word_weights.get()])
         )
-        if pos_learnable:
+        if not is_2d_mode and pos_learnable:
             self.pos_opt_params = Compartment(
                 get_opt_init_fn(optim_type)([self.pos_weights.get()])
             )
-        else:
+        elif is_2d_mode or not pos_learnable:
             self.pos_opt_params = Compartment(None)
     @compilable
     def advance_state(self):
         """
-        Forward pass: output = word_embedding[inputs] + position_embedding[positions]
+        Forward pass with dual-mode support:
+        
+        3D MODE (token→embedding):
+            output = word_embedding[inputs] + position_embedding[positions]
+            
+        2D MODE (embedding projection):
+            output = inputs @ word_weights
+            (Projects embeddings through learned weight matrix)
         """
-        inputs=self.inputs.get()
-        word_weights=self.word_weights.get()
-        pos_weights=self.pos_weights.get()
-        seq_len=self.seq_len.get()
-        embed_dim=self.embed_dim.get()
-        batch_size = inputs.shape[0]
-        
-        flat_tokens = inputs.reshape(-1).astype(jnp.int32)
-        word_embeds_flat = word_weights[flat_tokens]
-        word_embeds = word_embeds_flat.reshape(batch_size, seq_len, embed_dim)
-        
-        positions = jnp.arange(seq_len)
-        pos_embeds = pos_weights[positions]
-        pos_embeds_batch = jnp.broadcast_to(pos_embeds, (batch_size, seq_len, embed_dim))
-        
-        combined_embeddings = word_embeds + pos_embeds_batch
-        # return combined_embeddings
-        self.outputs.set(combined_embeddings)
+        if self.is_2d_mode:
+            # 2D MODE: Project embeddings (batch*seq, embed_dim) @ (embed_dim, embed_dim) → (batch*seq, embed_dim)
+            inputs = self.inputs.get()  # (batch*seq, embed_dim)
+            word_weights = self.word_weights.get()  # (embed_dim, embed_dim)
+            
+            # Linear projection: embeddings @ weights
+            projected = jnp.dot(inputs, word_weights)
+            self.outputs.set(projected)
+        else:
+            # 3D MODE: Token IDs → embeddings with word + position encoding
+            inputs = self.inputs.get()
+            word_weights = self.word_weights.get()
+            pos_weights = self.pos_weights.get()
+            seq_len = self.seq_len  # Plain attribute, not Compartment
+            embed_dim = self.embed_dim  # Plain attribute, not Compartment
+            batch_size = inputs.shape[0]
+            
+            flat_tokens = inputs.reshape(-1).astype(jnp.int32)
+            word_embeds_flat = word_weights[flat_tokens]
+            word_embeds = word_embeds_flat.reshape(batch_size, seq_len, embed_dim)
+            
+            positions = jnp.arange(seq_len)
+            pos_embeds = pos_weights[positions]
+            pos_embeds_batch = jnp.broadcast_to(pos_embeds, (batch_size, seq_len, embed_dim))
+            
+            combined_embeddings = word_embeds + pos_embeds_batch
+            self.outputs.set(combined_embeddings)
 
   
     @compilable
     def evolve(self):
         """
-        Learning step: Hebbian updates for both word and position embeddings
+        Learning step with dual-mode support:
+        
+        3D MODE: Hebbian updates for word and position embeddings
+        2D MODE: Hebbian updates for embedding projection weights
         """
         opt = self.opt.get()
-        # pos_learnable = self.pos_learnable.get()
-        vocab_size = self.vocab_size.get()
-        seq_len = self.seq_len.get()
-        embed_dim = self.embed_dim.get()
-        batch_size = self.batch_size.get()
-        inputs = self.inputs.get()
-        post = self.post.get()
         word_weights = self.word_weights.get()
-        pos_weights = self.pos_weights.get()
         word_opt_params = self.word_opt_params.get()
-        pos_opt_params = self.pos_opt_params.get()
-
-        # Compute embedding updates
-        inputs= inputs.astype(jnp.int32)
-        d_word_weights, d_pos_weights = _compute_embedding_updates(
-            inputs, post, word_weights, pos_weights, vocab_size, seq_len, 
-            embed_dim, batch_size, self.pos_learnable
-        )
         
-        word_opt_params, [new_word_weights] = opt(
-            word_opt_params, [word_weights], [d_word_weights]
-        )
-        
-        new_pos_weights = pos_weights
-        new_pos_opt_params = pos_opt_params
-        
-        if self.pos_learnable:
-            pos_opt_params, [new_pos_weights] = opt(
-                pos_opt_params, [pos_weights], [d_pos_weights]
+        if self.is_2d_mode:
+            # 2D MODE: Compute gradient for projection matrix
+            # d_weights = inputs.T @ post (Hebbian learning)
+            inputs = self.inputs.get()  # (batch*seq, embed_dim)
+            post = self.post.get()  # (batch*seq, embed_dim) - error signals
+            
+            # Hebbian update: inputs.T @ post → (embed_dim, embed_dim)
+            d_word_weights = jnp.dot(inputs.T, post)
+            
+            # Update weights
+            word_opt_params, [new_word_weights] = opt(
+                word_opt_params, [word_weights], [d_word_weights]
             )
+            
+            self.word_weights.set(new_word_weights)
+            self.dWordWeights.set(d_word_weights)
+            self.word_opt_params.set(word_opt_params)
+        else:
+            # 3D MODE: Token→embedding learning (existing functionality)
+            vocab_size = self.vocab_size
+            seq_len = self.seq_len
+            embed_dim = self.embed_dim
+            batch_size = self.batch_size
+            inputs = self.inputs.get()
+            post = self.post.get()
+            pos_weights = self.pos_weights.get()
+            word_opt_params = self.word_opt_params.get()
+            pos_opt_params = self.pos_opt_params.get()
+
+            inputs = inputs.astype(jnp.int32)
+            d_word_weights, d_pos_weights = _compute_embedding_updates(
+                inputs, post, word_weights, pos_weights, vocab_size, seq_len, 
+                embed_dim, batch_size, self.pos_learnable
+            )
+            
+            word_opt_params, [new_word_weights] = opt(
+                word_opt_params, [word_weights], [d_word_weights]
+            )
+            
+            new_pos_weights = pos_weights
             new_pos_opt_params = pos_opt_params
-        
-        # return new_word_weights, new_pos_weights, d_word_weights, d_pos_weights, word_opt_params, new_pos_opt_params
-        self.word_weights.set(new_word_weights)
-        self.pos_weights.set(new_pos_weights)
-        self.dWordWeights.set(d_word_weights)
-        self.dPosWeights.set(d_pos_weights)
-        self.word_opt_params.set(word_opt_params)
-        self.pos_opt_params.set(new_pos_opt_params)
+            
+            if self.pos_learnable:
+                pos_opt_params, [new_pos_weights] = opt(
+                    pos_opt_params, [pos_weights], [d_pos_weights]
+                )
+                new_pos_opt_params = pos_opt_params
+            
+            self.word_weights.set(new_word_weights)
+            if hasattr(self, 'pos_weights'):
+                self.pos_weights.set(new_pos_weights)
+            self.dWordWeights.set(d_word_weights)
+            if hasattr(self, 'dPosWeights'):
+                self.dPosWeights.set(d_pos_weights)
+            self.word_opt_params.set(word_opt_params)
+            self.pos_opt_params.set(new_pos_opt_params)
     @compilable
     def reset(self):
         """
         Reset compartments to zeros
         """
-        batch_size = self.batch_size.get()
-        seq_len = self.seq_len.get()
-        embed_dim = self.embed_dim.get()
-        vocab_size = self.vocab_size.get()
+        if self.is_2d_mode:
+            # 2D MODE: Reset for embedding projection
+            batch_size = self.batch_size * self.seq_len
+            embed_dim = self.embed_dim
+            
+            self.inputs.set(jnp.zeros((batch_size, embed_dim)))
+            self.outputs.set(jnp.zeros((batch_size, embed_dim)))
+            self.post.set(jnp.zeros((batch_size, embed_dim)))
+            self.dWordWeights.set(jnp.zeros((embed_dim, embed_dim)))
+        else:
+            # 3D MODE: Reset for token→embedding conversion
+            batch_size = self.batch_size
+            seq_len = self.seq_len
+            embed_dim = self.embed_dim
+            vocab_size = self.vocab_size
 
-        inputs = jnp.zeros((batch_size, seq_len), dtype=jnp.int32)
-        outputs = jnp.zeros((batch_size, seq_len, embed_dim))
-        post = jnp.zeros((batch_size, seq_len, embed_dim))
-        dWordWeights = jnp.zeros((vocab_size, embed_dim))
-        dPosWeights = jnp.zeros((seq_len, embed_dim))
-        # return inputs, outputs, post, dWordWeights, dPosWeights
-        self.inputs.set(inputs)
-        self.outputs.set(outputs)
-        self.post.set(post)
-        self.dWordWeights.set(dWordWeights)
-        self.dPosWeights.set(dPosWeights)
+            inputs = jnp.zeros((batch_size, seq_len), dtype=jnp.int32)
+            outputs = jnp.zeros((batch_size, seq_len, embed_dim))
+            post = jnp.zeros((batch_size, seq_len, embed_dim))
+            dWordWeights = jnp.zeros((vocab_size, embed_dim))
+            dPosWeights = jnp.zeros((seq_len, embed_dim))
+            
+            self.inputs.set(inputs)
+            self.outputs.set(outputs)
+            self.post.set(post)
+            self.dWordWeights.set(dWordWeights)
+            if hasattr(self, 'dPosWeights'):
+                self.dPosWeights.set(dPosWeights)
 
 
     @classmethod

@@ -57,9 +57,9 @@ if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is None:
         )
 
 
-def process_tokens_through_embedding(model, token_ids):
+def compute_embeddings_from_tokens(model, token_ids):
     """
-    Process token IDs through the embedding layer to get embeddings.
+    Convert token IDs to embeddings using EmbeddingSynapse.
     
     Args:
         model: NGCTransformer model
@@ -71,16 +71,29 @@ def process_tokens_through_embedding(model, token_ids):
     batch_size = token_ids.shape[0]
     seq_len = token_ids.shape[1]
     
-    # Set token IDs as input to W_embed
-    model.embedding.W_embed.inputs.set(token_ids)
+    # Create a temporary EmbeddingSynapse for token→embedding conversion
+    # Use the same parameters as model.embedding.W_embed
+    from utils.embed_utils import EmbeddingSynapse
+    temp_embed_synapse = EmbeddingSynapse(
+        "temp_embed",
+        vocab_size=model.vocab_size,
+        seq_len=seq_len,
+        embed_dim=model.n_embed,
+        batch_size=batch_size,
+        pos_learnable=config.pos_learnable,
+        eta=config.eta,
+        optim_type=config.optim_type,
+        key=jax.random.PRNGKey(42)
+    )
     
-    # Compute embeddings (word + position)
-    model.embedding.W_embed.advance_state()
+    # Convert token IDs to embeddings
+    temp_embed_synapse.inputs.set(token_ids)
+    temp_embed_synapse.advance_state()
     
     # Get embeddings: shape (batch_size, seq_len, embed_dim)
-    embeddings_3d = model.embedding.W_embed.outputs.get()
+    embeddings_3d = temp_embed_synapse.outputs.get()
     
-    # Reshape to (batch_size*seq_len, embed_dim) for the z_embed RateCell
+    # Reshape to (batch_size*seq_len, embed_dim) for z_embed
     embeddings_2d = embeddings_3d.reshape(batch_size * seq_len, model.n_embed)
     
     return embeddings_2d
@@ -181,23 +194,20 @@ def generate_text(
             pad_len = seq_len - input_seq.shape[1]
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=0)
 
-        # CRITICAL FIX: Process tokens through embedding first to get actual embeddings
-        embeddings = process_tokens_through_embedding(model, input_seq)
+        # CORRECT FLOW: Convert token IDs to embeddings externally
+        embeddings = compute_embeddings_from_tokens(model, input_seq)
         print(f"[DEBUG] Step {step}: Embeddings computed - shape: {embeddings.shape}, mean: {jnp.mean(embeddings):.6f}, std: {jnp.std(embeddings):.6f}")
 
-        # Now set embeddings as input current to z_embed
-        model.embedding.z_embed.j.set(embeddings)
-
         # Dummy target for inference
-        dummy_target = jnp.zeros((generation_batch_size * seq_len, config.vocab_size))  
+        dummy_target = jnp.zeros((generation_batch_size * seq_len, config.vocab_size))
 
         # Call debug on first few steps
         if debug and (step < 2 or step == max_new_tokens - 1):
             debug_model_internals(model, input_seq, embeddings=embeddings, step=step)
 
-        # Forward pass - model.process() runs the predictive coding dynamics
-        # Use skip_embedding_clamp=True because we already set embeddings via z_embed.j
-        y_mu_inf, y_mu, EFE = model.process(input_seq, dummy_target, adapt_synapses=False, skip_embedding_clamp=True)
+        # Forward pass with embeddings
+        # model.process() will call clamp_input(embeddings) which sets z_embed.j
+        y_mu_inf, y_mu, EFE = model.process(embeddings, dummy_target, adapt_synapses=False)
         
         if y_mu is None:
             print(f"[ERROR] Step {step}: model.process() returned None for y_mu!")

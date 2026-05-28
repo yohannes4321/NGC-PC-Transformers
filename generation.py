@@ -197,7 +197,7 @@ def generate_text(
 
         # Forward pass - model.process() runs the predictive coding dynamics
         # Use skip_embedding_clamp=True because we already set embeddings via z_embed.j
-        y_mu_inf, y_mu, EFE = model.process(input_seq, dummy_target, adapt_synapses=False, skip_embedding_clamp=True)
+        y_mu_inf, y_mu, EFE = model.process(input_seq, dummy_target, adapt_synapses=False)
         
         if y_mu is None:
             print(f"[ERROR] Step {step}: model.process() returned None for y_mu!")

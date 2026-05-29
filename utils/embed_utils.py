@@ -8,6 +8,7 @@ from ngclearn import compilable
 from ngclearn.utils import tensorstats
 import os
 from pathlib import Path
+
 @partial(jit, static_argnums=[0, 1])
 def _create_sinusoidal_embeddings(seq_len, embed_dim):
     """Create fixed sinusoidal position embeddings"""
@@ -19,6 +20,7 @@ def _create_sinusoidal_embeddings(seq_len, embed_dim):
     embeddings = embeddings.at[:, 0::2].set(jnp.sin(position * div_term))
     embeddings = embeddings.at[:, 1::2].set(jnp.cos(position * div_term))
     return embeddings
+
 @partial(jit, static_argnums=[4, 5, 6, 7])
 def _compute_embedding_updates(inputs, post, word_weights, pos_weights, 
                               vocab_size, seq_len, embed_dim, batch_size, pos_learnable):
@@ -45,10 +47,12 @@ def _compute_embedding_updates(inputs, post, word_weights, pos_weights,
     )
             
     return d_word_weights, d_pos_weights
+
 class EmbeddingSynapse(JaxComponent):
     """
     A synaptic cable that handles both word and position embeddings.
     Combines word embeddings with learnable or fixed positional embeddings.
+
     | --- Synapse Compartments: ---
     | inputs - input token indices (takes in external signals)
     | outputs - output embedding signals (combined word + position embeddings)
@@ -61,15 +65,24 @@ class EmbeddingSynapse(JaxComponent):
     | dPosWeights - current delta matrix for position embedding changes
     | word_opt_params - optimizer statistics for word embeddings
     | pos_opt_params - optimizer statistics for position embeddings
+
     Args:
         name: the string name of this component
+
         vocab_size: size of vocabulary for word embeddings
+
         seq_len: sequence length for position embeddings
+
         embed_dim: dimensionality of embeddings
+
         batch_size: batch size dimension
+
         pos_learnable: whether position embeddings are learnable or fixed
+
         eta: global learning rate 
+
         optim_type: optimization scheme (Default: "sgd")
+
         weight_scale: scaling factor for weight initialization (Default: 0.02)
     """
 
@@ -87,21 +100,13 @@ class EmbeddingSynapse(JaxComponent):
         self.pos_learnable = pos_learnable
         self.eta = eta
         self.weight_scale = weight_scale
-
-    
-        
-          
-    
-
-        
-    def __init__(
-  
         self.optim_type = optim_type
+
         key =random.PRNGKey(1234)
         word_key, pos_key = random.split(key, 2)
-
+        
         word_weights = random.normal(word_key, (vocab_size, embed_dim)) * weight_scale
-
+        
         if pos_learnable:
             pos_weights = random.normal(pos_key, (seq_len, embed_dim)) * weight_scale
         else:
@@ -113,10 +118,10 @@ class EmbeddingSynapse(JaxComponent):
         self.word_weights = Compartment(word_weights)
         self.pos_weights = Compartment(pos_weights)
         self.post = Compartment(jnp.zeros((batch_size, seq_len, embed_dim)))
-
+        
         self.dWordWeights = Compartment(jnp.zeros((vocab_size, embed_dim)))
         self.dPosWeights = Compartment(jnp.zeros((seq_len, embed_dim)))
-
+        
         # Optimization
         self.opt = get_opt_step_fn(optim_type, eta=self.eta)
         self.word_opt_params = Compartment(
@@ -139,7 +144,7 @@ class EmbeddingSynapse(JaxComponent):
         seq_len=self.seq_len.get()
         embed_dim=self.embed_dim.get()
         batch_size = inputs.shape[0]
-
+        
         flat_tokens = inputs.reshape(-1).astype(jnp.int32)
         word_embeds_flat = word_weights[flat_tokens]
         word_embeds = word_embeds_flat.reshape(batch_size, seq_len, embed_dim)
@@ -147,12 +152,12 @@ class EmbeddingSynapse(JaxComponent):
         positions = jnp.arange(seq_len)
         pos_embeds = pos_weights[positions]
         pos_embeds_batch = jnp.broadcast_to(pos_embeds, (batch_size, seq_len, embed_dim))
-
+        
         combined_embeddings = word_embeds + pos_embeds_batch
         # return combined_embeddings
         self.outputs.set(combined_embeddings)
 
-
+  
     @compilable
     def evolve(self):
         """
@@ -177,20 +182,20 @@ class EmbeddingSynapse(JaxComponent):
             inputs, post, word_weights, pos_weights, vocab_size, seq_len, 
             embed_dim, batch_size, self.pos_learnable
         )
-
+        
         word_opt_params, [new_word_weights] = opt(
             word_opt_params, [word_weights], [d_word_weights]
         )
-
+        
         new_pos_weights = pos_weights
         new_pos_opt_params = pos_opt_params
-
+        
         if self.pos_learnable:
             pos_opt_params, [new_pos_weights] = opt(
                 pos_opt_params, [pos_weights], [d_pos_weights]
             )
             new_pos_opt_params = pos_opt_params
-
+        
         # return new_word_weights, new_pos_weights, d_word_weights, d_pos_weights, word_opt_params, new_pos_opt_params
         self.word_weights.set(new_word_weights)
         self.pos_weights.set(new_pos_weights)
@@ -264,6 +269,7 @@ class EmbeddingSynapse(JaxComponent):
         if not comps:
             # Handle the case where no compartments are found to avoid max() on an empty sequence
             return f"[{self.__class__.__name__}] PATH: {self.name}\n  No Compartments Found"
+
         maxlen = max(len(c) for c in comps) + 5
         lines = f"[{self.__class__.__name__}] PATH: {self.name}\n"
         
@@ -284,6 +290,8 @@ class EmbeddingSynapse(JaxComponent):
             lines += f"  {f'({c})'.ljust(maxlen)}{line}\n"
             
         return lines
+
+
     def save(self, directory, **kwargs):
         """Save word and (optional) position embedding parameters to disk."""
         
@@ -303,6 +311,7 @@ class EmbeddingSynapse(JaxComponent):
                 # pos_weights are fixed (sinusoidal), so not saved
             )
       
+
     def load(self, directory, **kwargs):
         """Load word and (optional) position embedding parameters from disk."""
         import os
@@ -313,4 +322,4 @@ class EmbeddingSynapse(JaxComponent):
         
         if self.pos_learnable and 'pos_weights' in data:
             self.pos_weights.set(data['pos_weights'])
-        # If pos_learnable=False, pos_weights are recomputed via sinusoidal — no 
+        # If pos_learnable=False, pos_weights are recomputed via sinusoidal — no need to load

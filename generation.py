@@ -63,9 +63,11 @@ def generate_text(
     tokenizer,
     prompt: str,
     max_new_tokens: int = 100,
-    seq_len: int = 8,
+    seq_len: int = config.seq_len,
     temperature: float = 1.0,
-    key=None
+    top_k: int = 0,
+    key=None,
+    pad_token_id: int = None
 ):
     """
     Generate text using the model and provided tokenizer.
@@ -83,6 +85,12 @@ def generate_text(
     current_tokens = prompt_tensor
     current_key = key
 
+    if pad_token_id is None:
+        if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is not None:
+            pad_token_id = tokenizer.tokenizer.token_to_id("<pad>")
+        else:
+            pad_token_id = 0
+
     for _ in range(max_new_tokens):
         # Truncate context to fit model's seq_len
         if current_tokens.shape[1] > seq_len:
@@ -90,25 +98,35 @@ def generate_text(
         else:
             input_seq = current_tokens
 
-        # Pad to exactly seq_len if needed (assumes token ID 0 = padding)
+        # Pad to exactly seq_len if needed
         if input_seq.shape[1] < seq_len:
             pad_len = seq_len - input_seq.shape[1]
-            input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=0)
+            input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=pad_token_id)
         
         # Forward pass (no target clamping during inference)
         y_mu_inf, y_mu, _ = model.process(input_seq, lab=None, adapt_synapses=False)
         logits = y_mu.reshape(model.batch_size, seq_len, config.vocab_size)
 
         # Get logits for the last *real* token (excluding padding)
-        actual_len = min(current_tokens.shape[1], seq_len)
-        last_pos = actual_len - 1
+        if current_tokens.shape[1] > seq_len:
+            last_pos = seq_len - 1
+        else:
+            last_pos = current_tokens.shape[1] - 1
         next_logits = logits[0, last_pos, :] / temperature
 
         # Sample or take argmax
         if current_key is not None:
-            probs = jax.nn.softmax(next_logits)
-            current_key, subkey = jax.random.split(current_key)
-            next_token = jax.random.choice(subkey, a=config.vocab_size, p=probs)
+            if top_k is not None and top_k > 0:
+                top_k = min(top_k, config.vocab_size)
+                top_vals, top_idx = jnp.topk(next_logits, k=top_k)
+                probs = jax.nn.softmax(top_vals)
+                current_key, subkey = jax.random.split(current_key)
+                choice = jax.random.choice(subkey, a=top_k, p=probs)
+                next_token = top_idx[choice]
+            else:
+                probs = jax.nn.softmax(next_logits)
+                current_key, subkey = jax.random.split(current_key)
+                next_token = jax.random.choice(subkey, a=config.vocab_size, p=probs)
         else:
             next_token = jnp.argmax(next_logits)
 

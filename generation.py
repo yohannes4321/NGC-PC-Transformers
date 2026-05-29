@@ -85,27 +85,7 @@ def trace_model(model):
     stat("  z_actfx.zF", model.z_actfx.zF.get())
 
     # --- 4. PROJECTION ---
-    print("\n[PROJECTION]")
-    stat("  q_embed.z", model.projection.q_embed_Ratecell.z.get())
-    stat("  q_embed.zF", model.projection.q_embed_Ratecell.zF.get())
-    stat("  Q_embed.inputs", model.projection.Q_embed.inputs.get())
-    stat("  Q_embed.outputs", model.projection.Q_embed.outputs.get())
-    for i, pb in enumerate(model.projection.blocks):
-        print(f"  [PROJ BLOCK {i}]")
-        stat("    q_qkv.zF", pb.q_qkv_Ratecell.zF.get())
-        stat("    Q_q.outputs", pb.Q_q.outputs.get())
-        stat("    q_attn.zF", pb.q_attn_Ratecell.zF.get())
-        stat("    Q_attn_out.outputs", pb.Q_attn_out.outputs.get())
-        stat("    q_mlp.zF", pb.q_mlp_Ratecell.zF.get())
-        stat("    Q_mlp1.outputs", pb.Q_mlp1.outputs.get())
-        stat("    q_mlp2.zF", pb.q_mlp2_Ratecell.zF.get())
-        stat("    Q_mlp2.outputs", pb.Q_mlp2.outputs.get())
-    stat("  q_out.z", model.projection.q_out_Ratecell.z.get())
-    stat("  q_out.zF", model.projection.q_out_Ratecell.zF.get())
-    stat("  Q_out.inputs", model.projection.Q_out.inputs.get())
-    stat("  Q_out.outputs", model.projection.Q_out.outputs.get())
-    stat("  q_target.z", model.projection.q_target_Ratecell.z.get())
-    stat("  q_target.zF", model.projection.q_target_Ratecell.zF.get())
+    
 
     print("\n" + "="*100 + "\n")
 

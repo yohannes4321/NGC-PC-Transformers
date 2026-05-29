@@ -547,7 +547,7 @@ class NGCTransformer:
             adapt_synapses: Whether to update synaptic weights via Hebbian learning
         """
         
-        self.reset.run()
+        # self.reset.run()
         
         # Clamp embeddings to z_embed for predictive coding
         self.clamp_input(obs)

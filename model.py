@@ -346,10 +346,11 @@ class NGCTransformer:
             block.mlp.W_mlp1.biases.set(loaded_circuit.get_components(f"{b_prefix}W_mlp1").biases.get())
             block.mlp.W_mlp2.biases.set(loaded_circuit.get_components(f"{b_prefix}W_mlp2").biases.get())
 
-    def process(self, obs, lab, adapt_synapses=True):
+    def process(self, obs, lab=None, adapt_synapses=True):
         self.reset.run()
         self.clamp_input(obs)
-        self.clamp_infer_target(lab)
+        if lab is not None:
+            self.clamp_infer_target(lab)
         for i in range(self.n_layers):
             b = self.blocks[i]
             b.attention.E_q.weights.set(jnp.transpose(b.attention.W_q.weights.get()))
@@ -362,24 +363,20 @@ class NGCTransformer:
         y_mu_inf = self.projection.q_target_Ratecell.z.get()
         for ts in range(0, self.T):
             self.clamp_input(obs)
-            if adapt_synapses:
+            if lab is not None:
                 self.clamp_target(lab)
-            else:
-                self.clamp_target(self.z_actfx.zF.get())
             self.advance.run(t=ts, dt=1.)
-            if ts == self.T - 1:
-                try:
-                    from utils.model_util import trace_model
-                    trace_model(self)
-                except:
-                    pass
+          
+           
+        # Get output predictions
+
         y_mu = self.z_actfx.zF.get() 
         block_errors = 0.
         for i in range(self.n_layers):
             block = self.blocks[i]
             block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
         EFE = block_errors + self.embedding.e_embed.L.get()
-        if adapt_synapses:
+        if adapt_synapses and lab is not None:
             self.embedding_evolve.run()
             self.evolve.run(t=self.T, dt=1.)
         return y_mu_inf, y_mu, EFE 

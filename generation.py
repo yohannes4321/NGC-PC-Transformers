@@ -8,68 +8,106 @@ from data_preprocess.tokenizer import get_tokenizer, BPETokenizer
 from pathlib import Path
 
 def stat(name, x):
+    if x is None:
+        print(f"{name:45s} is None")
+        return
     x = jnp.asarray(x)
-
     print(
-        f"{name:35s}"
-        f" shape={x.shape}"
-        f" mean={jnp.mean(x):.6f}"
-        f" std={jnp.std(x):.6f}"
-        f" max={jnp.max(x):.6f}"
-        f" min={jnp.min(x):.6f}"
+        f"{name:45s}"
+        f" shape={str(x.shape):15s}"
+        f" mean={jnp.mean(x):10.6f}"
+        f" std={jnp.std(x):10.6f}"
+        f" max={jnp.max(x):10.6f}"
+        f" min={jnp.min(x):10.6f}"
     )
 
 def trace_model(model):
+    print("\n" + "="*100)
+    print(f"EXHAUSTIVE MODEL TRACE (T={model.T})")
+    print("="*100)
 
-    print("\n================ TRACE ================\n")
+    # --- 1. EMBEDDING ---
+    print("\n[EMBEDDING]")
+    c = model.embedding
+    stat("  z_embed.z", c.z_embed.z.get())
+    stat("  z_embed.zF", c.z_embed.zF.get())
+    stat("  W_embed.inputs", c.W_embed.inputs.get())
+    stat("  W_embed.outputs", c.W_embed.outputs.get())
+    stat("  e_embed.mu", c.e_embed.mu.get())
+    stat("  e_embed.target", c.e_embed.target.get())
 
-    # INPUT
-    stat("z_embed.z", model.embedding.z_embed.z.get())
+    # --- 2. BLOCKS ---
+    for i, b in enumerate(model.blocks):
+        print(f"\n[BLOCK {i} - ATTENTION]")
+        stat("  z_qkv.z", b.attention.z_qkv.z.get())
+        stat("  z_qkv.zF", b.attention.z_qkv.zF.get())
+        stat("  W_q.inputs", b.attention.W_q.inputs.get())
+        stat("  W_q.outputs", b.attention.W_q.outputs.get())
+        stat("  W_k.inputs", b.attention.W_k.inputs.get())
+        stat("  W_k.outputs", b.attention.W_k.outputs.get())
+        stat("  W_v.inputs", b.attention.W_v.inputs.get())
+        stat("  W_v.outputs", b.attention.W_v.outputs.get())
+        stat("  attn_block.inputs_q", b.attention.attn_block.inputs_q.get())
+        stat("  attn_block.outputs", b.attention.attn_block.outputs.get())
+        stat("  z_attn.z", b.attention.z_attn.z.get())
+        stat("  z_attn.zF", b.attention.z_attn.zF.get())
+        stat("  W_attn_out.inputs", b.attention.W_attn_out.inputs.get())
+        stat("  W_attn_out.outputs", b.attention.W_attn_out.outputs.get())
+        stat("  e_qkv.mu", b.attention.e_qkv.mu.get())
+        stat("  e_qkv.target", b.attention.e_qkv.target.get())
+        stat("  e_attn.mu", b.attention.e_attn.mu.get())
+        stat("  e_attn.target", b.attention.e_attn.target.get())
 
-    # EMBEDDING
-    stat("W_embed.outputs", model.embedding.W_embed.outputs.get())
+        print(f"\n[BLOCK {i} - MLP]")
+        stat("  z_mlp.z", b.mlp.z_mlp.z.get())
+        stat("  z_mlp.zF", b.mlp.z_mlp.zF.get())
+        stat("  W_mlp1.inputs", b.mlp.W_mlp1.inputs.get())
+        stat("  W_mlp1.outputs", b.mlp.W_mlp1.outputs.get())
+        stat("  z_mlp2.z", b.mlp.z_mlp2.z.get())
+        stat("  z_mlp2.zF", b.mlp.z_mlp2.zF.get())
+        stat("  W_mlp2.inputs", b.mlp.W_mlp2.inputs.get())
+        stat("  W_mlp2.outputs", b.mlp.W_mlp2.outputs.get())
+        stat("  e_mlp1.mu", b.mlp.e_mlp1.mu.get())
+        stat("  e_mlp1.target", b.mlp.e_mlp1.target.get())
+        stat("  e_mlp.mu", b.mlp.e_mlp.mu.get())
+        stat("  e_mlp.target", b.mlp.e_mlp.target.get())
 
-    stat(
-        "reshape_embed.outputs",
-        model.reshape_3d_to_2d_embed.outputs.get()
-    )
+    # --- 3. OUTPUT ---
+    print("\n[OUTPUT]")
+    stat("  z_out.z", model.output.z_out.z.get())
+    stat("  z_out.zF", model.output.z_out.zF.get())
+    stat("  W_out.inputs", model.output.W_out.inputs.get())
+    stat("  W_out.outputs", model.output.W_out.outputs.get())
+    stat("  e_out.mu", model.output.e_out.mu.get())
+    stat("  e_out.target", model.output.e_out.target.get())
+    stat("  z_target.z", model.z_target.z.get())
+    stat("  z_actfx.z", model.z_actfx.z.get())
+    stat("  z_actfx.zF", model.z_actfx.zF.get())
 
-    # BLOCKS
-    for i, block in enumerate(model.blocks):
+    # --- 4. PROJECTION ---
+    print("\n[PROJECTION]")
+    stat("  q_embed.z", model.projection.q_embed_Ratecell.z.get())
+    stat("  q_embed.zF", model.projection.q_embed_Ratecell.zF.get())
+    stat("  Q_embed.inputs", model.projection.Q_embed.inputs.get())
+    stat("  Q_embed.outputs", model.projection.Q_embed.outputs.get())
+    for i, pb in enumerate(model.projection.blocks):
+        print(f"  [PROJ BLOCK {i}]")
+        stat("    q_qkv.zF", pb.q_qkv_Ratecell.zF.get())
+        stat("    Q_q.outputs", pb.Q_q.outputs.get())
+        stat("    q_attn.zF", pb.q_attn_Ratecell.zF.get())
+        stat("    Q_attn_out.outputs", pb.Q_attn_out.outputs.get())
+        stat("    q_mlp.zF", pb.q_mlp_Ratecell.zF.get())
+        stat("    Q_mlp1.outputs", pb.Q_mlp1.outputs.get())
+        stat("    q_mlp2.zF", pb.q_mlp2_Ratecell.zF.get())
+        stat("    Q_mlp2.outputs", pb.Q_mlp2.outputs.get())
+    stat("  q_out.z", model.projection.q_out_Ratecell.z.get())
+    stat("  q_out.zF", model.projection.q_out_Ratecell.zF.get())
+    stat("  Q_out.inputs", model.projection.Q_out.inputs.get())
+    stat("  Q_out.outputs", model.projection.Q_out.outputs.get())
+    stat("  q_target.z", model.projection.q_target_Ratecell.z.get())
+    stat("  q_target.zF", model.projection.q_target_Ratecell.zF.get())
 
-        print(f"\n---------- BLOCK {i} ----------")
-
-        stat("z_qkv.z", block.attention.z_qkv.z.get())
-
-        stat("W_q.outputs", block.attention.W_q.outputs.get())
-        stat("W_k.outputs", block.attention.W_k.outputs.get())
-        stat("W_v.outputs", block.attention.W_v.outputs.get())
-
-        stat("attn.outputs", block.attention.attn_block.outputs.get())
-
-        stat("z_attn.z", block.attention.z_attn.z.get())
-
-        stat(
-            "W_attn_out.outputs",
-            block.attention.W_attn_out.outputs.get()
-        )
-
-        stat("z_mlp.z", block.mlp.z_mlp.z.get())
-
-        stat("W_mlp1.outputs", block.mlp.W_mlp1.outputs.get())
-
-        stat("z_mlp2.z", block.mlp.z_mlp2.z.get())
-
-        stat("W_mlp2.outputs", block.mlp.W_mlp2.outputs.get())
-
-    # OUTPUT
-    print("\n---------- OUTPUT ----------")
-
-    stat("z_out.z", model.output.z_out.z.get())
-
-    stat("W_out.outputs", model.output.W_out.outputs.get())
-
-    stat("softmax.z", model.z_actfx.z.get())
+    print("\n" + "="*100 + "\n")
 
 def weight_stats(model):
 

@@ -68,7 +68,7 @@ def generate_text(
         if current_key is not None:
             if top_k is not None and top_k > 0:
                 top_k = min(top_k, config.vocab_size)
-                top_vals, top_idx = jnp.topk(next_logits, k=top_k)
+                top_vals, top_idx = jax.lax.top_k(next_logits, k=top_k)
                 probs = jax.nn.softmax(top_vals)
                 current_key, subkey = jax.random.split(current_key)
                 choice = jax.random.choice(subkey, a=top_k, p=probs)

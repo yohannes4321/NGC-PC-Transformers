@@ -94,9 +94,7 @@ class EmbeddingSynapse(JaxComponent):
     
 
         
-        Expand All
-    
-    @@ -105,125 +108,197 @@ def __init__(
+    def __init__(
   
         self.optim_type = optim_type
         key =random.PRNGKey(1234)
@@ -224,17 +222,6 @@ class EmbeddingSynapse(JaxComponent):
 
 
     @classmethod
-
-    
-          
-            
-    
-
-          
-          Expand Down
-    
-    
-  
     def help(cls):
         """Component help function"""
         properties = {

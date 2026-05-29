@@ -142,22 +142,22 @@ class NGCTransformer:
                     block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu
                     block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
                     block.mlp.z_mlp2.zF >>block.mlp.W_mlp2.inputs
-                    block.mlp.W_mlp2.outputs >> block.mlp.e_mlp2.mu
+                    block.mlp.W_mlp2.outputs >> block.mlp.e_mlp.mu
 
 
      
                     
                     if blocks == n_layers - 1:
                         self.output.z_out.z >> block.z_residual_mlp.j_td 
-                        block.z_residual_mlp.j_td >> block.mlp.e_mlp2.target
+                        block.z_residual_mlp.j_td >> block.mlp.e_mlp.target
                     else:
                         self.blocks[blocks + 1].attention.z_qkv.z >> block.z_residual_mlp.j_td 
-                        block.z_residual_mlp.j_td >> block.mlp.e_mlp2.target
+                        block.z_residual_mlp.j_td >> block.mlp.e_mlp.target
 
 
 
                     block.mlp.e_mlp1.dmu >> block.mlp.E_mlp1.inputs
-                    block.mlp.e_mlp2.dmu  >> block.mlp.E_mlp2.inputs
+                    block.mlp.e_mlp.dmu  >> block.mlp.E_mlp2.inputs
 
                     block.attention.e_qkv.dmu >> block.attention.attn_block.dmu
                     
@@ -185,7 +185,7 @@ class NGCTransformer:
                     if blocks == 0:
                         self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
                     else:
-                        self.blocks[blocks - 1].mlp.e_mlp2.dtarget >> block.attention.z_qkv.j_td
+                        self.blocks[blocks - 1].mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
                     block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
 
                     block.ln2.rms >> block.ln2_grad.rms
@@ -197,7 +197,7 @@ class NGCTransformer:
                     block.ln2_grad.dmu_mlp1_out >> block.mlp.z_mlp.j
 
                     # E_mlp2 — backward signal for z_mlp2 from output error
-                    block.mlp.e_mlp2.dmu      >> block.mlp.E_mlp2.inputs
+                    block.mlp.e_mlp.dmu      >> block.mlp.E_mlp2.inputs
                     block.mlp.E_mlp2.outputs  >> block.mlp.z_mlp2.j 
                     block.attention.e_attn.dtarget >> block.mlp.z_mlp.j_td
                     block.mlp.e_mlp1.dtarget >> block.mlp.z_mlp2.j_td
@@ -221,7 +221,7 @@ class NGCTransformer:
                     block.mlp.e_mlp1.dmu     >> block.mlp.W_mlp1.post
 
                     block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.pre
-                    block.mlp.e_mlp2.dmu  >> block.mlp.W_mlp2.post
+                    block.mlp.e_mlp.dmu  >> block.mlp.W_mlp2.post
 
                         
                 self.output.z_out.zF >> self.output.W_out.inputs
@@ -235,7 +235,7 @@ class NGCTransformer:
 
 
                 self.output.E_out.outputs >> self.output.z_out.j
-                self.blocks[n_layers - 1].mlp.e_mlp2.dtarget >> self.output.z_out.j_td
+                self.blocks[n_layers - 1].mlp.e_mlp.dtarget >> self.output.z_out.j_td
 
 
                 self.embedding.e_embed.dmu >> self.reshape_2d_to_3d_embed.inputs

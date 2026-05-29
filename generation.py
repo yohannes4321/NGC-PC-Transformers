@@ -1,4 +1,3 @@
-                                                      generation.py                                                                   
 from model import NGCTransformer
 import jax
 import jax.numpy as jnp
@@ -8,14 +7,102 @@ from data_preprocess.data_loader import DataLoader
 from data_preprocess.tokenizer import get_tokenizer, BPETokenizer
 from pathlib import Path
 
+def stat(name, x):
+    x = jnp.asarray(x)
+
+    print(
+        f"{name:35s}"
+        f" shape={x.shape}"
+        f" mean={jnp.mean(x):.6f}"
+        f" std={jnp.std(x):.6f}"
+        f" max={jnp.max(x):.6f}"
+        f" min={jnp.min(x):.6f}"
+    )
+
+def trace_model(model):
+
+    print("\n================ TRACE ================\n")
+
+    # INPUT
+    stat("z_embed.z", model.embedding.z_embed.z.get())
+
+    # EMBEDDING
+    stat("W_embed.outputs", model.embedding.W_embed.outputs.get())
+
+    stat(
+        "reshape_embed.outputs",
+        model.reshape_3d_to_2d_embed.outputs.get()
+    )
+
+    # BLOCKS
+    for i, block in enumerate(model.blocks):
+
+        print(f"\n---------- BLOCK {i} ----------")
+
+        stat("z_qkv.z", block.attention.z_qkv.z.get())
+
+        stat("W_q.outputs", block.attention.W_q.outputs.get())
+        stat("W_k.outputs", block.attention.W_k.outputs.get())
+        stat("W_v.outputs", block.attention.W_v.outputs.get())
+
+        stat("attn.outputs", block.attention.attn_block.outputs.get())
+
+        stat("z_attn.z", block.attention.z_attn.z.get())
+
+        stat(
+            "W_attn_out.outputs",
+            block.attention.W_attn_out.outputs.get()
+        )
+
+        stat("z_mlp.z", block.mlp.z_mlp.z.get())
+
+        stat("W_mlp1.outputs", block.mlp.W_mlp1.outputs.get())
+
+        stat("z_mlp2.z", block.mlp.z_mlp2.z.get())
+
+        stat("W_mlp2.outputs", block.mlp.W_mlp2.outputs.get())
+
+    # OUTPUT
+    print("\n---------- OUTPUT ----------")
+
+    stat("z_out.z", model.output.z_out.z.get())
+
+    stat("W_out.outputs", model.output.W_out.outputs.get())
+
+    stat("softmax.z", model.z_actfx.z.get())
+
+def weight_stats(model):
+
+    print("\n=========== WEIGHTS ===========\n")
+
+    stat(
+        "W_embed.word_weights",
+        model.embedding.W_embed.word_weights.get()
+    )
+
+    for i, block in enumerate(model.blocks):
+
+        print(f"\n------ BLOCK {i} ------")
+
+        stat("W_q", block.attention.W_q.weights.get())
+        stat("W_k", block.attention.W_k.weights.get())
+        stat("W_v", block.attention.W_v.weights.get())
+
+        stat(
+            "W_attn_out",
+            block.attention.W_attn_out.weights.get()
+        )
+
+        stat("W_mlp1", block.mlp.W_mlp1.weights.get())
+        stat("W_mlp2", block.mlp.W_mlp2.weights.get())
+
+    stat("W_out", model.output.W_out.weights.get())
 
 # Initialize the model
 dkey = jax.random.PRNGKey(0)
-generation_batch_size = config.batch_size
 model = NGCTransformer(
-                                                                                                                                                                                                                                                                                        generation.py                                                                                                                                                                                                                                                                                               
     dkey, 
-    batch_size=generation_batch_size,
+    batch_size=config.batch_size, 
     seq_len=config.seq_len, 
     n_embed=config.n_embed, 
     vocab_size=config.vocab_size, 
@@ -28,14 +115,16 @@ model = NGCTransformer(
     eta=config.eta, 
     dropout_rate=config.dropout_rate, 
     exp_dir="exp",
-    loadDir="exp",  # ← FIXED: Load trained model from exp directory 
+    loadDir=None, 
     pos_learnable=config.pos_learnable, 
     optim_type=config.optim_type, 
     wub=config.wub, 
     wlb=config.wlb, 
-    model_name="ngc_transformer"
+    model_name="ngc transformer"
 )
 
+# Call weight stats once
+weight_stats(model)
 
 tokenizer = get_tokenizer(config)
 
@@ -57,159 +146,54 @@ if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is None:
         )
 
 
-def process_tokens_through_embedding(model, token_ids):
-    """
-    Process token IDs through the embedding layer to get embeddings.
-    
-    Args:
-        model: NGCTransformer model
-        token_ids: Token indices (batch_size, seq_len)
-    
-    Returns:
-        embeddings: Word + position embeddings (batch_size*seq_len, embed_dim)
-    """
-    batch_size = token_ids.shape[0]
-    seq_len = token_ids.shape[1]
-    
-    # Set token IDs as input to W_embed
-    model.embedding.W_embed.inputs.set(token_ids)
-    
-    # Compute embeddings (word + position)
-    model.embedding.W_embed.advance_state()
-    
-    # Get embeddings: shape (batch_size, seq_len, embed_dim)
-    embeddings_3d = model.embedding.W_embed.outputs.get()
-    
-    # Reshape to (batch_size*seq_len, embed_dim) for the z_embed RateCell
-    embeddings_2d = embeddings_3d.reshape(batch_size * seq_len, model.n_embed)
-    
-    return embeddings_2d
-
-
-def debug_model_internals(model, input_seq, embeddings=None, step=0):
-    """
-    Inspect internal model states to diagnose why outputs are identical.
-    """
-    print(f"\n[DEEP DEBUG] Step {step}:")
-    print(f"  Input shape: {input_seq.shape}")
-    print(f"  Input tokens (first 10): {input_seq[0, :10]}")
-    
-    if embeddings is not None:
-        print(f"  Embeddings shape: {embeddings.shape}, mean: {jnp.mean(embeddings):.6f}, std: {jnp.std(embeddings):.6f}, max: {jnp.max(embeddings):.6f}")
-    
-    # Check embedding layer outputs
-    try:
-        emb_output = model.embedding.e_embed.mu.get()
-        print(f"  Embedding mu shape: {emb_output.shape}, mean: {jnp.mean(emb_output):.6f}, std: {jnp.std(emb_output):.6f}, max: {jnp.max(emb_output):.6f}")
-    except Exception as e:
-        print(f"  Embedding mu: Error - {e}")
-    
-    # Check z_embed
-    try:
-        z_embed = model.embedding.z_embed.zF.get()
-        print(f"  z_embed zF shape: {z_embed.shape}, mean: {jnp.mean(z_embed):.6f}, std: {jnp.std(z_embed):.6f}, max: {jnp.max(z_embed):.6f}")
-    except Exception as e:
-        print(f"  z_embed: Error - {e}")
-    
-    # Check block outputs
-    for i, block in enumerate(model.blocks):
-        try:
-            attn_mu = block.attention.e_attn.mu.get()
-            print(f"  Block {i} attention mu: mean={jnp.mean(attn_mu):.6f}, std={jnp.std(attn_mu):.6f}")
-        except Exception as e:
-            print(f"  Block {i} attention: Error - {e}")
-    
-    # Check output layer
-    try:
-        out_mu = model.output.e_out.mu.get()
-        print(f"  Output mu shape: {out_mu.shape}, mean: {jnp.mean(out_mu):.6f}, std: {jnp.std(out_mu):.6f}")
-    except Exception as e:
-        print(f"  Output mu: Error - {e}")
-    
-    # Check output z
-    try:
-        out_z = model.output.z_out.zF.get()
-        print(f"  Output z_out zF: mean={jnp.mean(out_z):.6f}, std={jnp.std(out_z):.6f}, max={jnp.max(out_z):.6f}")
-    except Exception as e:
-        print(f"  Output z_out: Error - {e}")
-
-
 def generate_text(
     model,
     tokenizer,
     prompt: str,
     max_new_tokens: int = 100,
-    seq_len: int = None,
+    seq_len: int = 8,
     temperature: float = 1.0,
-    key=None,
-    debug=False
+    key=None
 ):
     """
     Generate text using the model and provided tokenizer.
-    FIXED: Properly process tokens through embedding layer before running model.
-    
-    CRITICAL FIX: Token IDs must go through W_embed to get embeddings before
-    being used as input to z_embed. Otherwise all activations are zero.
+    Works with both custom BPE and tiktoken backends.
     """
-    if seq_len is None:
-        seq_len = config.seq_len
-    
     # Encode prompt - returns jnp.ndarray for both backends
     prompt_ids = tokenizer.encode(prompt)
-    print(f"[DEBUG] Prompt tokens shape: {prompt_ids.shape}, tokens: {prompt_ids[:20]}")
     
-    # Match the checkpoint batch size so loaded component shapes stay consistent.
+    # Ensure batch dimension: (1, sequence_length)
     if prompt_ids.ndim == 1:
-        prompt_tensor = jnp.repeat(prompt_ids[None, :], generation_batch_size, axis=0)
+        prompt_tensor = prompt_ids[None, :]
     else:
         prompt_tensor = prompt_ids
 
     current_tokens = prompt_tensor
     current_key = key
 
-    for step in range(max_new_tokens):
-        # IMPORTANT: Use FULL accumulated context (sliding window if needed)
+    for _ in range(max_new_tokens):
+        # Truncate context to fit model's seq_len
         if current_tokens.shape[1] > seq_len:
             input_seq = current_tokens[:, -seq_len:]
-            print(f"[DEBUG] Step {step}: Context exceeds seq_len, using sliding window. Shape: {input_seq.shape}")
         else:
             input_seq = current_tokens
-            print(f"[DEBUG] Step {step}: Using full context. Shape: {input_seq.shape}")
 
-        # Pad to exactly seq_len if needed
+        # Pad to exactly seq_len if needed (assumes token ID 0 = padding)
         if input_seq.shape[1] < seq_len:
             pad_len = seq_len - input_seq.shape[1]
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=0)
-
-        # CRITICAL FIX: Process tokens through embedding first to get actual embeddings
-        embeddings = process_tokens_through_embedding(model, input_seq)
-        print(f"[DEBUG] Step {step}: Embeddings computed - shape: {embeddings.shape}, mean: {jnp.mean(embeddings):.6f}, std: {jnp.std(embeddings):.6f}")
-
-        # Now set embeddings as input current to z_embed
-        model.embedding.z_embed.j.set(embeddings)
-
-        # Dummy target for inference
-        dummy_target = jnp.zeros((generation_batch_size * seq_len, config.vocab_size))  
-
-        # Call debug on first few steps
-        if debug and (step < 2 or step == max_new_tokens - 1):
-            debug_model_internals(model, input_seq, embeddings=embeddings, step=step)
-
-        # Forward pass - model.process() runs the predictive coding dynamics
-        # Use skip_embedding_clamp=True because we already set embeddings via z_embed.j
-        y_mu_inf, y_mu, EFE = model.process(input_seq, dummy_target, adapt_synapses=False)
         
-        if y_mu is None:
-            print(f"[ERROR] Step {step}: model.process() returned None for y_mu!")
-            logits = jnp.zeros((generation_batch_size, seq_len, config.vocab_size))
-        else:
-            logits = y_mu.reshape(generation_batch_size, seq_len, config.vocab_size)
+        # Dummy target for inference (unused when adapt_synapses=False)
+        dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))  
 
-        # Extract logits at the LAST real token position
-        last_pos = min(current_tokens.shape[1], seq_len) - 1
+        # Forward pass
+        y_mu_inf, y_mu, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
+        logits = y_mu.reshape(config.batch_size, config.seq_len, config.vocab_size)
+
+        # Get logits for the last *real* token (excluding padding)
+        actual_len = min(current_tokens.shape[1], seq_len)
+        last_pos = actual_len - 1
         next_logits = logits[0, last_pos, :] / temperature
-        
-        print(f"[DEBUG] Step {step}: Last position: {last_pos}, Logit stats - mean: {jnp.mean(next_logits):.4f}, max: {jnp.max(next_logits):.4f}, min: {jnp.min(next_logits):.4f}")
 
         # Sample or take argmax
         if current_key is not None:
@@ -219,13 +203,8 @@ def generate_text(
         else:
             next_token = jnp.argmax(next_logits)
 
-        print(f"[DEBUG] Step {step}: Generated token ID: {next_token}")
-
-        # Append new token to accumulated context
-        current_tokens = jnp.concatenate(
-            [current_tokens, jnp.full((generation_batch_size, 1), next_token, dtype=current_tokens.dtype)],
-            axis=1,
-        )
+        # Append new token
+        current_tokens = jnp.concatenate([current_tokens, next_token[None, None]], axis=1)
 
     # Decode generated IDs back to text
     generated_ids = current_tokens[0].tolist()
@@ -234,23 +213,17 @@ def generate_text(
 
 # Example usage
 if __name__ == "__main__":
-    # Test 1: Short prompt
-    print("="*80)
-    print("TEST 1: Short prompt")
-    print("="*80)
-    prompt1 = "The king said: "
-    generated1 = generate_text(model, tokenizer, prompt=prompt1, max_new_tokens=5, temperature=0.8, key=jax.random.PRNGKey(42), debug=True)
-    print("\n" + "="*80 + "\n")
-    print("GENERATED TEXT (Prompt 1):")
-    print(generated1)
-    print("\n" + "="*80 + "\n")
+    prompts = ["The king said: ", "hello bro i love you"]
     
-    # Test 2: Long prompt  
-    print("="*80)
-    print("TEST 2: Long prompt")
-    print("="*80)
-    prompt2 = "You common cry of curs! whose breath I hate As reek o' the rotten fens..."
-    generated2 = generate_text(model, tokenizer, prompt=prompt2, max_new_tokens=5, temperature=0.8, key=jax.random.PRNGKey(42), debug=True)
-    print("\n" + "="*80 + "\n")
-    print("GENERATED TEXT (Prompt 2):")
-    print(generated2)
+    for i, prompt in enumerate(prompts):
+        print(f"\n\n**************** PROMPT {i+1}: '{prompt}' ****************")
+        generated = generate_text(
+            model=model,
+            tokenizer=tokenizer,
+            prompt=prompt,
+            max_new_tokens=20, # Reduced for faster debugging
+            seq_len=config.seq_len,        
+            temperature=1.0,
+            key=jax.random.PRNGKey(42)  
+        )
+        print(f"\nFINAL GENERATED {i+1}:\n{generated}")

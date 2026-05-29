@@ -585,6 +585,12 @@ class NGCTransformer:
             self.clamp_input(obs)
             self.clamp_target(lab)
             self.advance.run(t=ts,dt=1.)
+            if ts == self.T - 1:
+                try:
+                    from generation import trace_model
+                    trace_model(self)
+                except ImportError:
+                    pass
            
         # Get output predictions
         y_mu = self.z_actfx.zF.get() 

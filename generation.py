@@ -116,52 +116,54 @@ def weight_stats(model):
 
     stat("W_out", model.output.W_out.weights.get())
 
-# Initialize the model
-dkey = jax.random.PRNGKey(0)
-model = NGCTransformer(
-    dkey, 
-    batch_size=1, # Standard for single-sequence generation
-    seq_len=config.seq_len, 
-    n_embed=config.n_embed, 
-    vocab_size=config.vocab_size, 
-    n_layers=config.n_layers, 
-    n_heads=config.n_heads,
-    T=config.n_iter, 
-    dt=1., 
-    tau_m=config.tau_m, 
-    act_fx=config.act_fx, 
-    eta=config.eta, 
-    dropout_rate=config.dropout_rate, 
-    exp_dir="exp",
-    loadDir="exp", # Ensure model is loaded from trained exp/ directory
-    pos_learnable=config.pos_learnable, 
-    optim_type=config.optim_type, 
-    wub=config.wub, 
-    wlb=config.wlb, 
-    model_name="ngc_transformer"
-)
+# Initialize the model and tokenizer only when run as a script
+if __name__ == "__main__":
+    # Initialize the model
+    dkey = jax.random.PRNGKey(0)
+    model = NGCTransformer(
+        dkey, 
+        batch_size=1, # Standard for single-sequence generation
+        seq_len=config.seq_len, 
+        n_embed=config.n_embed, 
+        vocab_size=config.vocab_size, 
+        n_layers=config.n_layers, 
+        n_heads=config.n_heads,
+        T=config.n_iter, 
+        dt=1., 
+        tau_m=config.tau_m, 
+        act_fx=config.act_fx, 
+        eta=config.eta, 
+        dropout_rate=config.dropout_rate, 
+        exp_dir="exp",
+        loadDir="exp", # Ensure model is loaded from trained exp/ directory
+        pos_learnable=config.pos_learnable, 
+        optim_type=config.optim_type, 
+        wub=config.wub, 
+        wlb=config.wlb, 
+        model_name="ngc_transformer"
+    )
 
-# Call weight stats once
-weight_stats(model)
+    # Call weight stats once
+    weight_stats(model)
 
-tokenizer = get_tokenizer(config)
+    tokenizer = get_tokenizer(config)
 
-if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is None:
-    vocab_file = getattr(config, "tokenizer_vocab_file", None)
-    if vocab_file is None:
-        default_path = Path(__file__).parent / "data_preprocess" / "outputs" / "tokenizer" / "bpe_tokenizer.json"
-        if default_path.exists():
-            vocab_file = str(default_path)
-            print(f"Auto-loading BPE tokenizer from default path: {vocab_file}")
-    
-    # Attempt to load
-    if vocab_file and Path(vocab_file).exists():
-        tokenizer.load_tokenizer(vocab_file)
-        print(f"Loaded BPE tokenizer (vocab size: {tokenizer.get_vocab_size()})")
-    else:
-        raise RuntimeError(
-            "BPE tokenizer not trained or loaded!\n\n"
-        )
+    if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is None:
+        vocab_file = getattr(config, "tokenizer_vocab_file", None)
+        if vocab_file is None:
+            default_path = Path(__file__).parent / "data_preprocess" / "outputs" / "tokenizer" / "bpe_tokenizer.json"
+            if default_path.exists():
+                vocab_file = str(default_path)
+                print(f"Auto-loading BPE tokenizer from default path: {vocab_file}")
+        
+        # Attempt to load
+        if vocab_file and Path(vocab_file).exists():
+            tokenizer.load_tokenizer(vocab_file)
+            print(f"Loaded BPE tokenizer (vocab size: {tokenizer.get_vocab_size()})")
+        else:
+            raise RuntimeError(
+                "BPE tokenizer not trained or loaded!\n\n"
+            )
 
 
 def generate_text(

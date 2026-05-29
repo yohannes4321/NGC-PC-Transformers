@@ -1,12 +1,23 @@
+#import
 import jax
-from jax import numpy as jnp, random
-from ngclearn.components import RateCell, MethodProcess, Context
+from ngclearn import Context, MethodProcess
 from ngclearn.utils.io_utils import makedir
+from jax import numpy as jnp, random, jit
+from ngclearn.components import HebbianSynapse, StaticSynapse
+from ngclearn.utils.distribution_generator import DistributionGenerator as dist
+from config import Config as config
 from layers.embedding import EMBEDDING
+from layers.attention import Attention
 from layers.blocks import Block
+from utils.attention_utils import AttentionBlock
+from utils.embed_utils import EmbeddingSynapse
+from layers.mlp import MLP
 from layers.output import Output
-from projection.projection import Projection
 from utils.model_util import ReshapeComponent, Outgrad
+from projection.projection import Projection
+import numpy as np
+from utils.errorcell import GaussianErrorCell as ErrorCell
+from utils.ratecell import RateCell
 
 class NGCTransformer:
     def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, n_layers, n_heads, T, dt, tau_m, act_fx, eta, dropout_rate, exp_dir, model_name, loadDir=None, pos_learnable=False, optim_type="adam", wub=1.0, wlb=0.0, **kwargs):

@@ -120,7 +120,7 @@ def weight_stats(model):
 dkey = jax.random.PRNGKey(0)
 model = NGCTransformer(
     dkey, 
-    batch_size=config.batch_size, 
+    batch_size=1, # Standard for single-sequence generation
     seq_len=config.seq_len, 
     n_embed=config.n_embed, 
     vocab_size=config.vocab_size, 
@@ -133,7 +133,7 @@ model = NGCTransformer(
     eta=config.eta, 
     dropout_rate=config.dropout_rate, 
     exp_dir="exp",
-    loadDir=None, 
+    loadDir="exp", # Ensure model is loaded from trained exp/ directory
     pos_learnable=config.pos_learnable, 
     optim_type=config.optim_type, 
     wub=config.wub, 
@@ -202,11 +202,11 @@ def generate_text(
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=0)
         
         # Dummy target for inference (unused when adapt_synapses=False)
-        dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))  
+        dummy_target = jnp.zeros((model.batch_size * seq_len, config.vocab_size))  
 
         # Forward pass
         y_mu_inf, y_mu, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
-        logits = y_mu.reshape(config.batch_size, config.seq_len, config.vocab_size)
+        logits = y_mu.reshape(model.batch_size, seq_len, config.vocab_size)
 
         # Get logits for the last *real* token (excluding padding)
         actual_len = min(current_tokens.shape[1], seq_len)

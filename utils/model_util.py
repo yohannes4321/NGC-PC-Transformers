@@ -108,3 +108,82 @@ class Outgrad(JaxComponent):
         self.mu.set(zeros)
         self.dmu.set(zeros)
         self.dmu_.set(zeros)
+
+def stat(name, x):
+    if x is None:
+        print(f"{name:45s} is None")
+        return
+    x = jnp.asarray(x)
+    print(
+        f"{name:45s}"
+        f" shape={str(x.shape):15s}"
+        f" mean={jnp.mean(x):10.6f}"
+        f" std={jnp.std(x):10.6f}"
+        f" max={jnp.max(x):10.6f}"
+        f" min={jnp.min(x):10.6f}"
+    )
+
+def trace_model(model):
+    print("\n" + "="*100)
+    print(f"EXHAUSTIVE MODEL TRACE (T={model.T})")
+    print("="*100)
+
+    # --- 1. EMBEDDING ---
+    print("\n[EMBEDDING]")
+    c = model.embedding
+    stat("  z_embed.z", c.z_embed.z.get())
+    stat("  z_embed.zF", c.z_embed.zF.get())
+    stat("  W_embed.inputs", c.W_embed.inputs.get())
+    stat("  W_embed.outputs", c.W_embed.outputs.get())
+    stat("  e_embed.mu", c.e_embed.mu.get())
+    stat("  e_embed.target", c.e_embed.target.get())
+
+    # --- 2. BLOCKS ---
+    for i, b in enumerate(model.blocks):
+        print(f"\n[BLOCK {i} - ATTENTION]")
+        stat("  z_qkv.z", b.attention.z_qkv.z.get())
+        stat("  z_qkv.zF", b.attention.z_qkv.zF.get())
+        stat("  W_q.inputs", b.attention.W_q.inputs.get())
+        stat("  W_q.outputs", b.attention.W_q.outputs.get())
+        stat("  W_k.inputs", b.attention.W_k.inputs.get())
+        stat("  W_k.outputs", b.attention.W_k.outputs.get())
+        stat("  W_v.inputs", b.attention.W_v.inputs.get())
+        stat("  W_v.outputs", b.attention.W_v.outputs.get())
+        stat("  attn_block.inputs_q", b.attention.attn_block.inputs_q.get())
+        stat("  attn_block.outputs", b.attention.attn_block.outputs.get())
+        stat("  z_attn.z", b.attention.z_attn.z.get())
+        stat("  z_attn.zF", b.attention.z_attn.zF.get())
+        stat("  W_attn_out.inputs", b.attention.W_attn_out.inputs.get())
+        stat("  W_attn_out.outputs", b.attention.W_attn_out.outputs.get())
+        stat("  e_qkv.mu", b.attention.e_qkv.mu.get())
+        stat("  e_qkv.target", b.attention.e_qkv.target.get())
+        stat("  e_attn.mu", b.attention.e_attn.mu.get())
+        stat("  e_attn.target", b.attention.e_attn.target.get())
+
+        print(f"\n[BLOCK {i} - MLP]")
+        stat("  z_mlp.z", b.mlp.z_mlp.z.get())
+        stat("  z_mlp.zF", b.mlp.z_mlp.zF.get())
+        stat("  W_mlp1.inputs", b.mlp.W_mlp1.inputs.get())
+        stat("  W_mlp1.outputs", b.mlp.W_mlp1.outputs.get())
+        stat("  z_mlp2.z", b.mlp.z_mlp2.z.get())
+        stat("  z_mlp2.zF", b.mlp.z_mlp2.zF.get())
+        stat("  W_mlp2.inputs", b.mlp.W_mlp2.inputs.get())
+        stat("  W_mlp2.outputs", b.mlp.W_mlp2.outputs.get())
+        stat("  e_mlp1.mu", b.mlp.e_mlp1.mu.get())
+        stat("  e_mlp1.target", b.mlp.e_mlp1.target.get())
+        stat("  e_mlp.mu", b.mlp.e_mlp.mu.get())
+        stat("  e_mlp.target", b.mlp.e_mlp.target.get())
+
+    # --- 3. OUTPUT ---
+    print("\n[OUTPUT]")
+    stat("  z_out.z", model.output.z_out.z.get())
+    stat("  z_out.zF", model.output.z_out.zF.get())
+    stat("  W_out.inputs", model.output.W_out.inputs.get())
+    stat("  W_out.outputs", model.output.W_out.outputs.get())
+    stat("  e_out.mu", model.output.e_out.mu.get())
+    stat("  e_out.target", model.output.e_out.target.get())
+    stat("  z_target.z", model.z_target.z.get())
+    stat("  z_actfx.z", model.z_actfx.z.get())
+    stat("  z_actfx.zF", model.z_actfx.zF.get())
+
+    print("\n" + "="*100 + "\n")

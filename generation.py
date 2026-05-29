@@ -35,8 +35,7 @@ if __name__ == "__main__":
         model_name="ngc_transformer"
     )
 
-    # Call weight stats once
-    weight_stats(model)
+    # Optional: add custom weight stats here if needed
 
     tokenizer = get_tokenizer(config)
 
@@ -56,6 +55,70 @@ if __name__ == "__main__":
             raise RuntimeError(
                 "BPE tokenizer not trained or loaded!\n\n"
             )
+
+    prompt_1 = (
+        "First Citizen:\n"
+        "Before we proceed any further, hear me speak.\n\n"
+        "All:\n"
+        "Speak, speak.\n\n"
+        "First Citizen:\n"
+        "You are all resolved rather to die than to famish?\n\n"
+        "All:\n"
+        "Resolved. resolved.\n\n"
+        "First Citizen:\n"
+        "First, you know Caius Marcius is chief enemy to the people.\n\n"
+        "All:\n"
+        "We know't, we know't."
+    )
+
+    prompt_2 = (
+        "Messenger:\n"
+        "They lie in view; but have not spoke as yet.\n\n"
+        "LARTIUS:\n"
+        "So, the good horse is mine.\n\n"
+        "MARCIUS:\n"
+        "I'll buy him of you.\n\n"
+        "LARTIUS:\n"
+        "No, I'll nor sell nor give him: lend you him I will\n"
+        "For half a hundred years. Summon the town.\n\n"
+        "MARCIUS:\n"
+        "How far off lie these armies?\n\n"
+        "Messenger:"
+    )
+
+    rng = jax.random.PRNGKey(0)
+    rng, key_1 = jax.random.split(rng)
+    rng, key_2 = jax.random.split(rng)
+
+    print("\n**************** PROMPT 1 ****************")
+    print(prompt_1)
+    print("\nFINAL GENERATED 1:\n")
+    print(
+        generate_text(
+            model,
+            tokenizer,
+            prompt_1,
+            max_new_tokens=100,
+            temperature=0.9,
+            top_k=50,
+            key=key_1,
+        )
+    )
+
+    print("\n**************** PROMPT 2 ****************")
+    print(prompt_2)
+    print("\nFINAL GENERATED 2:\n")
+    print(
+        generate_text(
+            model,
+            tokenizer,
+            prompt_2,
+            max_new_tokens=100,
+            temperature=0.9,
+            top_k=50,
+            key=key_2,
+        )
+    )
 
 
 def generate_text(

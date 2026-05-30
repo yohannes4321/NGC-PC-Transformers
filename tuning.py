@@ -25,61 +25,107 @@ from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
-EFE_STABILITY_THRESHOLD = 2e1
-
+EFE_STABILITY_THRESHOLD = 1e5
 
 def define_search_space(trial):
-    # Heads and embedding: ensure n_embed divisible by n_heads
-    n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
-    n_embed =  n_heads * embed_mult
-    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
+    # Ensure n_embed divisible by n_heads
+    n_heads = trial.suggest_int("n_heads", 1, 16)
+
+    embed_mult = trial.suggest_int("embed_mult", 4, 64)
+
+    n_embed = n_heads * embed_mult
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 8),
-        "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
-        "wub": trial.suggest_float("wub", 0.01, 0.1),
-        "wlb": trial.suggest_float("wlb", -0.1, -0.01),
-        "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+        # Architecture
+        "n_layers": trial.suggest_int("n_layers", 1, 16),
         "n_heads": n_heads,
         "n_embed": n_embed,
-        "batch_size": batch_size,
-        "seq_len": seq_len,
-        "embed_mult": embed_mult
+        "embed_mult": embed_mult,
+
+        # Data
+        "batch_size": trial.suggest_int("batch_size", 1, 64),
+        "seq_len": trial.suggest_int("seq_len", 8, 256),
+
+        # NGC parameters
+        "eta": trial.suggest_float("eta", 1e-8, 1e-2, log=True),
+        "tau_m": trial.suggest_int("tau_m", 2, 200),
+        "n_iter": trial.suggest_int("n_iter", 5, 200),
+
+        # Regularization
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.5),
+
+        # Weight bounds
+        "wub": trial.suggest_float("wub", 0.001, 1.0),
+        "wlb": trial.suggest_float("wlb", -1.0, -0.001),
+
+        # Position encoding
+        "pos_learnable": trial.suggest_categorical(
+            "pos_learnable",
+            [True, False]
+        ),
+
+        # Optimizer
+        "optim_type": trial.suggest_categorical(
+            "optim_type",
+            ["adam", "sgd"]
+        ),
+
+        # Activation function
+        "act_fx": trial.suggest_categorical(
+            "act_fx",
+            [
+                "identity",
+                "relu",
+                "tanh",
+                "sigmoid",
+                "gelu",
+                "elu",
+                "selu",
+                "softplus",
+                "swish",
+                "leaky_relu"
+            ]
+        ),
     }
 
+
 def define_search_space_phase2(trial, best_params):
-    """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
-    
-    # Extract Phase 1 best values
-    eta_best = best_params.get("eta", 1e-5)
-    dropout_rate_best = best_params.get("dropout_rate", 0.0)
-    wub_best = best_params.get("wub", 0.05)
-    wlb_best = best_params.get("wlb", -0.05)
-    
-    # Only tune these continuous parameters with narrow search
+    """
+    Phase 2:
+    Only tune continuous parameters.
+    Keep architecture, optimizer, and activation fixed.
+    """
+
+    eta_best = best_params["eta"]
+    dropout_best = best_params["dropout_rate"]
+    wub_best = best_params["wub"]
+    wlb_best = best_params["wlb"]
+
     return {
-        "eta": trial.suggest_float("eta",
-                                   eta_best * 0.2,      
-                                   eta_best * 5.0,      
-                                   log=True),
-        "dropout_rate": trial.suggest_float("dropout_rate",
-                                           max(0.0, dropout_rate_best - 0.05),
-                                           min(0.3, dropout_rate_best + 0.05)),
-        "wub": trial.suggest_float("wub",
-                                  max(0.01, wub_best - 0.02),
-                                  min(0.1, wub_best + 0.02)),
-        
-        "wlb": trial.suggest_float("wlb",
-                                  max(-0.1, wlb_best - 0.02),
-                                  min(-0.01, wlb_best + 0.02)),
+        "eta": trial.suggest_float(
+            "eta",
+            max(1e-8, eta_best * 0.1),
+            min(1e-2, eta_best * 10),
+            log=True
+        ),
+
+        "dropout_rate": trial.suggest_float(
+            "dropout_rate",
+            max(0.0, dropout_best - 0.1),
+            min(0.5, dropout_best + 0.1)
+        ),
+
+        "wub": trial.suggest_float(
+            "wub",
+            max(0.001, wub_best * 0.5),
+            min(1.0, wub_best * 2.0)
+        ),
+
+        "wlb": trial.suggest_float(
+            "wlb",
+            max(-1.0, wlb_best * 2.0),
+            min(-0.001, wlb_best * 0.5)
+        ),
     }
     
     # ALL OTHER PARAMETERS ARE FIXED FROM PHASE 1 BEST

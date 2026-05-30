@@ -26,6 +26,21 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
 EFE_STABILITY_THRESHOLD = 1e5
+SEARCH_SPACE_VERSION = "v1"
+
+ACT_FX_CHOICES = [
+    "identity",
+    "relu",
+    "elu",
+    "selu",
+    "sigmoid",
+    "tanh",
+]
+
+OPTIM_CHOICES = [
+    "adam",
+    "sgd",
+]
 
 def define_search_space(trial):
 
@@ -109,19 +124,12 @@ def define_search_space(trial):
 
         "optim_type": trial.suggest_categorical(
             "optim_type",
-            ["adam", "sgd"]
+            OPTIM_CHOICES
         ),
 
         "act_fx": trial.suggest_categorical(
             "act_fx",
-            [
-                "identity",
-                "relu",
-                "elu",
-                "selu",
-                "sigmoid",
-                "tanh"
-            ]
+            ACT_FX_CHOICES
         ),
     }
     
@@ -351,9 +359,11 @@ def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)
 
     print("PHASE 1: TPE optimizing EFE (all parameters)")
+    phase1_study_name = f"case1_complete_phase1_efe_{SEARCH_SPACE_VERSION}"
+    phase1_storage = f"sqlite:///tuning/{phase1_study_name}.db"
     study_efe = optuna.create_study(
-        study_name="case1_complete_phase1_efe",
-        storage="sqlite:///tuning/case1_complete_phase1_efe.db",
+        study_name=phase1_study_name,
+        storage=phase1_storage,
         load_if_exists=True,
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=42, n_startup_trials=2),
@@ -388,20 +398,22 @@ def case1_efe_to_ce_complete():
     print("Strategy: Keep architecture/discrete/categorical parameters FIXED")
     print("Only fine-tune: eta, dropout_rate, wub, wlb")
     
+    phase2_study_name = f"case1_complete_phase2_ce_{SEARCH_SPACE_VERSION}"
+    phase2_storage = f"sqlite:///tuning/{phase2_study_name}.db"
     study_ce = optuna.create_study(
-    study_name="case1_complete_phase2_ce",
-    storage="sqlite:///tuning/case1_complete_phase2_ce.db",
-    load_if_exists=True,
-    direction="minimize",
-    sampler=optuna.samplers.TPESampler(
-        seed=42,
-        n_startup_trials=5,
-        multivariate=True,    
-        group=True,          
-        prior_weight=1.0,     
-        consider_endpoints=True  
-    ),
-    pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15)
+        study_name=phase2_study_name,
+        storage=phase2_storage,
+        load_if_exists=True,
+        direction="minimize",
+        sampler=optuna.samplers.TPESampler(
+            seed=42,
+            n_startup_trials=5,
+            multivariate=True,
+            group=True,
+            prior_weight=1.0,
+            consider_endpoints=True
+        ),
+        pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15)
     )
     
     print(f"Resuming with {len(study_ce.trials)} previous trials")

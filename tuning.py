@@ -226,11 +226,6 @@ def run_single_trial_efe(trial):
             avg_train_ce = total_train_ce / batches_processed
 
             trial.report(current_efe, batch_idx)
-            if trial.should_prune():
-                reason = f"TPE pruned at batch {batch_idx} | current EFE={current_efe:.4f}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         final_ce = avg_train_ce if batches_processed > 0 else 100.0

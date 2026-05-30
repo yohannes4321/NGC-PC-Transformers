@@ -24,7 +24,7 @@ from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
-EFE_STABILITY_THRESHOLD = 2e1
+EFE_STABILITY_THRESHOLD = 5e2
 
 
 def define_search_space(trial):
@@ -157,8 +157,10 @@ def run_single_trial_efe(trial):
                 raise optuna.TrialPruned()
 
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-                print(f"Unstable EFE: {EFE} (skipping batch)")
-                continue
+                reason = f"Unstable EFE: {EFE}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
 
             total_EFE += EFE
             batches_processed += 1
@@ -264,8 +266,10 @@ def run_phase2_trial(trial, best_params):
             total_tokens += targets_flat.shape[0]
             
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-                print(f"Unstable EFE during CE: {EFE} (skipping batch)")
-                continue
+                reason = f"Unstable EFE during CE: {EFE}"
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
         except Exception as e:
             reason = f"model.process failed during CE: {e}"
             trial.set_user_attr("prune_reason", reason)

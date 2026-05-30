@@ -186,7 +186,7 @@ def run_single_trial_efe(trial):
             reason = f"Failed to create model: {e}"
             trial.set_user_attr("prune_reason", reason)
             print(reason)
-            raise optuna.TrialPruned()
+            return float("inf")
 
         total_EFE = 0.0
         total_train_ce = 0.0
@@ -207,13 +207,13 @@ def run_single_trial_efe(trial):
                 reason = f"model.process failed: {e}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
-                raise optuna.TrialPruned()
+                return float("inf")
 
             if jnp.isnan(EFE) or jnp.isinf(EFE):
                 reason = f"Unstable EFE: {EFE}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
-                raise optuna.TrialPruned()
+                return float("inf")
 
             total_EFE += EFE
             batches_processed += 1
@@ -280,7 +280,7 @@ def run_phase2_trial(trial, best_params):
         reason = f"Failed to create model: {e}"
         trial.set_user_attr("prune_reason", reason)
         print(reason)
-        raise optuna.TrialPruned()
+        return float("inf")
 
     total_train_ce = 0.0  
     batches_processed = 0
@@ -305,23 +305,18 @@ def run_phase2_trial(trial, best_params):
                 reason = f"Unstable EFE during CE: {EFE}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
-                raise optuna.TrialPruned()
+                return float("inf")
         except Exception as e:
             reason = f"model.process failed during CE: {e}"
             trial.set_user_attr("prune_reason", reason)
             print(reason)
-            raise optuna.TrialPruned()
+            return float("inf")
 
         total_train_ce += float(batch_train_ce)
         batches_processed += 1
         avg_train_ce = total_train_ce / batches_processed
 
         trial.report(avg_train_ce, batch_idx)
-        if trial.should_prune():
-            reason = f"TPE pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
     final_ce = avg_train_ce if batches_processed > 0 else 100.0
@@ -348,7 +343,7 @@ def case1_efe_to_ce_complete():
         load_if_exists=True,
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=42, n_startup_trials=2),
-        pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
+        pruner=optuna.pruners.NopPruner()
     )
 
     study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
@@ -396,7 +391,7 @@ def case1_efe_to_ce_complete():
             prior_weight=1.0,
             consider_endpoints=True
         ),
-        pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15)
+        pruner=optuna.pruners.NopPruner()
     )
     
     print(f"Resuming with {len(study_ce.trials)} previous trials")

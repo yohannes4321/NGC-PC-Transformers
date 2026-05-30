@@ -48,7 +48,7 @@ def define_search_space(trial):
     embed_mult = trial.suggest_int(
         "embed_mult",
         8,
-        96,
+        64,
         step=8
     )
 
@@ -70,14 +70,14 @@ def define_search_space(trial):
         "batch_size": trial.suggest_int(
             "batch_size",
             4,
-            40,
+            32,
             step=4
         ),
 
         "seq_len": trial.suggest_int(
             "seq_len",
             8,
-            64
+            32
         ),
 
         "eta": trial.suggest_float(

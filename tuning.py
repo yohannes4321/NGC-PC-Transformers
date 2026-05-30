@@ -25,6 +25,7 @@ from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
 EFE_STABILITY_THRESHOLD = 5e2
+EFE_INCREASE_PRUNE_STREAK = 5
 
 
 def define_search_space(trial):
@@ -140,6 +141,8 @@ def run_single_trial_efe(trial):
         total_nll = 0.0
         total_tokens = 0
         batches_processed = 0
+        last_efe = None
+        efe_increase_streak = 0
         start_time = time.time()
         for batch_idx, batch in enumerate(train_loader):
             inputs = batch[0][1]
@@ -162,9 +165,24 @@ def run_single_trial_efe(trial):
                 print(reason)
                 raise optuna.TrialPruned()
 
+            if last_efe is not None and EFE > last_efe:
+                efe_increase_streak += 1
+            else:
+                efe_increase_streak = 0
+
+            if efe_increase_streak >= EFE_INCREASE_PRUNE_STREAK:
+                reason = (
+                    f"EFE increased for {EFE_INCREASE_PRUNE_STREAK} consecutive batches "
+                    f"(last={last_efe:.4f}, current={EFE:.4f})"
+                )
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
+
             total_EFE += EFE
             batches_processed += 1
             current_efe = total_EFE / batches_processed
+            last_efe = EFE
 
             y_pred = y_mu.reshape(-1, cfg.vocab_size)
             batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()
@@ -248,6 +266,8 @@ def run_phase2_trial(trial, best_params):
     total_nll = 0.0
     total_tokens = 0
     batches_processed = 0
+    last_efe = None
+    efe_increase_streak = 0
     start_time = time.time()
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
@@ -270,6 +290,20 @@ def run_phase2_trial(trial, best_params):
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
+
+            if last_efe is not None and EFE > last_efe:
+                efe_increase_streak += 1
+            else:
+                efe_increase_streak = 0
+
+            if efe_increase_streak >= EFE_INCREASE_PRUNE_STREAK:
+                reason = (
+                    f"EFE increased for {EFE_INCREASE_PRUNE_STREAK} consecutive batches during CE "
+                    f"(last={last_efe:.4f}, current={EFE:.4f})"
+                )
+                trial.set_user_attr("prune_reason", reason)
+                print(reason)
+                raise optuna.TrialPruned()
         except Exception as e:
             reason = f"model.process failed during CE: {e}"
             trial.set_user_attr("prune_reason", reason)
@@ -279,6 +313,7 @@ def run_phase2_trial(trial, best_params):
         total_train_ce += float(batch_train_ce)
         batches_processed += 1
         avg_train_ce = total_train_ce / batches_processed
+        last_efe = EFE
 
         trial.report(avg_train_ce, batch_idx)
         if batch_idx % 10 == 0:

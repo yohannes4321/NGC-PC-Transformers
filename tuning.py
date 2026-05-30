@@ -41,7 +41,6 @@ def define_search_space(trial):
     n_embed = n_heads * embed_mult
 
     return {
-
         "n_layers": trial.suggest_int(
             "n_layers",
             1,

@@ -209,7 +209,7 @@ def run_single_trial_efe(trial):
                 print(reason)
                 raise optuna.TrialPruned()
 
-            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
+            if jnp.isnan(EFE) or jnp.isinf(EFE):
                 reason = f"Unstable EFE: {EFE}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)

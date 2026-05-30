@@ -20,7 +20,6 @@ import jax.random as random
 from pathlib import Path
 from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
-from eval import eval_model
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
@@ -130,7 +129,7 @@ def run_single_trial_efe(trial):
             cfg.vocab_size = base_config.vocab_size
 
         try:
-            model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
+            model, train_loader, _ = create_model_with_all_params(trial.number, params, cfg)
         except Exception as e:
             reason = f"Failed to create model: {e}"
             trial.set_user_attr("prune_reason", reason)
@@ -138,6 +137,8 @@ def run_single_trial_efe(trial):
             raise optuna.TrialPruned()
 
         total_EFE = 0.0
+        total_nll = 0.0
+        total_tokens = 0
         batches_processed = 0
         start_time = time.time()
         max_batches = 20
@@ -150,7 +151,7 @@ def run_single_trial_efe(trial):
 
 
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
             except Exception as e:
                 reason = f"model.process failed: {e}"
@@ -168,6 +169,11 @@ def run_single_trial_efe(trial):
             batches_processed += 1
             current_efe = total_EFE / batches_processed
 
+            y_pred = y_mu.reshape(-1, cfg.vocab_size)
+            batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()
+            total_nll += batch_ce_loss * targets_flat.shape[0]
+            total_tokens += targets_flat.shape[0]
+
             trial.report(current_efe, batch_idx)
             if trial.should_prune():
                 reason = f"TPE pruned at batch {batch_idx} | current EFE={current_efe:.4f}"
@@ -175,16 +181,19 @@ def run_single_trial_efe(trial):
                 print(reason)
                 raise optuna.TrialPruned()
 
-            if batch_idx % 2 == 0:
+            if batch_idx % 10 == 0:
                 elapsed = time.time() - start_time
-                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+                batch_ppl = jnp.exp(batch_ce_loss)
+                running_ce = total_nll / total_tokens
+                running_ppl = jnp.exp(running_ce)
+                print(
+                    f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_ce_loss:.4f} | "
+                    f"PPL={batch_ppl:.4f} | Running CE={running_ce:.4f} | "
+                    f"Running PPL={running_ppl:.4f} | Time={elapsed:.1f}s"
+                )
 
-        try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        except:
-            final_ce = 1000.0
-            final_ppl = float('inf')
-
+        final_ce = float(total_nll / total_tokens) if total_tokens > 0 else 1000.0
+        final_ppl = float(jnp.exp(final_ce)) if total_tokens > 0 else float("inf")
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         total_time = time.time() - start_time
 
@@ -233,7 +242,7 @@ def run_phase2_trial(trial, best_params):
         cfg.vocab_size = base_config.vocab_size
 
     try:
-        model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
+        model, train_loader, _ = create_model_with_all_params(trial.number, params, cfg)
     except Exception as e:
         reason = f"Failed to create model: {e}"
         trial.set_user_attr("prune_reason", reason)
@@ -241,6 +250,8 @@ def run_phase2_trial(trial, best_params):
         raise optuna.TrialPruned()
 
     total_train_ce = 0.0  
+    total_nll = 0.0
+    total_tokens = 0
     batches_processed = 0
     start_time = time.time()
     max_batches = 20
@@ -259,6 +270,8 @@ def run_phase2_trial(trial, best_params):
             y_pred = y_mu.reshape(-1, cfg.vocab_size)
             batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
             batch_train_ce = batch_nll / targets_flat.shape[0]
+            total_nll += batch_nll
+            total_tokens += targets_flat.shape[0]
             
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
                 reason = f"Unstable EFE during CE: {EFE}"
@@ -281,6 +294,16 @@ def run_phase2_trial(trial, best_params):
             trial.set_user_attr("prune_reason", reason)
             print(reason)
             raise optuna.TrialPruned()
+        if batch_idx % 10 == 0:
+            elapsed = time.time() - start_time
+            batch_ppl = jnp.exp(batch_train_ce)
+            running_ce = total_nll / total_tokens
+            running_ppl = jnp.exp(running_ce)
+            print(
+                f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_train_ce:.4f} | "
+                f"PPL={batch_ppl:.4f} | Running CE={running_ce:.4f} | "
+                f"Running PPL={running_ppl:.4f} | Time={elapsed:.1f}s"
+            )
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
         if batch_idx % 2 == 0:

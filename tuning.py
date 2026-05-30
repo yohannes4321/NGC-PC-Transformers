@@ -141,10 +141,7 @@ def run_single_trial_efe(trial):
         total_tokens = 0
         batches_processed = 0
         start_time = time.time()
-        max_batches = 20
         for batch_idx, batch in enumerate(train_loader):
-            if batch_idx >= max_batches:
-                break
             inputs = batch[0][1]
             targets = batch[1][1]
             targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
@@ -160,10 +157,8 @@ def run_single_trial_efe(trial):
                 raise optuna.TrialPruned()
 
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-                reason = f"Unstable EFE: {EFE}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+                print(f"Unstable EFE: {EFE} (skipping batch)")
+                continue
 
             total_EFE += EFE
             batches_processed += 1
@@ -175,11 +170,6 @@ def run_single_trial_efe(trial):
             total_tokens += targets_flat.shape[0]
 
             trial.report(current_efe, batch_idx)
-            if trial.should_prune():
-                reason = f"TPE pruned at batch {batch_idx} | current EFE={current_efe:.4f}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
 
             if batch_idx % 10 == 0:
                 elapsed = time.time() - start_time
@@ -204,7 +194,10 @@ def run_single_trial_efe(trial):
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
+        print(
+            f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | "
+            f"PPL={final_ppl:.4f} | Time={total_time:.1f}s"
+        )
         return float(final_efe)
     finally:
         
@@ -254,11 +247,8 @@ def run_phase2_trial(trial, best_params):
     total_tokens = 0
     batches_processed = 0
     start_time = time.time()
-    max_batches = 20
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
-        if batch_idx >= max_batches:
-            break
         inputs = batch[0][1]
         targets = batch[1][1]
         targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
@@ -274,10 +264,8 @@ def run_phase2_trial(trial, best_params):
             total_tokens += targets_flat.shape[0]
             
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
-                reason = f"Unstable EFE during CE: {EFE}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
+                print(f"Unstable EFE during CE: {EFE} (skipping batch)")
+                continue
         except Exception as e:
             reason = f"model.process failed during CE: {e}"
             trial.set_user_attr("prune_reason", reason)
@@ -289,11 +277,6 @@ def run_phase2_trial(trial, best_params):
         avg_train_ce = total_train_ce / batches_processed
 
         trial.report(avg_train_ce, batch_idx)
-        if trial.should_prune():
-            reason = f"TPE pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
         if batch_idx % 10 == 0:
             elapsed = time.time() - start_time
             batch_ppl = jnp.exp(batch_train_ce)
@@ -306,16 +289,8 @@ def run_phase2_trial(trial, best_params):
             )
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
-        if batch_idx % 2 == 0:
-            elapsed = time.time() - start_time
-            print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
-
-    try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        final_ce = float(final_ce)
-    except:
-        final_ce = avg_train_ce if batches_processed > 0 else 100.0
-        final_ppl = float('inf')
+    final_ce = float(total_nll / total_tokens) if total_tokens > 0 else 100.0
+    final_ppl = float(jnp.exp(final_ce)) if total_tokens > 0 else float("inf")
 
     total_time = time.time() - start_time
     trial.set_user_attr("ppl", float(final_ppl))
@@ -324,7 +299,10 @@ def run_phase2_trial(trial, best_params):
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
+    print(
+        f"Trial {trial.number} Complete | CE={final_ce:.4f} | PPL={final_ppl:.4f} | "
+        f"Time={total_time:.1f}s"
+    )
     return float(final_ce)  
 
 def case1_efe_to_ce_complete():
@@ -337,7 +315,7 @@ def case1_efe_to_ce_complete():
         load_if_exists=True,
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=42, n_startup_trials=2),
-        pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
+        pruner=optuna.pruners.NopPruner()
     )
 
     study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
@@ -381,7 +359,7 @@ def case1_efe_to_ce_complete():
         prior_weight=1.0,     
         consider_endpoints=True  
     ),
-    pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15)
+    pruner=optuna.pruners.NopPruner()
     )
     
     print(f"Resuming with {len(study_ce.trials)} previous trials")

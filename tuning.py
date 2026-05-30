@@ -48,8 +48,8 @@ def define_search_space(trial):
     embed_mult = trial.suggest_int(
         "embed_mult",
         8,
-        24,
-        step=4
+        96,
+        step=8
     )
 
     n_embed = n_heads * embed_mult
@@ -69,8 +69,9 @@ def define_search_space(trial):
 
         "batch_size": trial.suggest_int(
             "batch_size",
-            1,
-            16
+            4,
+            40,
+            step=4
         ),
 
         "seq_len": trial.suggest_int(

@@ -37,37 +37,41 @@ class NGCTransformer:
             makedir(exp_dir + "/filters")
 
         dkey, *subkeys = random.split(dkey, 50)
-        if loadDir is not None:
-            self.load_from_disk(loadDir, n_layers=n_layers)
-        else:
+        
+    
        
-            with Context("Circuit") as self.circuit:
-                    
-                self.embedding = EMBEDDING(dkey=subkeys[0], vocab_size=self.vocab_size, seq_len=self.seq_len, embed_dim=self.n_embed, batch_size=self.batch_size, pos_learnable=pos_learnable, eta=eta, optim_type=optim_type)
-                    
-                self.blocks = []
-                for i in range(n_layers):
-                    key, subkey = random.split(subkeys[1 + i])
-                    block=Block(dkey=subkey, block_id= i, n_embed=self.n_embed, seq_len=self.seq_len,
-                                    batch_size=self.batch_size, vocab_size=self.vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m)
-                    self.blocks.append(block)   
-                        
-                self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
-                    
-                self.z_target=RateCell("z_target", n_units= self.vocab_size, tau_m=0., act_fx="identity", batch_size=self.batch_size * self.seq_len) 
-                self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=tau_m, act_fx="softmax", batch_size=self.batch_size * self.seq_len)
-                self.projection = Projection(dkey=subkeys[29], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size,
-                                                vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate)
+        with Context("Circuit") as self.circuit:
                 
-                self.reshape_3d_to_2d_embed = ReshapeComponent("reshape_3d_to_2d_embed",
-                                                input_shape=(self.batch_size, self.seq_len, self.n_embed),
-                                                output_shape=(self.batch_size * self.seq_len, self.n_embed))
-                self.reshape_2d_to_3d_embed= ReshapeComponent("reshape_2d_to_3d_embed",
-                                                input_shape=(self.batch_size * self.seq_len, self.n_embed),
-                                                output_shape=(self.batch_size, self.seq_len, self.n_embed))
-                self.Outgrad = Outgrad("Outgrad", batch_size=self.batch_size, seq_len=self.seq_len, vocab_size=self.vocab_size)    
+            self.embedding = EMBEDDING(dkey=subkeys[0], vocab_size=self.vocab_size, seq_len=self.seq_len, embed_dim=self.n_embed, batch_size=self.batch_size, pos_learnable=pos_learnable, eta=eta, optim_type=optim_type)
+                
+            self.blocks = []
+            for i in range(n_layers):
+                key, subkey = random.split(subkeys[1 + i])
+                block=Block(dkey=subkey, block_id= i, n_embed=self.n_embed, seq_len=self.seq_len,
+                                batch_size=self.batch_size, vocab_size=self.vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m)
+                self.blocks.append(block)   
                     
-                # CORRECT PREDICTIVE CODING FLOW
+            self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
+                
+            self.z_target=RateCell("z_target", n_units= self.vocab_size, tau_m=0., act_fx="identity", batch_size=self.batch_size * self.seq_len) 
+            self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=tau_m, act_fx="softmax", batch_size=self.batch_size * self.seq_len)
+            self.projection = Projection(dkey=subkeys[29], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size,
+                                             vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate)
+            
+            self.reshape_3d_to_2d_embed = ReshapeComponent("reshape_3d_to_2d_embed",
+                                            input_shape=(self.batch_size, self.seq_len, self.n_embed),
+                                            output_shape=(self.batch_size * self.seq_len, self.n_embed))
+            self.reshape_2d_to_3d_embed= ReshapeComponent("reshape_2d_to_3d_embed",
+                                            input_shape=(self.batch_size * self.seq_len, self.n_embed),
+                                            output_shape=(self.batch_size, self.seq_len, self.n_embed))
+            self.Outgrad = Outgrad("Outgrad", batch_size=self.batch_size, seq_len=self.seq_len, vocab_size=self.vocab_size)    
+                
+            if loadDir is not None:
+   
+            self.load_from_disk(loadDir,n_layers=n_layers)
+          
+        else:
+            with Context("Circuit") as self.circuit:
                 self.embedding.z_embed.zF >> self.embedding.W_embed.inputs
                 self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs
                 self.reshape_3d_to_2d_embed.outputs >> self.blocks[0].attention.z_qkv.j
@@ -305,7 +309,7 @@ class NGCTransformer:
                 self.project = project_process
                 self.embedding_evolve=embedding_evolve_process
 
-        
+            
 
     def clamp_input(self, x):
         self.embedding.z_embed.j.set(x)

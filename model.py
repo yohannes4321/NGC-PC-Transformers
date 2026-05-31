@@ -102,245 +102,243 @@ class NGCTransformer:
             with Context("Circuit") as self.circuit:
 
 
-            self.embedding.z_embed.zF   >> self.embedding.W_embed.inputs
-            self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs
-            self.reshape_3d_to_2d_embed.outputs >> self.blocks[0].attention.z_qkv.j
-            self.reshape_3d_to_2d_embed.outputs >> self.embedding.e_embed.mu
-            self.blocks[0].attention.z_qkv.z >> self.embedding.e_embed.target
+                self.embedding.z_embed.zF   >> self.embedding.W_embed.inputs
+                self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs
+                self.reshape_3d_to_2d_embed.outputs >> self.blocks[0].attention.z_qkv.j
+                self.reshape_3d_to_2d_embed.outputs >> self.embedding.e_embed.mu
+                self.blocks[0].attention.z_qkv.z >> self.embedding.e_embed.target
+                
+                for blocks in range(n_layers):
+                    block = self.blocks[blocks]
+                    block.attention.z_qkv.zF >> block.attention.W_q.inputs
+                    block.attention.z_qkv.zF >> block.attention.W_k.inputs 
+                    block.attention.z_qkv.zF >> block.attention.W_v.inputs
+                    
+                    block.attention.W_q.outputs >> block.reshape_2d_to_3d_q.inputs 
+                    block.attention.W_k.outputs >> block.reshape_2d_to_3d_k.inputs 
+                    block.attention.W_v.outputs >> block.reshape_2d_to_3d_v.inputs 
+                    
+                    block.reshape_2d_to_3d_q.outputs >> block.attention.attn_block.inputs_q
+                    block.reshape_2d_to_3d_k.outputs >> block.attention.attn_block.inputs_k
+                    block.reshape_2d_to_3d_v.outputs >> block.attention.attn_block.inputs_v
+                    block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
+
+                    block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
+                    block.attention.z_attn.z >> block.attention.e_qkv.target
+                    
+                    block.attention.z_attn.zF >> block.attention.W_attn_out.inputs 
+                    block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
+                    block.mlp.z_mlp.z >> block.attention.e_attn.target
+
+                    block.mlp.z_mlp.zF >> block.mlp.W_mlp1.inputs
+                    block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu
+                    block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
+                    block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.inputs
+                    block.mlp.W_mlp2.outputs >> block.mlp.e_mlp.mu
+
+                    if blocks == n_layers - 1:
+                        self.output.z_out.z >> block.mlp.e_mlp.target
+                    else:
+                        self.blocks[blocks + 1].attention.z_qkv.z >> block.mlp.e_mlp.target
+
+                    block.mlp.e_mlp1.dmu >> block.mlp.E_mlp1.inputs
+                    block.mlp.e_mlp.dmu  >> block.mlp.E_mlp.inputs
+                    block.attention.e_qkv.dmu >> block.attention.attn_block.dmu
+                    
+                    block.attention.attn_block.dq >> block.attention.E_q.inputs
+                    block.attention.attn_block.dk >> block.attention.E_k.inputs
+                    block.attention.attn_block.dv >> block.attention.E_v.inputs
+                    block.attention.e_attn.dmu >> block.attention.E_attn.inputs
+                    
+                    block.attention.E_q.outputs >> block.attention.z_qkv.jq
+                    block.attention.E_k.outputs >> block.attention.z_qkv.jk
+                    block.attention.E_v.outputs >> block.attention.z_qkv.jv
+                    block.attention.E_attn.outputs >> block.attention.z_attn.j
+
+                    if blocks == 0:
+                        self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
+                    else:
+                        self.blocks[blocks - 1].mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
+                    block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
+
+                    block.mlp.E_mlp.outputs  >> block.mlp.z_mlp2.j
+                    block.mlp.E_mlp1.outputs >> block.mlp.z_mlp.j
+                    block.attention.e_attn.dtarget >> block.mlp.z_mlp.j_td
+                    block.mlp.e_mlp1.dtarget >> block.mlp.z_mlp2.j_td
+
+                    block.attention.z_qkv.zF >> block.attention.W_q.pre
+                    block.attention.attn_block.dtarget_q >> block.attention.W_q.post
+                    block.attention.z_qkv.zF >> block.attention.W_k.pre
+                    block.attention.attn_block.dtarget_k >> block.attention.W_k.post
+                    block.attention.z_qkv.zF >> block.attention.W_v.pre
+                    block.attention.attn_block.dtarget_v >> block.attention.W_v.post
+                    block.attention.z_attn.zF >> block.attention.W_attn_out.pre
+                    block.attention.e_attn.dmu >> block.attention.W_attn_out.post
+                    block.mlp.z_mlp.zF >> block.mlp.W_mlp1.pre
+                    block.mlp.e_mlp1.dmu >> block.mlp.W_mlp1.post
+                    block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.pre
+                    block.mlp.e_mlp.dmu >> block.mlp.W_mlp2.post
+
+                self.output.z_out.zF >> self.output.W_out.inputs
+                self.output.W_out.outputs >> self.z_actfx.j
+                self.output.W_out.outputs >> self.Outgrad.mu
+                self.z_actfx.zF >> self.output.e_out.mu
+                self.z_target.z >> self.output.e_out.target
+                self.output.e_out.dtarget >> self.output.E_out.inputs
+                self.output.E_out.outputs >> self.output.z_out.j
+                self.blocks[n_layers - 1].mlp.e_mlp.dtarget >> self.output.z_out.j_td
+                self.embedding.e_embed.dmu >> self.reshape_2d_to_3d_embed.inputs
+                self.reshape_2d_to_3d_embed.outputs >> self.embedding.W_embed.post
+                self.output.z_out.zF >> self.output.W_out.pre
+                self.output.e_out.dtarget >> self.output.W_out.post
+
+                ## PROJECTION PHASE ##
+                self.projection.q_embed_Ratecell.zF >> self.projection.Q_embed.inputs
+                self.projection.Q_embed.outputs >> self.projection.reshape_3d_to_2d_proj.inputs
+                for b in range(n_layers):
+                    block_proj = self.projection.blocks[b]
+                    if b == 0:
+                        self.projection.reshape_3d_to_2d_proj.outputs >> block_proj.q_qkv_Ratecell.j
+                    else:
+                        self.projection.blocks[b - 1].Q_mlp2.outputs >> block_proj.q_qkv_Ratecell.j
+                    block_proj.q_qkv_Ratecell.zF >> block_proj.Q_q.inputs
+                    block_proj.q_qkv_Ratecell.zF >> block_proj.Q_k.inputs
+                    block_proj.q_qkv_Ratecell.zF >> block_proj.Q_v.inputs
+                    block_proj.Q_q.outputs >> block_proj.q_attn_block.inputs_q
+                    block_proj.Q_k.outputs >> block_proj.q_attn_block.inputs_k
+                    block_proj.Q_v.outputs >> block_proj.q_attn_block.inputs_v
+                    block_proj.q_attn_block.outputs >> block_proj.reshape_3d_to_2d_proj1.inputs
+                    block_proj.reshape_3d_to_2d_proj1.outputs >> block_proj.q_attn_Ratecell.j
+                    block_proj.q_attn_Ratecell.zF >> block_proj.Q_attn_out.inputs
+                    block_proj.Q_attn_out.outputs >> block_proj.q_mlp_Ratecell.j
+                    block_proj.q_mlp_Ratecell.zF >> block_proj.Q_mlp1.inputs
+                    block_proj.Q_mlp1.outputs >> block_proj.q_mlp2_Ratecell.j
+                    block_proj.q_mlp2_Ratecell.zF >> block_proj.Q_mlp2.inputs
+
+                self.projection.blocks[n_layers - 1].Q_mlp2.outputs >> self.projection.q_out_Ratecell.j
+                self.projection.q_out_Ratecell.zF >> self.projection.Q_out.inputs
+                self.projection.Q_out.outputs >> self.projection.q_target_Ratecell.j
+                self.projection.q_target_Ratecell.z >> self.projection.eq_target.mu
+
+                # Processes
+                advance_process = MethodProcess(name="advance_process")
+                reset_process = MethodProcess(name="reset_process") 
+                embedding_evolve_process = MethodProcess(name="embedding_evolve_process")
+                evolve_process = MethodProcess(name="evolve_process")
+                project_process = MethodProcess(name="project_process")
+                
+                embedding_evolve_process >> self.embedding.W_embed.evolve
+                advance_process >> self.embedding.z_embed.advance_state
+                advance_process >> self.reshape_3d_to_2d_embed.advance_state
+                advance_process >> self.embedding.W_embed.advance_state
+                advance_process >> self.reshape_2d_to_3d_embed.advance_state
+                advance_process >> self.embedding.e_embed.advance_state
+
+                for i in range(n_layers):
+                    block = self.blocks[i]
+                    advance_process >> block.attention.z_qkv.advance_state
+                    advance_process >> block.attention.W_q.advance_state
+                    advance_process >> block.attention.W_k.advance_state
+                    advance_process >> block.attention.W_v.advance_state
+                    advance_process >> block.reshape_2d_to_3d_q.advance_state
+                    advance_process >> block.reshape_2d_to_3d_k.advance_state
+                    advance_process >> block.reshape_2d_to_3d_v.advance_state
+                    advance_process >> block.attention.attn_block.advance_state
+                    advance_process >> block.reshape_3d_to_2d.advance_state
+                    advance_process >> block.attention.e_qkv.advance_state
+                    advance_process >> block.attention.e_attn.advance_state
+                    advance_process >> block.attention.E_q.advance_state
+                    advance_process >> block.attention.E_k.advance_state
+                    advance_process >> block.attention.E_v.advance_state
+                    advance_process >> block.attention.z_attn.advance_state
+                    advance_process >> block.attention.W_attn_out.advance_state
+                    advance_process >> block.attention.E_attn.advance_state
+                    advance_process >> block.mlp.z_mlp.advance_state
+                    advance_process >> block.mlp.W_mlp1.advance_state
+                    advance_process >> block.mlp.e_mlp1.advance_state
+                    advance_process >> block.mlp.E_mlp1.advance_state
+                    advance_process >> block.mlp.z_mlp2.advance_state
+                    advance_process >> block.mlp.W_mlp2.advance_state
+                    advance_process >> block.mlp.e_mlp.advance_state
+                    advance_process >> block.mlp.E_mlp.advance_state
+                
+                    reset_process >> block.attention.z_qkv.reset
+                    reset_process >> block.attention.z_attn.reset
+                    reset_process >> block.attention.e_qkv.reset
+                    reset_process >> block.attention.e_attn.reset
+                    reset_process >> block.mlp.z_mlp.reset
+                    reset_process >> block.mlp.z_mlp2.reset
+                    reset_process >> block.mlp.e_mlp.reset
+                    reset_process >> block.mlp.e_mlp1.reset
+                    reset_process >> block.reshape_3d_to_2d.reset
+                    reset_process >> block.reshape_2d_to_3d_q.reset
+                    reset_process >> block.reshape_2d_to_3d_k.reset
+                    reset_process >> block.reshape_2d_to_3d_v.reset
             
-            for blocks in range(n_layers):
-                block = self.blocks[blocks]
-                block.attention.z_qkv.zF >> block.attention.W_q.inputs
-                block.attention.z_qkv.zF >> block.attention.W_k.inputs 
-                block.attention.z_qkv.zF >> block.attention.W_v.inputs
+                    evolve_process >> block.attention.W_q.evolve
+                    evolve_process >> block.attention.W_k.evolve
+                    evolve_process >> block.attention.W_v.evolve
+                    evolve_process >> block.attention.W_attn_out.evolve
+                    evolve_process >> block.mlp.W_mlp1.evolve
+                    evolve_process >> block.mlp.W_mlp2.evolve
+
+                advance_process >> self.output.E_out.advance_state
+                advance_process >> self.output.z_out.advance_state
+                advance_process >> self.output.W_out.advance_state
+                advance_process >> self.z_actfx.advance_state
+                advance_process >> self.z_target.advance_state
+                advance_process >> self.output.e_out.advance_state
+                advance_process >> self.Outgrad.advance_state
+
+                reset_process >> self.projection.q_embed_Ratecell.reset
+                reset_process >> self.projection.q_out_Ratecell.reset
+                reset_process >> self.projection.q_target_Ratecell.reset
+                reset_process >> self.projection.eq_target.reset
+                reset_process >> self.embedding.z_embed.reset
+                reset_process >> self.output.z_out.reset
+                reset_process >> self.z_target.reset
+                reset_process >> self.z_actfx.reset
+                reset_process >> self.embedding.e_embed.reset
+                reset_process >> self.output.e_out.reset
+                reset_process >> self.output.W_out.reset
+                reset_process >> self.reshape_3d_to_2d_embed.reset
+                reset_process >> self.reshape_2d_to_3d_embed.reset
+                reset_process >> self.Outgrad.reset
+
+                evolve_process >> self.output.W_out.evolve
+                project_process >> self.projection.q_embed_Ratecell.advance_state
+                project_process >> self.projection.Q_embed.advance_state
+                project_process >> self.projection.reshape_3d_to_2d_proj.advance_state
+                for b in range(n_layers):
+                    block_proj= self.projection.blocks[b]
+                    project_process >> block_proj.q_qkv_Ratecell.advance_state
+                    project_process >> block_proj.Q_q.advance_state
+                    project_process >> block_proj.Q_k.advance_state
+                    project_process >> block_proj.Q_v.advance_state
+                    project_process >> block_proj.q_attn_Ratecell.advance_state
+                    project_process >> block_proj.q_attn_block.advance_state
+                    project_process >> block_proj.reshape_3d_to_2d_proj1.advance_state
+                    project_process >> block_proj.Q_attn_out.advance_state
+                    project_process >> block_proj.q_mlp_Ratecell.advance_state
+                    project_process >> block_proj.q_mlp2_Ratecell.advance_state
+                    project_process >> block_proj.Q_mlp1.advance_state
+                    project_process >> block_proj.Q_mlp2.advance_state
+                    reset_process >> block_proj.q_qkv_Ratecell.reset
+                    reset_process >> block_proj.q_attn_block.reset
+                    reset_process >> block_proj.q_attn_Ratecell.reset
+                    reset_process >> block_proj.q_mlp_Ratecell.reset
+                    reset_process >> block_proj.q_mlp2_Ratecell.reset 
+                project_process >> self.projection.q_out_Ratecell.advance_state
+                project_process >> self.projection.Q_out.advance_state
+                project_process >> self.projection.q_target_Ratecell.advance_state
+                project_process >> self.projection.eq_target.advance_state
                 
-                block.attention.W_q.outputs >> block.reshape_2d_to_3d_q.inputs 
-                block.attention.W_k.outputs >> block.reshape_2d_to_3d_k.inputs 
-                block.attention.W_v.outputs >> block.reshape_2d_to_3d_v.inputs 
-                
-                block.reshape_2d_to_3d_q.outputs >> block.attention.attn_block.inputs_q
-                block.reshape_2d_to_3d_k.outputs >> block.attention.attn_block.inputs_k
-                block.reshape_2d_to_3d_v.outputs >> block.attention.attn_block.inputs_v
-                block.attention.attn_block.outputs >> block.reshape_3d_to_2d.inputs
+                self.reset = reset_process
+                self.advance = advance_process
+                self.evolve = evolve_process
+                self.project = project_process
+                self.embedding_evolve=embedding_evolve_process
 
-                block.reshape_3d_to_2d.outputs >> block.attention.e_qkv.mu
-                block.attention.z_attn.z >> block.attention.e_qkv.target
-                
-                block.attention.z_attn.zF >> block.attention.W_attn_out.inputs 
-                block.attention.W_attn_out.outputs >> block.attention.e_attn.mu
-                block.mlp.z_mlp.z >> block.attention.e_attn.target
-
-                block.mlp.z_mlp.zF >> block.mlp.W_mlp1.inputs
-                block.mlp.W_mlp1.outputs >> block.mlp.e_mlp1.mu
-                block.mlp.z_mlp2.z >> block.mlp.e_mlp1.target
-                block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.inputs
-                block.mlp.W_mlp2.outputs >> block.mlp.e_mlp.mu
-
-                if blocks == n_layers - 1:
-                    self.output.z_out.z >> block.mlp.e_mlp.target
-                else:
-                    self.blocks[blocks + 1].attention.z_qkv.z >> block.mlp.e_mlp.target
-
-                block.mlp.e_mlp1.dmu >> block.mlp.E_mlp1.inputs
-                block.mlp.e_mlp.dmu  >> block.mlp.E_mlp.inputs
-                block.attention.e_qkv.dmu >> block.attention.attn_block.dmu
-                
-                block.attention.attn_block.dq >> block.attention.E_q.inputs
-                block.attention.attn_block.dk >> block.attention.E_k.inputs
-                block.attention.attn_block.dv >> block.attention.E_v.inputs
-                block.attention.e_attn.dmu >> block.attention.E_attn.inputs
-                
-                block.attention.E_q.outputs >> block.attention.z_qkv.jq
-                block.attention.E_k.outputs >> block.attention.z_qkv.jk
-                block.attention.E_v.outputs >> block.attention.z_qkv.jv
-                block.attention.E_attn.outputs >> block.attention.z_attn.j
-
-                if blocks == 0:
-                    self.embedding.e_embed.dtarget >> block.attention.z_qkv.j_td
-                else:
-                    self.blocks[blocks - 1].mlp.e_mlp.dtarget >> block.attention.z_qkv.j_td
-                block.attention.e_qkv.dtarget >> block.attention.z_attn.j_td
-
-                block.mlp.E_mlp.outputs  >> block.mlp.z_mlp2.j
-                block.mlp.E_mlp1.outputs >> block.mlp.z_mlp.j
-                block.attention.e_attn.dtarget >> block.mlp.z_mlp.j_td
-                block.mlp.e_mlp1.dtarget >> block.mlp.z_mlp2.j_td
-
-                block.attention.z_qkv.zF >> block.attention.W_q.pre
-                block.attention.attn_block.dtarget_q >> block.attention.W_q.post
-                block.attention.z_qkv.zF >> block.attention.W_k.pre
-                block.attention.attn_block.dtarget_k >> block.attention.W_k.post
-                block.attention.z_qkv.zF >> block.attention.W_v.pre
-                block.attention.attn_block.dtarget_v >> block.attention.W_v.post
-                block.attention.z_attn.zF >> block.attention.W_attn_out.pre
-                block.attention.e_attn.dmu >> block.attention.W_attn_out.post
-                block.mlp.z_mlp.zF >> block.mlp.W_mlp1.pre
-                block.mlp.e_mlp1.dmu >> block.mlp.W_mlp1.post
-                block.mlp.z_mlp2.zF >> block.mlp.W_mlp2.pre
-                block.mlp.e_mlp.dmu >> block.mlp.W_mlp2.post
-
-            self.output.z_out.zF >> self.output.W_out.inputs
-            self.output.W_out.outputs >> self.z_actfx.j
-            self.output.W_out.outputs >> self.Outgrad.mu
-            self.z_actfx.zF >> self.output.e_out.mu
-            self.z_target.z >> self.output.e_out.target
-            self.output.e_out.dtarget >> self.output.E_out.inputs
-            self.output.E_out.outputs >> self.output.z_out.j
-            self.blocks[n_layers - 1].mlp.e_mlp.dtarget >> self.output.z_out.j_td
-            self.embedding.e_embed.dmu >> self.reshape_2d_to_3d_embed.inputs
-            self.reshape_2d_to_3d_embed.outputs >> self.embedding.W_embed.post
-            self.output.z_out.zF >> self.output.W_out.pre
-            self.output.e_out.dtarget >> self.output.W_out.post
-
-            ## PROJECTION PHASE ##
-            self.projection.q_embed_Ratecell.zF >> self.projection.Q_embed.inputs
-            self.projection.Q_embed.outputs >> self.projection.reshape_3d_to_2d_proj.inputs
-            for b in range(n_layers):
-                block_proj = self.projection.blocks[b]
-                if b == 0:
-                    self.projection.reshape_3d_to_2d_proj.outputs >> block_proj.q_qkv_Ratecell.j
-                else:
-                    self.projection.blocks[b - 1].Q_mlp2.outputs >> block_proj.q_qkv_Ratecell.j
-                block_proj.q_qkv_Ratecell.zF >> block_proj.Q_q.inputs
-                block_proj.q_qkv_Ratecell.zF >> block_proj.Q_k.inputs
-                block_proj.q_qkv_Ratecell.zF >> block_proj.Q_v.inputs
-                block_proj.Q_q.outputs >> block_proj.q_attn_block.inputs_q
-                block_proj.Q_k.outputs >> block_proj.q_attn_block.inputs_k
-                block_proj.Q_v.outputs >> block_proj.q_attn_block.inputs_v
-                block_proj.q_attn_block.outputs >> block_proj.reshape_3d_to_2d_proj1.inputs
-                block_proj.reshape_3d_to_2d_proj1.outputs >> block_proj.q_attn_Ratecell.j
-                block_proj.q_attn_Ratecell.zF >> block_proj.Q_attn_out.inputs
-                block_proj.Q_attn_out.outputs >> block_proj.q_mlp_Ratecell.j
-                block_proj.q_mlp_Ratecell.zF >> block_proj.Q_mlp1.inputs
-                block_proj.Q_mlp1.outputs >> block_proj.q_mlp2_Ratecell.j
-                block_proj.q_mlp2_Ratecell.zF >> block_proj.Q_mlp2.inputs
-
-            self.projection.blocks[n_layers - 1].Q_mlp2.outputs >> self.projection.q_out_Ratecell.j
-            self.projection.q_out_Ratecell.zF >> self.projection.Q_out.inputs
-            self.projection.Q_out.outputs >> self.projection.q_target_Ratecell.j
-            self.projection.q_target_Ratecell.z >> self.projection.eq_target.mu
-
-            # Processes
-            advance_process = MethodProcess(name="advance_process")
-            reset_process = MethodProcess(name="reset_process") 
-            embedding_evolve_process = MethodProcess(name="embedding_evolve_process")
-            evolve_process = MethodProcess(name="evolve_process")
-            project_process = MethodProcess(name="project_process")
-            
-            embedding_evolve_process >> self.embedding.W_embed.evolve
-            advance_process >> self.embedding.z_embed.advance_state
-            advance_process >> self.reshape_3d_to_2d_embed.advance_state
-            advance_process >> self.embedding.W_embed.advance_state
-            advance_process >> self.reshape_2d_to_3d_embed.advance_state
-            advance_process >> self.embedding.e_embed.advance_state
-
-            for i in range(n_layers):
-                block = self.blocks[i]
-                advance_process >> block.attention.z_qkv.advance_state
-                advance_process >> block.attention.W_q.advance_state
-                advance_process >> block.attention.W_k.advance_state
-                advance_process >> block.attention.W_v.advance_state
-                advance_process >> block.reshape_2d_to_3d_q.advance_state
-                advance_process >> block.reshape_2d_to_3d_k.advance_state
-                advance_process >> block.reshape_2d_to_3d_v.advance_state
-                advance_process >> block.attention.attn_block.advance_state
-                advance_process >> block.reshape_3d_to_2d.advance_state
-                advance_process >> block.attention.e_qkv.advance_state
-                advance_process >> block.attention.e_attn.advance_state
-                advance_process >> block.attention.E_q.advance_state
-                advance_process >> block.attention.E_k.advance_state
-                advance_process >> block.attention.E_v.advance_state
-                advance_process >> block.attention.z_attn.advance_state
-                advance_process >> block.attention.W_attn_out.advance_state
-                advance_process >> block.attention.E_attn.advance_state
-                advance_process >> block.mlp.z_mlp.advance_state
-                advance_process >> block.mlp.W_mlp1.advance_state
-                advance_process >> block.mlp.e_mlp1.advance_state
-                advance_process >> block.mlp.E_mlp1.advance_state
-                advance_process >> block.mlp.z_mlp2.advance_state
-                advance_process >> block.mlp.W_mlp2.advance_state
-                advance_process >> block.mlp.e_mlp.advance_state
-                advance_process >> block.mlp.E_mlp.advance_state
-               
-                reset_process >> block.attention.z_qkv.reset
-                reset_process >> block.attention.z_attn.reset
-                reset_process >> block.attention.e_qkv.reset
-                reset_process >> block.attention.e_attn.reset
-                reset_process >> block.mlp.z_mlp.reset
-                reset_process >> block.mlp.z_mlp2.reset
-                reset_process >> block.mlp.e_mlp.reset
-                reset_process >> block.mlp.e_mlp1.reset
-                reset_process >> block.reshape_3d_to_2d.reset
-                reset_process >> block.reshape_2d_to_3d_q.reset
-                reset_process >> block.reshape_2d_to_3d_k.reset
-                reset_process >> block.reshape_2d_to_3d_v.reset
-        
-                evolve_process >> block.attention.W_q.evolve
-                evolve_process >> block.attention.W_k.evolve
-                evolve_process >> block.attention.W_v.evolve
-                evolve_process >> block.attention.W_attn_out.evolve
-                evolve_process >> block.mlp.W_mlp1.evolve
-                evolve_process >> block.mlp.W_mlp2.evolve
-
-            advance_process >> self.output.E_out.advance_state
-            advance_process >> self.output.z_out.advance_state
-            advance_process >> self.output.W_out.advance_state
-            advance_process >> self.z_actfx.advance_state
-            advance_process >> self.z_target.advance_state
-            advance_process >> self.output.e_out.advance_state
-            advance_process >> self.Outgrad.advance_state
-
-            reset_process >> self.projection.q_embed_Ratecell.reset
-            reset_process >> self.projection.q_out_Ratecell.reset
-            reset_process >> self.projection.q_target_Ratecell.reset
-            reset_process >> self.projection.eq_target.reset
-            reset_process >> self.embedding.z_embed.reset
-            reset_process >> self.output.z_out.reset
-            reset_process >> self.z_target.reset
-            reset_process >> self.z_actfx.reset
-            reset_process >> self.embedding.e_embed.reset
-            reset_process >> self.output.e_out.reset
-            reset_process >> self.output.W_out.reset
-            reset_process >> self.reshape_3d_to_2d_embed.reset
-            reset_process >> self.reshape_2d_to_3d_embed.reset
-            reset_process >> self.Outgrad.reset
-
-            evolve_process >> self.output.W_out.evolve
-            project_process >> self.projection.q_embed_Ratecell.advance_state
-            project_process >> self.projection.Q_embed.advance_state
-            project_process >> self.projection.reshape_3d_to_2d_proj.advance_state
-            for b in range(n_layers):
-                block_proj= self.projection.blocks[b]
-                project_process >> block_proj.q_qkv_Ratecell.advance_state
-                project_process >> block_proj.Q_q.advance_state
-                project_process >> block_proj.Q_k.advance_state
-                project_process >> block_proj.Q_v.advance_state
-                project_process >> block_proj.q_attn_Ratecell.advance_state
-                project_process >> block_proj.q_attn_block.advance_state
-                project_process >> block_proj.reshape_3d_to_2d_proj1.advance_state
-                project_process >> block_proj.Q_attn_out.advance_state
-                project_process >> block_proj.q_mlp_Ratecell.advance_state
-                project_process >> block_proj.q_mlp2_Ratecell.advance_state
-                project_process >> block_proj.Q_mlp1.advance_state
-                project_process >> block_proj.Q_mlp2.advance_state
-                reset_process >> block_proj.q_qkv_Ratecell.reset
-                reset_process >> block_proj.q_attn_block.reset
-                reset_process >> block_proj.q_attn_Ratecell.reset
-                reset_process >> block_proj.q_mlp_Ratecell.reset
-                reset_process >> block_proj.q_mlp2_Ratecell.reset 
-            project_process >> self.projection.q_out_Ratecell.advance_state
-            project_process >> self.projection.Q_out.advance_state
-            project_process >> self.projection.q_target_Ratecell.advance_state
-            project_process >> self.projection.eq_target.advance_state
-            
-            self.reset = reset_process
-            self.advance = advance_process
-            self.evolve = evolve_process
-            self.project = project_process
-            self.embedding_evolve=embedding_evolve_process
-
-        if loadDir is not None:
-            self.load_from_disk(loadDir, n_layers=n_layers)
 
     def clamp_input(self, x):
         self.embedding.z_embed.j.set(x)

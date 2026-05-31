@@ -19,7 +19,34 @@ import numpy as np
 from utils.errorcell import GaussianErrorCell as ErrorCell
 from utils.ratecell import RateCell
 
+
+
 class NGCTransformer:
+    """
+    Predictive Coding Transformer following PCN architecture from:
+    Whittington & Bogacz (2017) - "An approximation of the error backpropagation 
+    algorithm in a predictive coding network with local hebbian synaptic plasticity"
+
+    Architecture:
+    z_embed -(W_embed)-> e_embed, z_qkv -(W_q,W_k,W_v - > W_attn_out)-> e_attn, z_mlp -(W_mlp1,W_mlp2)-> e_mlp, z_out -(W_out)-> e_out
+    e_attn -(E_attn)-> z_qkv <- e_embed, e_mlp -(E_mlp)-> z_mlp <- e_attn, e_out -(E_out)-> z_out <- e_mlp
+
+    Args:
+        dkey: JAX seeding key
+        vocab_size: vocabulary size
+        seq_len: sequence length
+        n_embed: embedding dimension
+        n_heads: number of attention heads
+        batch_size: batch size
+        n_layers: number of transformer blocks
+        dt: integration time constant
+        tau_m: membrane time constant
+        eta: learning rate for Hebbian synapses
+        exp_dir: experimental directory
+        model_name: unique model name
+    """
+
+   
     def __init__(self, dkey, batch_size, seq_len, n_embed, vocab_size, n_layers, n_heads, T, dt, tau_m, act_fx, eta, dropout_rate, exp_dir, model_name, loadDir=None, pos_learnable=False, optim_type="adam", wub=1.0, wlb=0.0, **kwargs):
 
         self.exp_dir = exp_dir
@@ -31,31 +58,34 @@ class NGCTransformer:
         self.seq_len= seq_len
         self.vocab_size= vocab_size
         self.n_embed= n_embed
-        
+
         if exp_dir is not None:
             makedir(exp_dir)
             makedir(exp_dir + "/filters")
 
         dkey, *subkeys = random.split(dkey, 50)
-       
+
         with Context("Circuit") as self.circuit:
-                
+
             self.embedding = EMBEDDING(dkey=subkeys[0], vocab_size=self.vocab_size, seq_len=self.seq_len, embed_dim=self.n_embed, batch_size=self.batch_size, pos_learnable=pos_learnable, eta=eta, optim_type=optim_type)
-                
+
             self.blocks = []
             for i in range(n_layers):
                 key, subkey = random.split(subkeys[1 + i])
                 block=Block(dkey=subkey, block_id= i, n_embed=self.n_embed, seq_len=self.seq_len,
                                 batch_size=self.batch_size, vocab_size=self.vocab_size, n_heads=n_heads, dropout_rate=dropout_rate, eta=eta, optim_type=optim_type, wub=wub, wlb=wlb, tau_m=tau_m)
                 self.blocks.append(block)   
-                    
+
             self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
-                
+
             self.z_target=RateCell("z_target", n_units= self.vocab_size, tau_m=0., act_fx="identity", batch_size=self.batch_size * self.seq_len) 
             self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=tau_m, act_fx="softmax", batch_size=self.batch_size * self.seq_len)
             self.projection = Projection(dkey=subkeys[29], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size,
                                              vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, pos_learnable=pos_learnable, wub=wub, wlb=wlb, n_blocks=n_layers, n_heads=n_heads, dropout_rate=dropout_rate)
-            
+            self.reshape_4d_to_2d = ReshapeComponent("reshape_4d_to_2d",
+                                            input_shape=(self.batch_size, self.seq_len, self.n_embed, 1),
+                                            output_shape=(self.batch_size * self.seq_len, self.n_embed))
+                
             self.reshape_3d_to_2d_embed = ReshapeComponent("reshape_3d_to_2d_embed",
                                             input_shape=(self.batch_size, self.seq_len, self.n_embed),
                                             output_shape=(self.batch_size * self.seq_len, self.n_embed))
@@ -63,9 +93,16 @@ class NGCTransformer:
                                             input_shape=(self.batch_size * self.seq_len, self.n_embed),
                                             output_shape=(self.batch_size, self.seq_len, self.n_embed))
             self.Outgrad = Outgrad("Outgrad", batch_size=self.batch_size, seq_len=self.seq_len, vocab_size=self.vocab_size)    
-                
-            # CORRECT PREDICTIVE CODING FLOW
-            self.embedding.z_embed.zF >> self.embedding.W_embed.inputs
+
+        if loadDir is not None:
+   
+            self.load_from_disk(loadDir,n_layers=n_layers)
+          
+        else:
+            with Context("Circuit") as self.circuit:
+
+
+            self.embedding.z_embed.zF   >> self.embedding.W_embed.inputs
             self.embedding.W_embed.outputs >> self.reshape_3d_to_2d_embed.inputs
             self.reshape_3d_to_2d_embed.outputs >> self.blocks[0].attention.z_qkv.j
             self.reshape_3d_to_2d_embed.outputs >> self.embedding.e_embed.mu

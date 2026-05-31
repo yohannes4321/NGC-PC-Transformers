@@ -191,10 +191,7 @@ def run_single_trial_efe(trial):
         total_EFE = 0.0
         total_train_ce = 0.0
         batches_processed = 0
-        max_batches = 20
         for batch_idx, batch in enumerate(train_loader):
-            if batch_idx >= max_batches:
-                break
             inputs = batch[0][1]
             targets = batch[1][1]
             targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
@@ -224,6 +221,13 @@ def run_single_trial_efe(trial):
             batch_train_ce = batch_nll / targets_flat.shape[0]
             total_train_ce += float(batch_train_ce)
             avg_train_ce = total_train_ce / batches_processed
+            avg_train_ppl = float(jnp.exp(avg_train_ce)) if avg_train_ce < 100.0 else float("inf")
+
+            if (batch_idx + 1) % 20 == 0:
+                print(
+                    f"[EFE Phase] Batch {batch_idx + 1} | "
+                    f"EFE={current_efe:.4f} | CE={avg_train_ce:.4f} | PPL={avg_train_ppl:.4f}"
+                )
 
             trial.report(current_efe, batch_idx)
 
@@ -282,13 +286,11 @@ def run_phase2_trial(trial, best_params):
         print(reason)
         return float("inf")
 
-    total_train_ce = 0.0  
+    total_train_ce = 0.0
     batches_processed = 0
-    max_batches = 20
     best_train_ce = float('inf')
+    last_batch_ce = None
     for batch_idx, batch in enumerate(train_loader):
-        if batch_idx >= max_batches:
-            break
         inputs = batch[0][1]
         targets = batch[1][1]
         targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
@@ -315,12 +317,29 @@ def run_phase2_trial(trial, best_params):
         total_train_ce += float(batch_train_ce)
         batches_processed += 1
         avg_train_ce = total_train_ce / batches_processed
+        avg_train_ppl = float(jnp.exp(avg_train_ce)) if avg_train_ce < 100.0 else float("inf")
+
+        if (batch_idx + 1) % 20 == 0:
+            print(
+                f"[CE Phase] Batch {batch_idx + 1} | "
+                f"EFE={EFE:.4f} | CE={avg_train_ce:.4f} | PPL={avg_train_ppl:.4f}"
+            )
+        last_batch_ce = float(batch_train_ce)
 
         trial.report(avg_train_ce, batch_idx)
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
-    final_ce = avg_train_ce if batches_processed > 0 else 100.0
+    if last_batch_ce is None:
+        final_ce = 100.0
+    else:
+        final_ce = last_batch_ce
     final_ppl = float(jnp.exp(final_ce)) if final_ce < 100.0 else float("inf")
+
+    if final_ce > 6.0:
+        reason = f"Final batch CE above target: {final_ce:.4f}"
+        trial.set_user_attr("prune_reason", reason)
+        print(reason)
+        return float("inf")
 
     trial.set_user_attr("train_ce", float(final_ce))
     trial.set_user_attr("train_ppl", float(final_ppl))
@@ -328,8 +347,8 @@ def run_phase2_trial(trial, best_params):
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(f"Trial {trial.number} Complete | Train CE={final_ce:.4f} | Train PPL={final_ppl:.4f}")
-    return float(final_ce)  
+    print(f"Trial {trial.number} Complete | Final Batch CE={final_ce:.4f} | Train PPL={final_ppl:.4f}")
+    return float(final_ce)
 
 def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)

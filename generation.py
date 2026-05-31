@@ -190,8 +190,8 @@ print(
             prompt_1,
             max_new_tokens=100,
             temperature=0.9,
-            top_k=50,
-            key=key_1,
+            # top_k=50,
+            # key=key_1,
         )
     )
 
@@ -205,8 +205,8 @@ generate_text(
             prompt_2,
             max_new_tokens=100,
             temperature=0.9,
-            top_k=50,
-            key=key_2,
+            # top_k=50,
+            # key=key_2,
         )
     )
 

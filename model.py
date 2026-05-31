@@ -366,7 +366,13 @@ class NGCTransformer:
             self.circuit.save_to_json(self.exp_dir, model_name=self.model_name, overwrite=True)
 
     def load_from_disk(self, model_directory, n_layers=1):
+        self.advance = processes.get("advance_process")
+        self.reset   = processes.get("reset_process")
+        self.evolve  = processes.get("evolve_process")
+        self.project = processes.get("project_process")
+        self.embedding_evolve = processes.get("embedding_evolve_process", self.evolve)
         loaded_circuit = Context.load(directory=model_directory, module_name=self.model_name)
+
         try:
             self.embedding.W_embed.word_weights.set(loaded_circuit.get_components("W_embed").word_weights.get())
         except:

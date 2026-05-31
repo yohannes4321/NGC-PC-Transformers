@@ -499,7 +499,7 @@ class NGCTransformer:
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
           
 
-   def process(self, obs, lab=None, adapt_synapses=True):
+    def process(self, obs, lab=None, adapt_synapses=True):
         self.reset.run()
         self.clamp_input(obs)
         if lab is not None:

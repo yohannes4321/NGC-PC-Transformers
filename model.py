@@ -177,7 +177,6 @@ class NGCTransformer:
 
                     block.mlp.E_mlp.outputs  >> block.mlp.z_mlp2.j
                     block.mlp.E_mlp1.outputs >> block.mlp.z_mlp.j
-
                     block.attention.e_attn.dtarget >> block.mlp.z_mlp.j_td
                     block.mlp.e_mlp1.dtarget >> block.mlp.z_mlp2.j_td
 
@@ -205,7 +204,6 @@ class NGCTransformer:
                 self.output.z_out.zF >> self.output.W_out.inputs
                 self.output.W_out.outputs >> self.z_actfx.j
                 self.output.W_out.outputs >> self.Outgrad.mu
-
                 self.z_actfx.zF >> self.output.e_out.mu
                 self.z_target.z >> self.output.e_out.target
 

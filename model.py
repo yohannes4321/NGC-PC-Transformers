@@ -71,7 +71,7 @@ class NGCTransformer:
         else:
             with Context("Circuit") as self.circuit:
        
-            with Context("Circuit") as self.circuit:
+            
                     
                 self.embedding = EMBEDDING(dkey=subkeys[0], vocab_size=self.vocab_size, seq_len=self.seq_len, embed_dim=self.n_embed, batch_size=self.batch_size, pos_learnable=pos_learnable, eta=eta, optim_type=optim_type)
                     

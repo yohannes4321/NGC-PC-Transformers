@@ -26,6 +26,7 @@ import gc
 
 EFE_STABILITY_THRESHOLD = 1e5
 SEARCH_SPACE_VERSION = "v1"
+PHASE2_EFE_WEIGHT = 0.01
 
 ACT_FX_CHOICES = [
     "identity",
@@ -287,6 +288,7 @@ def run_phase2_trial(trial, best_params):
         return float("inf")
 
     total_train_ce = 0.0
+    total_EFE = 0.0
     batches_processed = 0
     best_train_ce = float('inf')
     last_batch_ce = None
@@ -315,14 +317,16 @@ def run_phase2_trial(trial, best_params):
             return float("inf")
 
         total_train_ce += float(batch_train_ce)
+        total_EFE += EFE
         batches_processed += 1
         avg_train_ce = total_train_ce / batches_processed
+        avg_efe = total_EFE / batches_processed
         avg_train_ppl = float(jnp.exp(avg_train_ce)) if avg_train_ce < 100.0 else float("inf")
 
         if (batch_idx + 1) % 20 == 0:
             print(
                 f"[CE Phase] Batch {batch_idx + 1} | "
-                f"EFE={EFE:.4f} | CE={avg_train_ce:.4f} | PPL={avg_train_ppl:.4f}"
+                f"EFE={avg_efe:.4f} | CE={avg_train_ce:.4f} | PPL={avg_train_ppl:.4f}"
             )
         last_batch_ce = float(batch_train_ce)
 
@@ -334,6 +338,7 @@ def run_phase2_trial(trial, best_params):
     else:
         final_ce = last_batch_ce
     final_ppl = float(jnp.exp(final_ce)) if final_ce < 100.0 else float("inf")
+    avg_efe = total_EFE / batches_processed if batches_processed > 0 else float("inf")
 
     if final_ce > 6.0:
         reason = f"Final batch CE above target: {final_ce:.4f}"
@@ -347,8 +352,12 @@ def run_phase2_trial(trial, best_params):
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(f"Trial {trial.number} Complete | Final Batch CE={final_ce:.4f} | Train PPL={final_ppl:.4f}")
-    return float(final_ce)
+    objective = final_ce + (PHASE2_EFE_WEIGHT * avg_efe)
+    print(
+        f"Trial {trial.number} Complete | Final Batch CE={final_ce:.4f} | "
+        f"Avg EFE={avg_efe:.4f} | Objective={objective:.4f} | Train PPL={final_ppl:.4f}"
+    )
+    return float(objective)
 
 def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)

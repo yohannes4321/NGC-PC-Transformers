@@ -119,94 +119,27 @@ def generate_text(
     return tokenizer.decode(generated_ids)
 
 
-prompt_1 = (
-        "First Citizen:\n"
-        "Before we proceed any further, hear me speak.\n\n"
-        "All:\n"
-        "Speak, speak.\n\n"
-        "First Citizen:\n"
-        "You are all resolved rather to die than to famish?\n\n"
-        "All:\n"
-        "Resolved. resolved.\n\n"
-        "First Citizen:\n"
-        "First, you know Caius Marcius is chief enemy to the people.\n\n"
-        "All:\n"
-        "We know't, we know't."
+# Example usage
+if __name__ == "__main__":
+    prompt = "The king said: "
+    generated = generate_text(
+        model=model,
+        tokenizer=tokenizer,
+        prompt=prompt,
+        max_new_tokens=200,
+        seq_len=config.seq_len,        
+        temperature=0.8,
+        key=jax.random.PRNGKey(42)  
     )
-
-prompt_2 = (
-        "First Soldier:\n"
-        "Fool-hardiness; not I.\n\n"
-        "Second Soldier:\n"
-        "Nor I.\n\n"
-        "First Soldier:\n"
-        "See, they have shut him in.\n\n"
-        "All:\n"
-        "To the pot, I warrant him.\n\n"
-        "LARTIUS:\n"
-        "What is become of Marcius?\n\n"
-        "All:\n"
-        "Slain, sir, doubtless.\n\n"
-        "First Soldier:\n"
-        "Following the fliers at the very heels,\n"
-        "With them he enters; who, upon the sudden,\n"
-        "Clapp'd to their gates: he is himself alone,\n"
-        "To answer all the city.\n\n"
-        "LARTIUS:\n"
-        "O noble fellow!\n"
-        "Who sensibly outdares his senseless sword,\n"
-        "And, when it bows, stands up. Thou art left, Marcius:\n"
-        "A carbuncle entire, as big as thou art,\n"
-        "Were not so rich a jewel. Thou wast a soldier\n"
-        "Even to Cato's wish, not fierce and terrible\n"
-        "Only in strokes; but, with thy grim looks and\n"
-        "The thunder-like percussion of thy sounds,\n"
-        "Thou madst thine enemies shake, as if the world\n"
-        "Were feverous and did tremble.\n\n"
-        "First Soldier:\n"
-        "Look, sir.\n\n"
-        "LARTIUS:\n"
-        "O,'tis Marcius!\n"
-        "Let's fetch him off, or make remain alike.\n\n"
-        "First Roman:\n"
-        "This will I carry to Rome.\n\n"
-        "Second Roman:\n"
-        "And I this.\n\n"
-        "Third Roman:\n"
-        "A murrain on't! I took this for silver."
+    print(generated)
+    prompt11 = "hey man i love you : "
+    generated1 = generate_text(
+        model=model,
+        tokenizer=tokenizer,
+        prompt=prompt11,
+        max_new_tokens=200,
+        seq_len=config.seq_len,        
+        temperature=0.8,
+        key=jax.random.PRNGKey(42)  
     )
-
-rng = jax.random.PRNGKey(0)
-rng, key_1 = jax.random.split(rng)
-rng, key_2 = jax.random.split(rng)
-
-print("\n**************** PROMPT 1 ****************")
-print(prompt_1)
-print("\nFINAL GENERATED 1:\n")
-print(
-        generate_text(
-            model,
-            tokenizer,
-            prompt_1,
-            # max_new_tokens=100,
-            temperature=0.9,
-            # top_k=50,
-            # key=key_1,
-        )
-    )
-
-print("\n**************** PROMPT 2 ****************")
-print(prompt_2)
-print("\nFINAL GENERATED 2:\n")
-print(
-generate_text(
-            model,
-            tokenizer,
-            prompt_2,
-            # max_new_tokens=100,
-            temperature=0.9,
-            # top_k=50,
-            # key=key_2,
-        )
-    )
-
+    print(generated1)

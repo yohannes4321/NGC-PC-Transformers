@@ -366,37 +366,41 @@ class NGCTransformer:
             self.circuit.save_to_json(self.exp_dir, model_name=self.model_name, overwrite=True)
 
     def load_from_disk(self, model_directory, n_layers=1):
+        self.circuit = Context.load(directory=model_directory, module_name=self.model_name)
+       
+        processes = self.circuit.get_objects_by_type("process")
         self.advance = processes.get("advance_process")
         self.reset   = processes.get("reset_process")
         self.evolve  = processes.get("evolve_process")
         self.project = processes.get("project_process")
         self.embedding_evolve = processes.get("embedding_evolve_process", self.evolve)
-        loaded_circuit = Context.load(directory=model_directory, module_name=self.model_name)
+        
+
 
         try:
-            self.embedding.W_embed.word_weights.set(loaded_circuit.get_components("W_embed").word_weights.get())
+            self.embedding.W_embed.word_weights.set(self.circuit.get_components("W_embed").word_weights.get())
         except:
             pass
         try:
-            self.output.W_out.weights.set(loaded_circuit.get_components("W_out").weights.get())
-            self.output.W_out.biases.set(loaded_circuit.get_components("W_out").biases.get())
+            self.output.W_out.weights.set(self.circuit.get_components("W_out").weights.get())
+            self.output.W_out.biases.set(self.circuit.get_components("W_out").biases.get())
         except:
             pass
         for i in range(n_layers):
             b_prefix = f"block{i}_"
             block = self.blocks[i] 
-            block.attention.W_q.weights.set(loaded_circuit.get_components(f"{b_prefix}W_q").weights.get())
-            block.attention.W_k.weights.set(loaded_circuit.get_components(f"{b_prefix}W_k").weights.get())
-            block.attention.W_v.weights.set(loaded_circuit.get_components(f"{b_prefix}W_v").weights.get())
-            block.attention.W_q.biases.set(loaded_circuit.get_components(f"{b_prefix}W_q").biases.get())
-            block.attention.W_k.biases.set(loaded_circuit.get_components(f"{b_prefix}W_k").biases.get())
-            block.attention.W_v.biases.set(loaded_circuit.get_components(f"{b_prefix}W_v").biases.get())
-            block.attention.W_attn_out.weights.set(loaded_circuit.get_components(f"{b_prefix}W_attn_out").weights.get())
-            block.attention.W_attn_out.biases.set(loaded_circuit.get_components(f"{b_prefix}W_attn_out").biases.get())
-            block.mlp.W_mlp1.weights.set(loaded_circuit.get_components(f"{b_prefix}W_mlp1").weights.get())
-            block.mlp.W_mlp2.weights.set(loaded_circuit.get_components(f"{b_prefix}W_mlp2").weights.get())
-            block.mlp.W_mlp1.biases.set(loaded_circuit.get_components(f"{b_prefix}W_mlp1").biases.get())
-            block.mlp.W_mlp2.biases.set(loaded_circuit.get_components(f"{b_prefix}W_mlp2").biases.get())
+            block.attention.W_q.weights.set(self.circuit.get_components(f"{b_prefix}W_q").weights.get())
+            block.attention.W_k.weights.set(self.circuit.get_components(f"{b_prefix}W_k").weights.get())
+            block.attention.W_v.weights.set(self.circuit.get_components(f"{b_prefix}W_v").weights.get())
+            block.attention.W_q.biases.set(self.circuit.get_components(f"{b_prefix}W_q").biases.get())
+            block.attention.W_k.biases.set(self.circuit.get_components(f"{b_prefix}W_k").biases.get())
+            block.attention.W_v.biases.set(self.circuit.get_components(f"{b_prefix}W_v").biases.get())
+            block.attention.W_attn_out.weights.set(self.circuit.get_components(f"{b_prefix}W_attn_out").weights.get())
+            block.attention.W_attn_out.biases.set(self.circuit.get_components(f"{b_prefix}W_attn_out").biases.get())
+            block.mlp.W_mlp1.weights.set(self.circuit.get_components(f"{b_prefix}W_mlp1").weights.get())
+            block.mlp.W_mlp2.weights.set(self.circuit.get_components(f"{b_prefix}W_mlp2").weights.get())
+            block.mlp.W_mlp1.biases.set(self.circuit.get_components(f"{b_prefix}W_mlp1").biases.get())
+            block.mlp.W_mlp2.biases.set(self.circuit.get_components(f"{b_prefix}W_mlp2").biases.get())
 
     def process(self, obs, lab=None, adapt_synapses=True):
         self.reset.run()

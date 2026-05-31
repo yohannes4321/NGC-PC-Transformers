@@ -499,8 +499,7 @@ class NGCTransformer:
             block_proj.q_attn_block = self.circuit.get_components(f"{p_prefix}_q_attn_block")
           
 
-    def process(self, obs, lab, adapt_synapses=True):
-        
+   def process(self, obs, lab=None, adapt_synapses=True):
         self.reset.run()
         self.clamp_input(obs)
         if lab is not None:
@@ -516,7 +515,6 @@ class NGCTransformer:
         self.output.E_out.weights.set(jnp.transpose(self.output.W_out.weights.get()))
         y_mu_inf = self.projection.q_target_Ratecell.z.get()
         for ts in range(0, self.T):
-        
             self.clamp_input(obs)
             if lab is not None:
                 self.clamp_target(lab)
@@ -525,25 +523,16 @@ class NGCTransformer:
            
         # Get output predictions
 
-        y_mu = self.zactfx.zF.get() 
-
-        L1 = self.embedding.e_embed.L.get()
-        L4 = self.output.e_out.L.get()
-        
+        y_mu = self.z_actfx.zF.get() 
         block_errors = 0.
         for i in range(self.n_layers):
-                block = self.blocks[i]
-                block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
-
-        EFE = block_errors + L1
-
-        if adapt_synapses == True:
-                self.embedding_evolve.run()
-                self.evolve.run(t=self.T,dt=1.)
-                
-        ## skip E/M steps if just doing test-time inference
+            block = self.blocks[i]
+            block_errors += block.attention.e_attn.L.get() + block.mlp.e_mlp.L.get() + block.mlp.e_mlp1.L.get()
+        EFE = block_errors + self.embedding.e_embed.L.get()
+        if adapt_synapses and lab is not None:
+            self.embedding_evolve.run()
+            self.evolve.run(t=self.T, dt=1.)
         return y_mu_inf, y_mu, EFE 
 
     def get_latents(self):
         return self.projection.q_out_Ratecell.z.get()
-  

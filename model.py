@@ -18,7 +18,7 @@ from projection.projection import Projection
 import numpy as np
 from utils.errorcell import GaussianErrorCell as ErrorCell
 from utils.ratecell import RateCell
-
+from utils.random_init import RandomInit
 
 
 class NGCTransformer:

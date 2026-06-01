@@ -77,7 +77,7 @@ class NGCTransformer:
                 self.blocks.append(block)   
                     
             self.output = Output(dkey=subkeys[3], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size, vocab_size=self.vocab_size, eta=eta, optim_type=optim_type, wlb=wlb, wub=wub, tau_m=tau_m)
-            self.random_init = RandomInit("random_init", batch_size=self.batch_size * self.seq_len,n_embed=self.n_embed)
+            # self.random_init = RandomInit("random_init", batch_size=self.batch_size * self.seq_len,n_embed=self.n_embed)
             self.z_target=RateCell("z_target", n_units= self.vocab_size, tau_m=0., act_fx="identity", batch_size=self.batch_size * self.seq_len) 
             self.z_actfx= RateCell("z_actfx", n_units= self.vocab_size, tau_m=tau_m, act_fx="softmax", batch_size=self.batch_size * self.seq_len)
             self.projection = Projection(dkey=subkeys[29], n_embed=self.n_embed, seq_len=self.seq_len, batch_size=self.batch_size,

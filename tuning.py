@@ -148,8 +148,11 @@ def run_single_trial_efe(trial):
             targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                y_mu_inf, y_mu, EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
+                y_pred = y_mu.reshape(-1, cfg.vocab_size)
+                batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()
+                batch_ppl = jnp.exp(batch_ce_loss)
             except Exception as e:
                 reason = f"model.process failed: {e}"
                 trial.set_user_attr("prune_reason", reason)
@@ -175,7 +178,10 @@ def run_single_trial_efe(trial):
 
             if batch_idx % 2 == 0:
                 elapsed = time.time() - start_time
-                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
+                print(
+                    f"Batch {batch_idx} | EFE={EFE:.4f} | CE={float(batch_ce_loss):.4f} | "
+                    f"PPL={float(batch_ppl):.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s"
+                )
 
         try:
             final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
@@ -193,7 +199,10 @@ def run_single_trial_efe(trial):
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
+        print(
+            f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | "
+            f"PPL={float(final_ppl):.4f} | Time={total_time:.1f}s"
+        )
         return float(final_efe)
     finally:
         
@@ -239,7 +248,8 @@ def run_phase2_trial(trial, best_params):
         print(reason)
         raise optuna.TrialPruned()
 
-    total_train_ce = 0.0  
+    total_train_ce = 0.0
+    total_efe = 0.0
     batches_processed = 0
     start_time = time.time()
     max_batches = 20
@@ -252,12 +262,13 @@ def run_phase2_trial(trial, best_params):
         targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
         try:
-            yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, y_mu, EFE = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             EFE = abs(float(EFE))
             
-            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
+            y_pred = y_mu.reshape(-1, cfg.vocab_size)
             batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
             batch_train_ce = batch_nll / targets_flat.shape[0]
+            batch_train_ppl = jnp.exp(batch_train_ce)
             
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
                 reason = f"Unstable EFE during CE: {EFE}"
@@ -271,6 +282,7 @@ def run_phase2_trial(trial, best_params):
             raise optuna.TrialPruned()
 
         total_train_ce += float(batch_train_ce)
+        total_efe += EFE
         batches_processed += 1
         avg_train_ce = total_train_ce / batches_processed
 
@@ -284,7 +296,10 @@ def run_phase2_trial(trial, best_params):
             best_train_ce = float(batch_train_ce)
         if batch_idx % 2 == 0:
             elapsed = time.time() - start_time
-            print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
+            print(
+                f"Batch {batch_idx} | EFE={EFE:.4f} | CE={float(batch_train_ce):.4f} | "
+                f"PPL={float(batch_train_ppl):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s"
+            )
 
     try:
         final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
@@ -300,7 +315,11 @@ def run_phase2_trial(trial, best_params):
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
+    final_efe = total_efe / batches_processed if batches_processed > 0 else 0.0
+    print(
+        f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Final Val CE={final_ce:.4f} | "
+        f"PPL={float(final_ppl):.4f} | Time={total_time:.1f}s"
+    )
     return float(final_ce)  
 
 def case1_efe_to_ce_complete():

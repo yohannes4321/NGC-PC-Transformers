@@ -20,12 +20,11 @@ import jax.random as random
 from pathlib import Path
 from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
+from eval import eval_model
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
-import gc
 
-EFE_STABILITY_THRESHOLD = 5e2
-EFE_INCREASE_PRUNE_STREAK = 5
+EFE_STABILITY_THRESHOLD = 2e1
 
 
 def define_search_space(trial):
@@ -34,20 +33,20 @@ def define_search_space(trial):
     embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
     n_embed =  n_heads * embed_mult
     n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
+    batch_size = trial.suggest_int("batch_size", 8, 32, step=8)
     seq_len = trial.suggest_int("seq_len", 8, 32)
 
     return {
         "n_layers": trial.suggest_int("n_layers", 1, 8),
         "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
         "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
+        "tau_m": trial.suggest_int("tau_m", 10, 25),
+        "n_iter": trial.suggest_int("n_iter", 5, 30),
+        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.3),
         "wub": trial.suggest_float("wub", 0.01, 0.1),
         "wlb": trial.suggest_float("wlb", -0.1, -0.01),
         "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu","sigmoid","tanh"]),
         "n_heads": n_heads,
         "n_embed": n_embed,
         "batch_size": batch_size,
@@ -130,7 +129,7 @@ def run_single_trial_efe(trial):
             cfg.vocab_size = base_config.vocab_size
 
         try:
-            model, train_loader, _ = create_model_with_all_params(trial.number, params, cfg)
+            model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
         except Exception as e:
             reason = f"Failed to create model: {e}"
             trial.set_user_attr("prune_reason", reason)
@@ -138,20 +137,18 @@ def run_single_trial_efe(trial):
             raise optuna.TrialPruned()
 
         total_EFE = 0.0
-        total_nll = 0.0
-        total_tokens = 0
         batches_processed = 0
-        last_efe = None
-        efe_increase_streak = 0
         start_time = time.time()
+        max_batches = 20
         for batch_idx, batch in enumerate(train_loader):
+            if batch_idx >= max_batches:
+                break
             inputs = batch[0][1]
             targets = batch[1][1]
-            targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
-
+            targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
             try:
-                _, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
             except Exception as e:
                 reason = f"model.process failed: {e}"
@@ -165,45 +162,27 @@ def run_single_trial_efe(trial):
                 print(reason)
                 raise optuna.TrialPruned()
 
-            if last_efe is not None and EFE > last_efe:
-                efe_increase_streak += 1
-            else:
-                efe_increase_streak = 0
+            total_EFE += EFE
+            batches_processed += 1
+            current_efe = total_EFE / batches_processed
 
-            if efe_increase_streak >= EFE_INCREASE_PRUNE_STREAK:
-                reason = (
-                    f"EFE increased for {EFE_INCREASE_PRUNE_STREAK} consecutive batches "
-                    f"(last={last_efe:.4f}, current={EFE:.4f})"
-                )
+            trial.report(current_efe, batch_idx)
+            if trial.should_prune():
+                reason = f"TPE pruned at batch {batch_idx} | current EFE={current_efe:.4f}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
 
-            total_EFE += EFE
-            batches_processed += 1
-            current_efe = total_EFE / batches_processed
-            last_efe = EFE
-
-            y_pred = y_mu.reshape(-1, cfg.vocab_size)
-            batch_ce_loss = measure_CatNLL(y_pred, targets_flat).mean()
-            total_nll += batch_ce_loss * targets_flat.shape[0]
-            total_tokens += targets_flat.shape[0]
-
-            trial.report(current_efe, batch_idx)
-
-            if batch_idx % 10 == 0:
+            if batch_idx % 2 == 0:
                 elapsed = time.time() - start_time
-                batch_ppl = jnp.exp(batch_ce_loss)
-                running_ce = total_nll / total_tokens
-                running_ppl = jnp.exp(running_ce)
-                print(
-                    f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_ce_loss:.4f} | "
-                    f"PPL={batch_ppl:.4f} | Running CE={running_ce:.4f} | "
-                    f"Running PPL={running_ppl:.4f} | Time={elapsed:.1f}s"
-                )
+                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
 
-        final_ce = float(total_nll / total_tokens) if total_tokens > 0 else 1000.0
-        final_ppl = float(jnp.exp(final_ce)) if total_tokens > 0 else float("inf")
+        try:
+            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+        except:
+            final_ce = 1000.0
+            final_ppl = float('inf')
+
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
         total_time = time.time() - start_time
 
@@ -214,10 +193,7 @@ def run_single_trial_efe(trial):
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(
-            f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | "
-            f"PPL={final_ppl:.4f} | Time={total_time:.1f}s"
-        )
+        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
         return float(final_efe)
     finally:
         
@@ -227,6 +203,7 @@ def run_single_trial_efe(trial):
                 del locals()[obj_name]
         
         # Force garbage collection
+        import gc
         for _ in range(2):
             gc.collect()
         
@@ -255,7 +232,7 @@ def run_phase2_trial(trial, best_params):
         cfg.vocab_size = base_config.vocab_size
 
     try:
-        model, train_loader, _ = create_model_with_all_params(trial.number, params, cfg)
+        model, train_loader, valid_loader = create_model_with_all_params(trial.number, params, cfg)
     except Exception as e:
         reason = f"Failed to create model: {e}"
         trial.set_user_attr("prune_reason", reason)
@@ -263,44 +240,27 @@ def run_phase2_trial(trial, best_params):
         raise optuna.TrialPruned()
 
     total_train_ce = 0.0  
-    total_nll = 0.0
-    total_tokens = 0
     batches_processed = 0
-    last_efe = None
-    efe_increase_streak = 0
     start_time = time.time()
+    max_batches = 20
     best_train_ce = float('inf')
     for batch_idx, batch in enumerate(train_loader):
+        if batch_idx >= max_batches:
+            break
         inputs = batch[0][1]
         targets = batch[1][1]
-        targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
+        targets_flat = jnp.eye(cfg.vocab_size)[targets].reshape(-1, cfg.vocab_size)
 
         try:
-            yMu_inf, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+            yMu_inf, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
             EFE = abs(float(EFE))
             
-            y_pred = y_mu.reshape(-1, cfg.vocab_size)
+            y_pred = yMu_inf.reshape(-1, cfg.vocab_size)
             batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
             batch_train_ce = batch_nll / targets_flat.shape[0]
-            total_nll += batch_nll
-            total_tokens += targets_flat.shape[0]
             
             if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
                 reason = f"Unstable EFE during CE: {EFE}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
-
-            if last_efe is not None and EFE > last_efe:
-                efe_increase_streak += 1
-            else:
-                efe_increase_streak = 0
-
-            if efe_increase_streak >= EFE_INCREASE_PRUNE_STREAK:
-                reason = (
-                    f"EFE increased for {EFE_INCREASE_PRUNE_STREAK} consecutive batches during CE "
-                    f"(last={last_efe:.4f}, current={EFE:.4f})"
-                )
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
                 raise optuna.TrialPruned()
@@ -313,23 +273,25 @@ def run_phase2_trial(trial, best_params):
         total_train_ce += float(batch_train_ce)
         batches_processed += 1
         avg_train_ce = total_train_ce / batches_processed
-        last_efe = EFE
 
         trial.report(avg_train_ce, batch_idx)
-        if batch_idx % 10 == 0:
-            elapsed = time.time() - start_time
-            batch_ppl = jnp.exp(batch_train_ce)
-            running_ce = total_nll / total_tokens
-            running_ppl = jnp.exp(running_ce)
-            print(
-                f"Batch {batch_idx} | EFE={EFE:.4f} | CE={batch_train_ce:.4f} | "
-                f"PPL={batch_ppl:.4f} | Running CE={running_ce:.4f} | "
-                f"Running PPL={running_ppl:.4f} | Time={elapsed:.1f}s"
-            )
+        if trial.should_prune():
+            reason = f"TPE pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
+            trial.set_user_attr("prune_reason", reason)
+            print(reason)
+            raise optuna.TrialPruned()
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
-    final_ce = float(total_nll / total_tokens) if total_tokens > 0 else 100.0
-    final_ppl = float(jnp.exp(final_ce)) if total_tokens > 0 else float("inf")
+        if batch_idx % 2 == 0:
+            elapsed = time.time() - start_time
+            print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
+
+    try:
+        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
+        final_ce = float(final_ce)
+    except:
+        final_ce = avg_train_ce if batches_processed > 0 else 100.0
+        final_ppl = float('inf')
 
     total_time = time.time() - start_time
     trial.set_user_attr("ppl", float(final_ppl))
@@ -338,10 +300,7 @@ def run_phase2_trial(trial, best_params):
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(
-        f"Trial {trial.number} Complete | CE={final_ce:.4f} | PPL={final_ppl:.4f} | "
-        f"Time={total_time:.1f}s"
-    )
+    print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
     return float(final_ce)  
 
 def case1_efe_to_ce_complete():
@@ -354,7 +313,7 @@ def case1_efe_to_ce_complete():
         load_if_exists=True,
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=42, n_startup_trials=2),
-        pruner=optuna.pruners.NopPruner()
+        pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
     )
 
     study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
@@ -398,7 +357,7 @@ def case1_efe_to_ce_complete():
         prior_weight=1.0,     
         consider_endpoints=True  
     ),
-    pruner=optuna.pruners.NopPruner()
+    pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15)
     )
     
     print(f"Resuming with {len(study_ce.trials)} previous trials")

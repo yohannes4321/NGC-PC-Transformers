@@ -1,26 +1,26 @@
 class Config:
     SEED = 42
-    seq_len =64
-    n_embed = 96
-    batch_size = 12
+    seq_len = 4
+    n_embed = 32
+    batch_size = 2
     vocab_size = 11710# data vocab size + special tokens = 11706 + 4
-    n_heads = 8
-    n_layers = 2
-    dropout_rate = 0.0
-    eta = 4.919042890915579e-06
+    n_heads = 4
+    n_layers = 5
+    dropout_rate = 0.15662144617228202
+    eta = 1.0744583847151172e-06
     eta_o= 2.9e-03
     exp_dir = "exp" 
-    pos_learnable = True
+    pos_learnable = False
     optim_type = "sgd"
     epoch = 1
-    n_iter= 26
+    n_iter= 13
     tau_o = 2
     # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
-    wub = 0.035284728580901155
-    wlb =  -0.07318664527441558
+    wub = 0.047663792993867665
+    wlb = -0.0988265802505217
     wu = 0.035284728580901155
     wl = -0.035284728580901155
-    tau_m = 2.7
+    tau_m = 14
     act_fx = "identity"
     act_fx_o = "identity"
 

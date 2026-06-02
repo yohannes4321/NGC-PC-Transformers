@@ -532,7 +532,7 @@ class NGCTransformer:
 
         self.projection.Q_out.weights.set(self.output.W_out.weights.get())
         self.projection.Q_out.biases.set(self.output.W_out.biases.get())
-        self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
+        # self.projection.q_target_Ratecell.j_td.set(jnp.zeros((self.batch_size * self.seq_len, self.vocab_size)))
         
        
         self.clamp_input(obs)
@@ -561,7 +561,7 @@ class NGCTransformer:
         
         
         ## get projected prediction (from the P-step)
-        y_mu_inf = self.projection.q_target_Ratecell.z.get()
+        y_mu_inf = self.projection.q_target_Ratecell.zF.get()
     
         EFE = 0. 
         y_mu = 0.

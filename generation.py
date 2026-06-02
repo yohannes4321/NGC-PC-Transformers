@@ -97,27 +97,27 @@ def generate_text(
 
     for _ in range(max_new_tokens):
         # Truncate context to fit model's seq_len
-        if current_tokens.shape[1] > seq_len:
-            input_seq = current_tokens[:, -seq_len:]
+        if current_tokens.shape[1] > config.seq_len:
+            input_seq = current_tokens[:, -config.seq_len:]
         else:
             input_seq = current_tokens
 
         # Pad to exactly seq_len if needed
-        if input_seq.shape[1] < seq_len:
-            pad_len = seq_len - input_seq.shape[1]
+        if input_seq.shape[1] < config.seq_len:
+            pad_len = config.seq_len - input_seq.shape[1]
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=pad_token_id)
         
         # Forward pass (no target clamping during inference)
-        dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))  
+        dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))
 
         # Forward pass
 
         y_mu_inf, y_mu, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
-        logits = y_mu_inf.reshape(config.batch_size, seq_len, config.vocab_size)
+        logits = y_mu_inf.reshape(config.batch_size, config.seq_len, config.vocab_size)
 
         # Get logits for the last *real* token (excluding padding)
-        if current_tokens.shape[1] > seq_len:
-            last_pos = seq_len - 1
+        if current_tokens.shape[1] > config.seq_len:
+            last_pos = config.seq_len - 1
         else:
             last_pos = current_tokens.shape[1] - 1
         next_logits = logits[0, last_pos, :] / temperature
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     dkey = jax.random.PRNGKey(0)
     model = NGCTransformer(
         dkey, 
-        batch_size=1, # Standard for single-sequence generation
+        batch_size=config.batch_size,
         seq_len=config.seq_len, 
         n_embed=config.n_embed, 
         vocab_size=config.vocab_size, 

@@ -15,9 +15,14 @@ class DataLoader:
 
     def load_and_prepare_data(self):
         """Load tokenized data and prepare for training"""
-        train_tokens = jnp.load(self.data_dir / "train_tokens.npy")
-        valid_tokens = jnp.load(self.data_dir / "valid_tokens.npy")
-        test_tokens = jnp.load(self.data_dir / "test_tokens.npy")
+
+        train_tokens = jnp.load(self.data_dir / "train_tokens.npy")[:100]
+        valid_tokens = jnp.load(self.data_dir / "valid_tokens.npy")[:100]
+        test_tokens = jnp.load(self.data_dir / "test_tokens.npy")[:100]
+
+        print(f"Train tokens loaded: {len(train_tokens)}")
+        print(f"Valid tokens loaded: {len(valid_tokens)}")
+        print(f"Test tokens loaded: {len(test_tokens)}")
 
         train_loader = self._create_data_loader(train_tokens, shuffle=True)
         valid_loader = self._create_data_loader(valid_tokens, shuffle=False)

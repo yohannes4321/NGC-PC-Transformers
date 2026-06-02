@@ -6,6 +6,60 @@ from config import Config as config
 from data_preprocess.data_loader import DataLoader
 from data_preprocess.tokenizer import get_tokenizer, BPETokenizer
 from pathlib import Path
+import re
+import textwrap
+
+
+def format_dialogue(text: str) -> str:
+    """
+    Heuristic cleanup for dialogue-style outputs.
+    Collapses tokenization spaces and inserts newlines before speaker labels.
+    """
+    # Fix common spacing artifacts from tokenization
+    text = re.sub(r"\s+([.,!?;:])", r"\1", text)
+    text = re.sub(r"\s+'\s*", "'", text)
+    text = re.sub(r"(?<=\w)\s*-\s*(?=\w)", "-", text)
+    text = re.sub(r"[ \t]+", " ", text)
+
+    # Put each speaker label on its own line
+    text = re.sub(r"(?<!\n)(?<!^)([A-Za-z][A-Za-z ]{0,30}):", r"\n\1:", text)
+
+    # Normalize line breaks
+    text = re.sub(r"\n{2,}", "\n", text).strip()
+
+    speaker_re = re.compile(r"^([A-Za-z][A-Za-z ]{0,30}):\s*$")
+    blocks = []
+    current_speaker = None
+    current_text = []
+
+    for line in text.splitlines():
+        match = speaker_re.match(line.strip())
+        if match:
+            if current_speaker is not None:
+                blocks.append((current_speaker, " ".join(current_text).strip()))
+            current_speaker = match.group(1)
+            current_text = []
+        else:
+            if line.strip():
+                current_text.append(line.strip())
+
+    if current_speaker is not None:
+        blocks.append((current_speaker, " ".join(current_text).strip()))
+
+    formatted = []
+    for speaker, body in blocks:
+        formatted.append(f"{speaker}:")
+        if body:
+            wrapped = textwrap.fill(
+                body,
+                width=72,
+                break_long_words=False,
+                break_on_hyphens=False,
+            )
+            formatted.append(wrapped)
+        formatted.append("")
+
+    return "\n".join(formatted).rstrip()
 
 
 def generate_text(
@@ -54,8 +108,12 @@ def generate_text(
             input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=pad_token_id)
         
         # Forward pass (no target clamping during inference)
-        y_mu_inf, y_mu, _ = model.process(input_seq, lab=None, adapt_synapses=False)
-        logits = y_mu.reshape(config.batch_size, seq_len, config.vocab_size)
+        dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))  
+
+        # Forward pass
+
+        y_mu_inf, y_mu, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
+        logits = y_mu_inf.reshape(config.batch_size, seq_len, config.vocab_size)
 
         # Get logits for the last *real* token (excluding padding)
         if current_tokens.shape[1] > seq_len:
@@ -200,29 +258,27 @@ if __name__ == "__main__":
     print("\n**************** PROMPT 1 ****************")
     print(prompt_1)
     print("\nFINAL GENERATED 1:\n")
-    print(
-        generate_text(
-            model,
-            tokenizer,
-            prompt_1,
-            max_new_tokens=100,
-            temperature=0.9,
-            top_k=50,
-            key=key_1,
-        )
+    generated_1 = generate_text(
+        model,
+        tokenizer,
+        prompt_1,
+        max_new_tokens=100,
+        temperature=0.9,
+        top_k=50,
+        key=key_1,
     )
+    print(format_dialogue(generated_1))
 
     print("\n**************** PROMPT 2 ****************")
     print(prompt_2)
     print("\nFINAL GENERATED 2:\n")
-    print(
-        generate_text(
-            model,
-            tokenizer,
-            prompt_2,
-            max_new_tokens=100,
-            temperature=0.9,
-            top_k=50,
-            key=key_2,
-        )
+    generated_2 = generate_text(
+        model,
+        tokenizer,
+        prompt_2,
+        max_new_tokens=100,
+        temperature=0.9,
+        top_k=50,
+        key=key_2,
     )
+    print(format_dialogue(generated_2))

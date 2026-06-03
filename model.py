@@ -13,7 +13,7 @@ from utils.attention_utils import AttentionBlock
 from utils.embed_utils import EmbeddingSynapse
 from layers.mlp import MLP
 from layers.output import Output
-from utils.model_util import ReshapeComponent, Outgrad
+from utils.model_util import ReshapeComponent
 from projection.projection import Projection
 import numpy as np
 from utils.errorcell import GaussianErrorCell as ErrorCell

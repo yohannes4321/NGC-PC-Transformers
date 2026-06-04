@@ -18,41 +18,131 @@ import os
 import requests
 import numpy as np
 
-# Hyperparameters
-
-batch_size = 8
-block_size = 256
-MAX_LENGTH = 256
-learning_rate = 1e-3
-n_embd = 64
-n_head = 8
-n_layer = 6
-dropout = 0.1
-max_epochs = 20
+   
+           # Kept original (not specified in Config)
+import os
+from pathlib import Path
+import jax.numpy as jnp
+from tokenizers import Tokenizer, models, pre_tokenizers, trainers
+from config import Config
+batch_size = Config.batch_size
+block_size = Config.seq_len
+MAX_LENGTH = Config.seq_len
+learning_rate = Config.eta_o
+n_embd = Config.n_embed
+n_head = Config.n_heads
+n_layer = Config.n_layers
+dropout = Config.dropout_rate
+max_epochs = Config.epoch
 max_new_tokens = 200
-temperature = 0.8
+temperature = 0.9
+class BPETokenizer:
+    def __init__(self, vocab_size: int = 11710):
+        self.vocab_size = vocab_size
+        self.tokenizer = None
+
+    def train_tokenizer(self, all_text: str):
+        """Trains a Byte-Pair Encoding (BPE) tokenizer from scratch using a raw text string."""
+        # Initialize a BPE model with a standard unknown token handler
+        self.tokenizer = Tokenizer(models.BPE(unk_token="<unk>"))
+        
+        # Pre-tokenize text splitting on spaces before looking up subwords
+        self.tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+
+        # Configure the trainer with special tokens and minimum frequency thresholds
+        trainer = trainers.BpeTrainer(
+            vocab_size=self.vocab_size,
+            special_tokens=["<pad>", "<unk>", "<bos>", "<eos>"],
+            min_frequency=2
+        )
+
+        # Train directly using the in-memory text string iteration
+        self.tokenizer.train_from_iterator([all_text], trainer=trainer)
+
+    def load_tokenizer(self, path: str):
+        """Loads a pre-trained bpe_tokenizer.json file configuration."""
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Tokenizer file not found: {path}")
+        self.tokenizer = Tokenizer.from_file(str(path))
+
+    def encode(self, text: str) -> jnp.ndarray:
+        """Encodes a string into a standard JAX int32 token array."""
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer not trained or loaded yet.")
+        encoded = self.tokenizer.encode(text)
+        return jnp.array(encoded.ids, dtype=jnp.int32)
+
+    def decode(self, tokens: jnp.ndarray) -> str:
+        """Decodes an iterable / JAX array of token IDs back into string text."""
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer not trained or loaded yet.")
+        if hasattr(tokens, 'tolist'):
+            tokens = tokens.tolist()
+        return self.tokenizer.decode(tokens)
+
+    def get_vocab_size(self) -> int:
+        """Returns the dynamic vocabulary count calculated during training."""
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer not trained or loaded yet.")
+        return self.tokenizer.get_vocab_size()
+
+    def save_tokenizer(self, save_path: str = None):
+        """Saves the current trained configuration back down onto disk."""
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer must be initialized and trained before saving.")
+        if save_path is None:
+            save_path = "checkpoints"
+        Path(save_path).mkdir(parents=True, exist_ok=True)
+        self.tokenizer.save(f"{save_path}/bpe_tokenizer.json")
 
 
-# Directory setup
-input_file_path = os.path.join(os.path.dirname(__file__), 'input.txt')
-if not os.path.exists(input_file_path):
-    data_url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
-    with open(input_file_path, 'w', encoding='utf-8') as f:
-        f.write(requests.get(data_url).text)
+def get_tokenizer(cfg):
+    """Factory function dedicated to building, checking, and picking up checkpoints for BPE."""
+    print("Using tokenizer backend: custom BPE")
+    bpe = BPETokenizer(vocab_size=getattr(cfg, "vocab_size", 11710))
+    
+    # Check config parameter paths or default checkpoints directories
+    vocab_file = getattr(cfg, "tokenizer_vocab_file", None)
+    if not vocab_file:
+        default_path = "checkpoints/bpe_tokenizer.json"
+        if os.path.exists(default_path):
+            vocab_file = default_path
+            
+    if vocab_file:
+        try:
+            bpe.load_tokenizer(vocab_file)
+            print(f"Loaded existing BPE tokenizer configuration from {vocab_file}")
+        except Exception:
+            print("Failed to load saved checkpoint. Will require fresh training initialization step.")
+            
+    return bpe
 
-with open(input_file_path, 'r', encoding='utf-8') as f:
-    data = f.read()
-n = len(data)
-train_data = data[:int(n*0.9)]
-val_data = data[int(n*0.9):]
 
-# encode with tiktoken gpt2 bpe
-enc = tiktoken.get_encoding("gpt2")
-train_ids = enc.encode_ordinary(train_data)
-val_ids = enc.encode_ordinary(val_data)
-print(f"train has {len(train_ids):,} tokens")
-print(f"val has {len(val_ids):,} tokens")
-vocab_size = enc.n_vocab
+# ==========================================
+# Execution / Training Pipeline Example
+# ==========================================
+
+# 1. Initialize custom configuration tokenizer object 
+tokenizer = get_tokenizer(Config)
+
+# 2. Check if a valid checkpoint was found; if not, train from scratch on raw text
+if tokenizer.tokenizer is None:
+    print("No checkpoint found. Training BPE tokenizer on training dataset...")
+    tokenizer.train_tokenizer(train_data)
+    tokenizer.save_tokenizer("checkpoints")
+
+# 3. Transform textual dataset segments to standardized lists of IDs
+train_ids = tokenizer.encode(train_data).tolist()
+val_ids = tokenizer.encode(val_data).tolist()
+
+# 4. Extract global vocabulary configurations for embedding weights initialization matching
+vocab_size = tokenizer.get_vocab_size()
+
+# 5. Export standard lambda wrappers for quick evaluation hooks across the repository loops
+encode = lambda s: tokenizer.encode(s)
+decode = lambda l: tokenizer.decode(l)
+
 # export to bin files in 'data' directory
 data_dir = os.path.join(os.path.dirname(__file__), 'data')
 os.makedirs(data_dir, exist_ok=True)
@@ -343,9 +433,8 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 device_type = 'cuda' if 'cuda' in device else 'cpu'
 ptdtype = torch.float32
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
-enc = tiktoken.get_encoding("gpt2")
-encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
-decode = lambda l: enc.decode(l)
+# Use the globally configured encode and decode functions
+# (defined based on Config.tokenizer selection at the top of the file)
 # encode the beginning of the prompt
 start = "\n"
 if start.startswith('FILE:'):

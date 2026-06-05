@@ -13,17 +13,11 @@ from bert_score import score as bertscore
 import time
 import tiktoken
 from contextlib import nullcontext
-nltk.download('punkt')
-import os
+from pathlib import Path
 import requests
 import numpy as np
+nltk.download('punkt')
 
-   
-           # Kept original (not specified in Config)
-import os
-from pathlib import Path
-import jax.numpy as jnp
-from tokenizers import Tokenizer, models, pre_tokenizers, trainers
 from config import Config
 batch_size = Config.batch_size
 block_size = Config.seq_len
@@ -66,15 +60,15 @@ class BPETokenizer:
             raise FileNotFoundError(f"Tokenizer file not found: {path}")
         self.tokenizer = Tokenizer.from_file(str(path))
 
-    def encode(self, text: str) -> jnp.ndarray:
-        """Encodes a string into a standard JAX int32 token array."""
+    def encode(self, text: str) -> list:
+        """Encodes a string into a list of token IDs."""
         if self.tokenizer is None:
             raise ValueError("Tokenizer not trained or loaded yet.")
         encoded = self.tokenizer.encode(text)
-        return jnp.array(encoded.ids, dtype=jnp.int32)
+        return encoded.ids
 
-    def decode(self, tokens: jnp.ndarray) -> str:
-        """Decodes an iterable / JAX array of token IDs back into string text."""
+    def decode(self, tokens) -> str:
+        """Decodes an iterable of token IDs back into string text."""
         if self.tokenizer is None:
             raise ValueError("Tokenizer not trained or loaded yet.")
         if hasattr(tokens, 'tolist'):
@@ -98,50 +92,67 @@ class BPETokenizer:
 
 
 def get_tokenizer(cfg):
-    """Factory function dedicated to building, checking, and picking up checkpoints for BPE."""
-    print("Using tokenizer backend: custom BPE")
-    bpe = BPETokenizer(vocab_size=getattr(cfg, "vocab_size", 11710))
-    
-    # Check config parameter paths or default checkpoints directories
-    vocab_file = getattr(cfg, "tokenizer_vocab_file", None)
-    if not vocab_file:
-        default_path = "checkpoints/bpe_tokenizer.json"
-        if os.path.exists(default_path):
-            vocab_file = default_path
-            
-    if vocab_file:
-        try:
-            bpe.load_tokenizer(vocab_file)
-            print(f"Loaded existing BPE tokenizer configuration from {vocab_file}")
-        except Exception:
-            print("Failed to load saved checkpoint. Will require fresh training initialization step.")
-            
-    return bpe
+    """Factory function: returns (encode_fn, decode_fn, vocab_size) based on Config.tokenizer."""
+    tokenizer_type = getattr(cfg, "tokenizer", "BPE").strip().lower()
+
+    if tokenizer_type == "tiktoken":
+        # ---- tiktoken path ----
+        encoding_name = getattr(cfg, "tokenizer_name", "gpt2")
+        print(f"Using tokenizer backend: tiktoken (encoding={encoding_name})")
+        enc = tiktoken.get_encoding(encoding_name)
+        encode_fn = lambda s: enc.encode(s, allowed_special={'<|endoftext|>'})
+        decode_fn = lambda t: enc.decode(t)
+        v_size = enc.n_vocab
+        return encode_fn, decode_fn, v_size, None  # None = no trainable tokenizer object
+
+    elif tokenizer_type == "bpe":
+        # ---- custom BPE path ----
+        print("Using tokenizer backend: custom BPE")
+        bpe = BPETokenizer(vocab_size=getattr(cfg, "vocab_size", 11710))
+
+        # Check config parameter paths or default checkpoints directories
+        vocab_file = getattr(cfg, "tokenizer_vocab_file", None)
+        if not vocab_file:
+            default_path = "checkpoints/bpe_tokenizer.json"
+            if os.path.exists(default_path):
+                vocab_file = default_path
+
+        if vocab_file:
+            try:
+                bpe.load_tokenizer(vocab_file)
+                print(f"Loaded existing BPE tokenizer configuration from {vocab_file}")
+            except Exception:
+                print("Failed to load saved checkpoint. Will require fresh training.")
+
+        encode_fn = lambda s: bpe.encode(s)
+        decode_fn = lambda t: bpe.decode(t)
+        v_size = bpe.get_vocab_size() if bpe.tokenizer is not None else getattr(cfg, "vocab_size", 11710)
+        return encode_fn, decode_fn, v_size, bpe
+
+    else:
+        raise ValueError(f"Unknown tokenizer type '{cfg.tokenizer}'. Choose 'BPE' or 'tiktoken' in Config.")
 
 
 # ==========================================
 # Execution / Training Pipeline Example
 # ==========================================
 
-# 1. Initialize custom configuration tokenizer object 
-tokenizer = get_tokenizer(Config)
+# 1. Initialize tokenizer based on Config.tokenizer choice
+encode, decode, vocab_size, _bpe_tokenizer = get_tokenizer(Config)
 
-# 2. Check if a valid checkpoint was found; if not, train from scratch on raw text
-if tokenizer.tokenizer is None:
+# 2. For BPE: if no checkpoint was found, train from scratch on raw text
+if _bpe_tokenizer is not None and _bpe_tokenizer.tokenizer is None:
     print("No checkpoint found. Training BPE tokenizer on training dataset...")
-    tokenizer.train_tokenizer(train_data)
-    tokenizer.save_tokenizer("checkpoints")
+    _bpe_tokenizer.train_tokenizer(train_data)
+    _bpe_tokenizer.save_tokenizer("checkpoints")
+    # Refresh encode/decode after training
+    encode = lambda s: _bpe_tokenizer.encode(s)
+    decode = lambda t: _bpe_tokenizer.decode(t)
+    vocab_size = _bpe_tokenizer.get_vocab_size()
 
 # 3. Transform textual dataset segments to standardized lists of IDs
-train_ids = tokenizer.encode(train_data).tolist()
-val_ids = tokenizer.encode(val_data).tolist()
-
-# 4. Extract global vocabulary configurations for embedding weights initialization matching
-vocab_size = tokenizer.get_vocab_size()
-
-# 5. Export standard lambda wrappers for quick evaluation hooks across the repository loops
-encode = lambda s: tokenizer.encode(s)
-decode = lambda l: tokenizer.decode(l)
+train_ids = encode(train_data)
+val_ids = encode(val_data)
 
 # export to bin files in 'data' directory
 data_dir = os.path.join(os.path.dirname(__file__), 'data')

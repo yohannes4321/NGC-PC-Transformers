@@ -22,6 +22,7 @@ class Config:
     tau_m = 2.7
     act_fx = "identity"
     act_fx_o = "identity"
-    tokenizer = "BPE"
-    tokenizer_name = "gpt2"
-    tokenizer_vocab_file = None
+    # Tokenizer selection: "BPE" (custom trained) or "tiktoken" (OpenAI's fast tokenizer)
+    tokenizer = "BPE"          # Choose: "BPE" or "tiktoken"
+    tokenizer_name = "gpt2"    # tiktoken encoding name (used only when tokenizer="tiktoken")
+    tokenizer_vocab_file = None # Path to saved BPE tokenizer JSON (used only when tokenizer="BPE")

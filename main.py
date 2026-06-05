@@ -462,6 +462,8 @@ if start.startswith('FILE:'):
     with open(start[5:], 'r', encoding='utf-8') as f:
         start = f.read()
 start_ids = encode(start)
+if not start_ids:
+    start_ids = [0]  # fallback: use first token if encoding is empty
 x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
 
 # run generation

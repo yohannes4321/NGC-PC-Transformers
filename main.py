@@ -137,6 +137,14 @@ def get_tokenizer(cfg):
 # Execution / Training Pipeline Example
 # ==========================================
 
+# 0. Load raw text data and split into train/val
+input_file_path = os.path.join(os.path.dirname(__file__), 'input.txt')
+with open(input_file_path, 'r', encoding='utf-8') as f:
+    data = f.read()
+n = len(data)
+train_data = data[:int(n * 0.9)]
+val_data = data[int(n * 0.9):]
+
 # 1. Initialize tokenizer based on Config.tokenizer choice
 encode, decode, vocab_size, _bpe_tokenizer = get_tokenizer(Config)
 

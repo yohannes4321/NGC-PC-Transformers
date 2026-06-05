@@ -263,7 +263,7 @@ class LanguageModel(nn.Module):
     def forward(self, idx, targets=None):
         B, T = idx.shape
         tok_emb = self.token_embedding_table(idx)
-        pos_emb = self.position_embedding_table(torch.arange(T))
+        pos_emb = self.position_embedding_table(torch.arange(T, device=idx.device))
         x = self.dropout(tok_emb + pos_emb)
         x = self.blocks(x)
         x = self.ln_f(x)
@@ -391,7 +391,9 @@ def evaluate(model,num_batches=100):
 
 
 # Training phase
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = LanguageModel()
+model = model.to(device)
 print(sum(p.numel() for p in model.parameters())/1e6, 'M parameters')
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)

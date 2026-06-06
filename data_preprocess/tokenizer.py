@@ -170,3 +170,77 @@ class TiktokenTokenizer:
         np.save(f"{save_dir}/train_tokens.npy", np.array(train_tokens))
         np.save(f"{save_dir}/valid_tokens.npy", np.array(valid_tokens))
         np.save(f"{save_dir}/test_tokens.npy", np.array(test_tokens))
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
+def get_tokenizer(cfg=None):
+    """
+    Returns a tokenizer instance based on cfg.tokenizer:
+
+      cfg.tokenizer = "BPE"      → custom BPETokenizer (default)
+      cfg.tokenizer = "tiktoken" → TiktokenTokenizer
+
+    For tiktoken, the encoding is read from cfg.tokenizer_encoding
+    (default: "o200k_base", i.e. GPT-4o – the latest available).
+
+    For BPE, an optional cfg.tokenizer_vocab_file can point to a saved
+    bpe_tokenizer.json to skip re-training.
+    """
+    if cfg is None:
+        cfg = config
+
+    backend = getattr(cfg, "tokenizer", "BPE")
+
+    if isinstance(backend, str) and backend.lower() == "tiktoken":
+        encoding = getattr(cfg, "tokenizer_encoding", _BEST_ENCODING)
+        print(f"[get_tokenizer] backend=tiktoken  encoding='{encoding}'")
+        return TiktokenTokenizer(encoding=encoding)
+
+    # Default: custom BPE
+    print("[get_tokenizer] backend=BPE (custom)")
+    bpe = BPETokenizer(vocab_size=getattr(cfg, "vocab_size", VOCAB_SIZE))
+    vocab_file = getattr(cfg, "tokenizer_vocab_file", None)
+    if vocab_file:
+        try:
+            bpe.load_tokenizer(vocab_file)
+        except Exception as e:
+            print(f"[get_tokenizer] Could not load vocab file: {e}")
+    return bpe
+
+
+# ---------------------------------------------------------------------------
+# Main entry-point
+# ---------------------------------------------------------------------------
+
+def main():
+    cfg = config
+    tokenizer = get_tokenizer(cfg)
+
+    # Always use BPETokenizer.load_data() to read the raw text splits
+    loader = BPETokenizer()
+    train_text, valid_text, test_text, all_text = loader.load_data()
+
+    if isinstance(tokenizer, BPETokenizer):
+        print("Training custom BPE tokenizer …")
+        tokenizer.train_tokenizer(all_text)
+        train_tokens, valid_tokens, test_tokens = tokenizer.tokenize_splits(
+            train_text, valid_text, test_text
+        )
+        tokenizer.save_tokenizer()
+        tokenizer.save_data(train_tokens, valid_tokens, test_tokens)
+
+    elif isinstance(tokenizer, TiktokenTokenizer):
+        print(f"Tokenizing with tiktoken (encoding='{tokenizer.encoding}') …")
+        train_tokens, valid_tokens, test_tokens = tokenizer.tokenize_splits(
+            train_text, valid_text, test_text
+        )
+        tokenizer.save_data(train_tokens, valid_tokens, test_tokens)
+
+    print("Done.")
+
+
+if __name__ == "__main__":
+    main()

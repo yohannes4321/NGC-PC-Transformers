@@ -4,13 +4,32 @@ import jax.numpy as jnp
 import numpy as np
 from config import Config as config
 from data_preprocess.data_loader import DataLoader
-from data_preprocess.tokenizer import get_tokenizer, BPETokenizer
+from data_preprocess.tokenizer import get_tokenizer, BPETokenizer, TiktokenTokenizer
 from pathlib import Path
 import re
 import textwrap
 
 
+def _get_special_tokens(tokenizer):
+    """
+    Returns (pad_token_id, start_token_id) for whichever backend is active.
 
+    BPETokenizer  → uses <pad> and <bos> from its trained vocab
+    TiktokenTokenizer → uses eot_token for both (tiktoken has no <pad>/<bos>)
+    """
+    if isinstance(tokenizer, BPETokenizer):
+        pad_id   = tokenizer.tokenizer.token_to_id("<pad>")
+        start_id = tokenizer.tokenizer.token_to_id("<bos>")
+        if pad_id   is None: pad_id   = 0
+        if start_id is None: start_id = pad_id
+        return pad_id, start_id
+
+    if isinstance(tokenizer, TiktokenTokenizer):
+        eot = tokenizer._enc.eot_token   # e.g. 199999 for o200k_base
+        return eot, eot
+
+    # Fallback for any future backend
+    return 0, 0
 
 
 def generate_text(
@@ -21,128 +40,134 @@ def generate_text(
     temperature: float = 1.0,
     top_k: int = 0,
     key=None,
-    pad_token_id: int = None
 ):
     """
-    Generate text using the model and provided tokenizer.
-    Works with both custom BPE and tiktoken backends.
+    Generate text using the model.
+    Works with both BPETokenizer and TiktokenTokenizer backends.
     """
-    if pad_token_id is None:
-        if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is not None:
-            pad_token_id = tokenizer.tokenizer.token_to_id("<pad>")
-        elif hasattr(tokenizer, "_enc") and hasattr(tokenizer._enc, "eot_token"):
-            pad_token_id = tokenizer._enc.eot_token
-        else:
-            pad_token_id = 0
+    pad_token_id, start_token_id = _get_special_tokens(tokenizer)
 
-    start_token_id = None
-    if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is not None:
-        start_token_id = tokenizer.tokenizer.token_to_id("<bos>")
-    if start_token_id is None:
-        start_token_id = pad_token_id
-
-    # Initialize sequence with start token ID
+    # Start sequence with the start/bos token
     current_tokens = jnp.array([[start_token_id]], dtype=jnp.int32)
     current_key = key
 
     for _ in range(max_new_tokens):
-        # Truncate context to fit model's seq_len
+        # Keep only the last seq_len tokens as context
         if current_tokens.shape[1] > config.seq_len:
             input_seq = current_tokens[:, -config.seq_len:]
         else:
             input_seq = current_tokens
 
-        # Pad to exactly seq_len if needed
+        # Pad up to seq_len if shorter
         if input_seq.shape[1] < config.seq_len:
             pad_len = config.seq_len - input_seq.shape[1]
-            input_seq = jnp.pad(input_seq, ((0, 0), (0, pad_len)), constant_values=pad_token_id)
-        
+            input_seq = jnp.pad(
+                input_seq, ((0, 0), (0, pad_len)),
+                constant_values=pad_token_id
+            )
+
         # Forward pass (no target clamping during inference)
-        dummy_target = jnp.zeros((config.batch_size * config.seq_len, config.vocab_size))
+        dummy_target = jnp.zeros(
+            (config.batch_size * config.seq_len, config.vocab_size)
+        )
+        y_mu_inf, y_mu, _ = model.process(
+            input_seq, dummy_target, adapt_synapses=False
+        )
+        logits = y_mu_inf.reshape(
+            config.batch_size, config.seq_len, config.vocab_size
+        )
 
-        # Forward pass
-
-        y_mu_inf, y_mu, _ = model.process(input_seq, dummy_target, adapt_synapses=False)
-        logits = y_mu_inf.reshape(config.batch_size, config.seq_len, config.vocab_size)
-
-        # Get logits for the last *real* token (excluding padding)
-        if current_tokens.shape[1] > config.seq_len:
-            last_pos = config.seq_len - 1
-        else:
-            last_pos = current_tokens.shape[1] - 1
+        # Pick logits at the last *real* token position (not padding)
+        real_len = min(current_tokens.shape[1], config.seq_len)
+        last_pos = real_len - 1
         next_logits = logits[0, last_pos, :] / temperature
 
-        # Sample or take argmax
+        # Sample with optional top-k, or greedy argmax
         if current_key is not None:
             if top_k is not None and top_k > 0:
-                top_k = min(top_k, config.vocab_size)
-                top_vals, top_idx = jax.lax.top_k(next_logits, k=top_k)
+                k = min(top_k, config.vocab_size)
+                top_vals, top_idx = jax.lax.top_k(next_logits, k=k)
                 probs = jax.nn.softmax(top_vals)
                 current_key, subkey = jax.random.split(current_key)
-                choice = jax.random.choice(subkey, a=top_k, p=probs)
+                choice = jax.random.choice(subkey, a=k, p=probs)
                 next_token = top_idx[choice]
             else:
                 probs = jax.nn.softmax(next_logits)
                 current_key, subkey = jax.random.split(current_key)
-                next_token = jax.random.choice(subkey, a=config.vocab_size, p=probs)
+                next_token = jax.random.choice(
+                    subkey, a=config.vocab_size, p=probs
+                )
         else:
             next_token = jnp.argmax(next_logits)
 
-        # Append new token
-        current_tokens = jnp.concatenate([current_tokens, next_token[None, None]], axis=1)
+        current_tokens = jnp.concatenate(
+            [current_tokens, next_token[None, None]], axis=1
+        )
 
-    # Decode generated IDs back to text
+    # Decode — tiktoken.decode expects List[int], BPE handles both
     generated_ids = current_tokens[0].tolist()
+
+    # Strip the leading start/pad token before decoding
+    if generated_ids and generated_ids[0] == start_token_id:
+        generated_ids = generated_ids[1:]
+
     return tokenizer.decode(generated_ids)
 
 
-# Initialize the model and tokenizer only when run as a script
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Initialize the model
     dkey = jax.random.PRNGKey(0)
     model = NGCTransformer(
-        dkey, 
+        dkey,
         batch_size=config.batch_size,
-        seq_len=config.seq_len, 
-        n_embed=config.n_embed, 
-        vocab_size=config.vocab_size, 
-        n_layers=config.n_layers, 
+        seq_len=config.seq_len,
+        n_embed=config.n_embed,
+        vocab_size=config.vocab_size,
+        n_layers=config.n_layers,
         n_heads=config.n_heads,
-        T=config.n_iter, 
-        dt=1., 
-        tau_m=config.tau_m, 
-        act_fx=config.act_fx, 
-        eta=config.eta, 
-        dropout_rate=config.dropout_rate, 
+        T=config.n_iter,
+        dt=1.,
+        tau_m=config.tau_m,
+        act_fx=config.act_fx,
+        eta=config.eta,
+        dropout_rate=config.dropout_rate,
         exp_dir="exp",
-        loadDir="exp", # Ensure model is loaded from trained exp/ directory
-        pos_learnable=config.pos_learnable, 
-        optim_type=config.optim_type, 
-        wub=config.wub, 
-        wlb=config.wlb, 
+        loadDir="exp",
+        pos_learnable=config.pos_learnable,
+        optim_type=config.optim_type,
+        wub=config.wub,
+        wlb=config.wlb,
         model_name="ngc_transformer"
     )
 
-    # Optional: add custom weight stats here if needed
-
     tokenizer = get_tokenizer(config)
 
+    # BPE: auto-load saved vocab if not already loaded
     if isinstance(tokenizer, BPETokenizer) and tokenizer.tokenizer is None:
         vocab_file = getattr(config, "tokenizer_vocab_file", None)
         if vocab_file is None:
-            default_path = Path(__file__).parent / "data_preprocess" / "outputs" / "tokenizer" / "bpe_tokenizer.json"
+            default_path = (
+                Path(__file__).parent
+                / "data_preprocess" / "outputs" / "tokenizer" / "bpe_tokenizer.json"
+            )
             if default_path.exists():
                 vocab_file = str(default_path)
-                print(f"Auto-loading BPE tokenizer from default path: {vocab_file}")
+                print(f"Auto-loading BPE tokenizer from: {vocab_file}")
 
-        # Attempt to load
         if vocab_file and Path(vocab_file).exists():
             tokenizer.load_tokenizer(vocab_file)
             print(f"Loaded BPE tokenizer (vocab size: {tokenizer.get_vocab_size()})")
         else:
             raise RuntimeError(
-                "BPE tokenizer not trained or loaded!\n\n"
+                "BPE tokenizer not trained or loaded!\n"
+                "Run data_preprocess/tokenizer.py first, or set tokenizer_vocab_file in config."
             )
+
+    # TiktokenTokenizer needs no loading — already ready after __init__
+    if isinstance(tokenizer, TiktokenTokenizer):
+        print(f"Using tiktoken (encoding='{tokenizer.encoding}', vocab_size={tokenizer.get_vocab_size()})")
 
     rng = jax.random.PRNGKey(0)
     rng, key_1 = jax.random.split(rng)
@@ -158,5 +183,3 @@ if __name__ == "__main__":
         key=key_1,
     )
     print(generated_1)
-
-    

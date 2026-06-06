@@ -25,7 +25,7 @@ class Config:
 
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "tiktoken"
-    tokenizer_encoding = "cl100k_base"
+    tokenizer_encoding = "o200k_base"
 
     tokenizer_vocab_file = None
 
@@ -40,6 +40,12 @@ class Config:
     def _resolve_vocab_size(cls):
         backend = getattr(cls, "tokenizer", "BPE")
         if isinstance(backend, str) and backend.lower() == "tiktoken":
+            from pathlib import Path
+            import json
+            map_path = Path(__file__).parent / "data_preprocess" / "outputs" / "tokenizer" / f"{cls.tokenizer_encoding}_token_map.json"
+            if map_path.exists():
+                with open(map_path, "r") as f:
+                    return len(json.load(f))
             import tiktoken
             enc = tiktoken.get_encoding(cls.tokenizer_encoding)
             return enc.n_vocab

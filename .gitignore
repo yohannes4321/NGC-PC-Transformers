@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+.ipynb_checkpoints/
+outputs/
+logs/
+*.log   
+/tuning
+/python3.11
+/exp

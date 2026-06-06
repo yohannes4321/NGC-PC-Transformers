@@ -3,7 +3,6 @@ class Config:
     seq_len =64
     n_embed = 96
     batch_size = 12
-    vocab_size = 11710# data vocab size + special tokens = 11706 + 4
     n_heads = 8
     n_layers = 2
     dropout_rate = 0.0
@@ -12,7 +11,7 @@ class Config:
     exp_dir = "exp" 
     pos_learnable = True
     optim_type = "sgd"
-    epoch = 20
+    epoch = 1
     n_iter= 26
     tau_o = 2
     # Approximate Xavier scaling: 1 / sqrt(512) is about 0.04
@@ -26,6 +25,26 @@ class Config:
 
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "tiktoken"
-    tokenizer_encoding = "o200k_base"
+    tokenizer_encoding = "gpt2"
 
     tokenizer_vocab_file = None
+
+    # ---- vocab_size: auto-detected from tokenizer backend ----
+    # For BPE:     set this to your trained BPE vocab (e.g. 11710)
+    # For tiktoken: MUST match the encoding's actual vocab size
+    #   o200k_base  → 200256
+    #   cl100k_base → 100277
+    #   p50k_base   → 50281
+    #   gpt2        → 50257
+    @classmethod
+    def _resolve_vocab_size(cls):
+        backend = getattr(cls, "tokenizer", "BPE")
+        if isinstance(backend, str) and backend.lower() == "tiktoken":
+            import tiktoken
+            enc = tiktoken.get_encoding(cls.tokenizer_encoding)
+            return enc.n_vocab
+        else:
+            return 11710  # BPE default: data vocab + special tokens
+
+# Set vocab_size once at import time
+Config.vocab_size = Config._resolve_vocab_size()

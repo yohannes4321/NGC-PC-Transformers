@@ -25,7 +25,7 @@ class Config:
 
     # Tokenizer selection: "BPE" (custom/BPE loader) or "tiktoken"
     tokenizer = "tiktoken"
-    tokenizer_encoding = "o200k_base"
+    tokenizer_encoding = "gpt2"
 
     tokenizer_vocab_file = None
 

@@ -20,66 +20,118 @@ import jax.random as random
 from pathlib import Path
 from model import NGCTransformer
 from data_preprocess.data_loader import DataLoader
-from eval import eval_model
 from config import Config as base_config
 from ngclearn.utils.metric_utils import measure_CatNLL
 import gc
 
-EFE_STABILITY_THRESHOLD = 2e1
+EFE_STABILITY_THRESHOLD = 1e5
+SEARCH_SPACE_VERSION = "v1"
+PHASE2_EFE_WEIGHT = 0.01
 
+ACT_FX_CHOICES = [
+    "identity",
+    "relu",
+    "elu",
+    "selu",
+    "sigmoid",
+    "tanh",
+]
+
+OPTIM_CHOICES = [
+    "adam",
+    "sgd",
+]
 
 def define_search_space(trial):
-    # Heads and embedding: ensure n_embed divisible by n_heads
+
     n_heads = trial.suggest_int("n_heads", 2, 8)
-    embed_mult = trial.suggest_int("embed_mult", 8, 16, step=4)
-    n_embed =  n_heads * embed_mult
-    n_embed = trial.suggest_int("n_embed", n_embed, n_embed)
-    batch_size = trial.suggest_int("batch_size", 2, 12)
-    seq_len = trial.suggest_int("seq_len", 8, 32)
+
+    embed_mult = trial.suggest_int(
+        "embed_mult",
+        8,
+        64,
+        step=8
+    )
+
+    n_embed = n_heads * embed_mult
 
     return {
-        "n_layers": trial.suggest_int("n_layers", 1, 8),
-        "pos_learnable": trial.suggest_categorical("pos_learnable", [True, False]),
-        "eta": trial.suggest_float("eta", 1e-6, 1e-4, log=True),
-        "tau_m": trial.suggest_int("tau_m", 10, 20),
-        "n_iter": trial.suggest_int("n_iter", 1, 30),
-        "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.),
-        "wub": trial.suggest_float("wub", 0.01, 0.1),
-        "wlb": trial.suggest_float("wlb", -0.1, -0.01),
-        "optim_type": trial.suggest_categorical("optim_type", ["adam", "sgd"]),
-        "act_fx": trial.suggest_categorical("act_fx", ["identity", "relu"]),
+        "n_layers": trial.suggest_int(
+            "n_layers",
+            1,
+            8
+        ),
+
         "n_heads": n_heads,
-        "n_embed": n_embed,
-        "batch_size": batch_size,
-        "seq_len": seq_len,
-        "embed_mult": embed_mult
-    }
 
-def define_search_space_phase2(trial, best_params):
-    """Phase 2: Only tune continuous parameters, keep others fixed from Phase 1"""
-    
-    # Extract Phase 1 best values
-    eta_best = best_params.get("eta", 1e-5)
-    dropout_rate_best = best_params.get("dropout_rate", 0.0)
-    wub_best = best_params.get("wub", 0.05)
-    wlb_best = best_params.get("wlb", -0.05)
-    
-    # Only tune these continuous parameters with narrow search
-    return {
-        "eta": trial.suggest_float("eta",
-                                   eta_best * 0.2,      
-                                   eta_best * 5.0,      
-                                   log=True),
-        "dropout_rate": trial.suggest_float("dropout_rate",
-                                           max(0.0, dropout_rate_best - 0.05),
-                                           min(0.3, dropout_rate_best + 0.05)),
-        "wub": trial.suggest_float("wub",
-                                  max(0.01, wub_best - 0.02),
-                                  min(0.1, wub_best + 0.02)),
-        
-        "wlb": trial.suggest_float("wlb",
-                                  max(-0.1, wlb_best - 0.02),
-                                  min(-0.01, wlb_best + 0.02)),
+        "n_embed": n_embed,
+
+        "embed_mult": embed_mult,
+
+        "batch_size": trial.suggest_int(
+            "batch_size",
+            4,
+            32,
+            step=4
+        ),
+
+        "seq_len": trial.suggest_int(
+            "seq_len",
+            8,
+            32
+        ),
+
+        "eta": trial.suggest_float(
+            "eta",
+            1e-7,
+            1e-3,
+            log=True
+        ),
+
+        "tau_m": trial.suggest_int(
+            "tau_m",
+            5,
+            50
+        ),
+
+        "n_iter": trial.suggest_int(
+            "n_iter",
+            1,
+            50
+        ),
+
+        "dropout_rate": trial.suggest_float(
+            "dropout_rate",
+            0.0,
+            0.3
+        ),
+
+        "wub": trial.suggest_float(
+            "wub",
+            0.01,
+            0.1
+        ),
+
+        "wlb": trial.suggest_float(
+            "wlb",
+            -0.1,
+            -0.01
+        ),
+
+        "pos_learnable": trial.suggest_categorical(
+            "pos_learnable",
+            [True, False]
+        ),
+
+        "optim_type": trial.suggest_categorical(
+            "optim_type",
+            OPTIM_CHOICES
+        ),
+
+        "act_fx": trial.suggest_categorical(
+            "act_fx",
+            ACT_FX_CHOICES
+        ),
     }
     
     # ALL OTHER PARAMETERS ARE FIXED FROM PHASE 1 BEST
@@ -135,67 +187,62 @@ def run_single_trial_efe(trial):
             reason = f"Failed to create model: {e}"
             trial.set_user_attr("prune_reason", reason)
             print(reason)
-            raise optuna.TrialPruned()
+            return float("inf")
 
         total_EFE = 0.0
+        total_train_ce = 0.0
         batches_processed = 0
-        start_time = time.time()
-        max_batches = 20
         for batch_idx, batch in enumerate(train_loader):
-            if batch_idx >= max_batches:
-                break
             inputs = batch[0][1]
             targets = batch[1][1]
             targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
 
 
             try:
-                _, _, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
+                _, y_mu, EFE, *_ = model.process(obs=inputs, lab=targets_flat, adapt_synapses=True)
                 EFE = abs(float(EFE))
             except Exception as e:
                 reason = f"model.process failed: {e}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
-                raise optuna.TrialPruned()
+                return float("inf")
 
-            if jnp.isnan(EFE) or jnp.isinf(EFE) or EFE > EFE_STABILITY_THRESHOLD:
+            if jnp.isnan(EFE) or jnp.isinf(EFE):
                 reason = f"Unstable EFE: {EFE}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
-                raise optuna.TrialPruned()
+                return float("inf")
 
             total_EFE += EFE
             batches_processed += 1
             current_efe = total_EFE / batches_processed
 
+            y_pred = y_mu.reshape(-1, cfg.vocab_size)
+            batch_nll = measure_CatNLL(y_pred, targets_flat) * targets_flat.shape[0]
+            batch_train_ce = batch_nll / targets_flat.shape[0]
+            total_train_ce += float(batch_train_ce)
+            avg_train_ce = total_train_ce / batches_processed
+            avg_train_ppl = float(jnp.exp(avg_train_ce)) if avg_train_ce < 100.0 else float("inf")
+
+            if (batch_idx + 1) % 20 == 0:
+                print(
+                    f"[EFE Phase] Batch {batch_idx + 1} | "
+                    f"EFE={current_efe:.4f} | CE={avg_train_ce:.4f} | PPL={avg_train_ppl:.4f}"
+                )
+
             trial.report(current_efe, batch_idx)
-            if trial.should_prune():
-                reason = f"TPE pruned at batch {batch_idx} | current EFE={current_efe:.4f}"
-                trial.set_user_attr("prune_reason", reason)
-                print(reason)
-                raise optuna.TrialPruned()
-
-            if batch_idx % 2 == 0:
-                elapsed = time.time() - start_time
-                print(f"Batch {batch_idx} | EFE={EFE:.4f} | Avg EFE={current_efe:.4f} | Time={elapsed:.1f}s")
-
-        try:
-            final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        except:
-            final_ce = 1000.0
-            final_ppl = float('inf')
 
         final_efe = total_EFE / batches_processed if batches_processed > 0 else 1000.0
-        total_time = time.time() - start_time
+        final_ce = avg_train_ce if batches_processed > 0 else 100.0
+        final_ppl = float(jnp.exp(final_ce)) if final_ce < 100.0 else float("inf")
 
-        trial.set_user_attr("ce", float(final_ce))
-        trial.set_user_attr("ppl", float(final_ppl))
-        trial.set_user_attr("time", total_time)
+        trial.set_user_attr("train_ce", float(final_ce))
+        trial.set_user_attr("train_ppl", float(final_ppl))
 
         for key, value in params.items():
             trial.set_user_attr(f"param_{key}", value)
 
-        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | CE={final_ce:.4f} | Time={total_time:.1f}s")
+        print(f"Trial {trial.number} Complete | EFE={final_efe:.4f} | Train CE={final_ce:.4f} | Train PPL={final_ppl:.4f}")
         return float(final_efe)
     finally:
         
@@ -238,16 +285,14 @@ def run_phase2_trial(trial, best_params):
         reason = f"Failed to create model: {e}"
         trial.set_user_attr("prune_reason", reason)
         print(reason)
-        raise optuna.TrialPruned()
+        return float("inf")
 
-    total_train_ce = 0.0  
+    total_train_ce = 0.0
+    total_EFE = 0.0
     batches_processed = 0
-    start_time = time.time()
-    max_batches = 20
     best_train_ce = float('inf')
+    last_batch_ce = None
     for batch_idx, batch in enumerate(train_loader):
-        if batch_idx >= max_batches:
-            break
         inputs = batch[0][1]
         targets = batch[1][1]
         targets_flat = jax.nn.one_hot(targets.flatten(), cfg.vocab_size)
@@ -264,71 +309,85 @@ def run_phase2_trial(trial, best_params):
                 reason = f"Unstable EFE during CE: {EFE}"
                 trial.set_user_attr("prune_reason", reason)
                 print(reason)
-                raise optuna.TrialPruned()
+                return float("inf")
         except Exception as e:
             reason = f"model.process failed during CE: {e}"
             trial.set_user_attr("prune_reason", reason)
             print(reason)
-            raise optuna.TrialPruned()
+            return float("inf")
 
         total_train_ce += float(batch_train_ce)
+        total_EFE += EFE
         batches_processed += 1
         avg_train_ce = total_train_ce / batches_processed
+        avg_efe = total_EFE / batches_processed
+        avg_train_ppl = float(jnp.exp(avg_train_ce)) if avg_train_ce < 100.0 else float("inf")
+
+        if (batch_idx + 1) % 20 == 0:
+            print(
+                f"[CE Phase] Batch {batch_idx + 1} | "
+                f"EFE={avg_efe:.4f} | CE={avg_train_ce:.4f} | PPL={avg_train_ppl:.4f}"
+            )
+        last_batch_ce = float(batch_train_ce)
 
         trial.report(avg_train_ce, batch_idx)
-        if trial.should_prune():
-            reason = f"TPE pruned at batch {batch_idx} | Avg Train CE={avg_train_ce:.4f}"
-            trial.set_user_attr("prune_reason", reason)
-            print(reason)
-            raise optuna.TrialPruned()
         if float(batch_train_ce) < best_train_ce:
             best_train_ce = float(batch_train_ce)
-        if batch_idx % 2 == 0:
-            elapsed = time.time() - start_time
-            print(f"Batch {batch_idx} | CE={float(batch_train_ce):.4f} | Avg Train CE={avg_train_ce:.4f} | Time={elapsed:.1f}s")
+    if last_batch_ce is None:
+        final_ce = 100.0
+    else:
+        final_ce = last_batch_ce
+    final_ppl = float(jnp.exp(final_ce)) if final_ce < 100.0 else float("inf")
+    avg_efe = total_EFE / batches_processed if batches_processed > 0 else float("inf")
 
-    try:
-        final_ce, final_ppl = eval_model(model, valid_loader, cfg.vocab_size)
-        final_ce = float(final_ce)
-    except:
-        final_ce = avg_train_ce if batches_processed > 0 else 100.0
-        final_ppl = float('inf')
+    if final_ce > 6.0:
+        reason = f"Final batch CE above target: {final_ce:.4f}"
+        trial.set_user_attr("prune_reason", reason)
+        print(reason)
+        return float("inf")
 
-    total_time = time.time() - start_time
-    trial.set_user_attr("ppl", float(final_ppl))
-    trial.set_user_attr("time", total_time)
+    trial.set_user_attr("train_ce", float(final_ce))
+    trial.set_user_attr("train_ppl", float(final_ppl))
 
     for key, value in params.items():
         trial.set_user_attr(f"param_{key}", value)
 
-    print(f"Trial {trial.number} Complete | Final Val CE={final_ce:.4f} | Time={total_time:.1f}s")
-    return float(final_ce)  
+    objective = final_ce + (PHASE2_EFE_WEIGHT * avg_efe)
+    print(
+        f"Trial {trial.number} Complete | Final Batch CE={final_ce:.4f} | "
+        f"Avg EFE={avg_efe:.4f} | Objective={objective:.4f} | Train PPL={final_ppl:.4f}"
+    )
+    return float(objective)
 
 def case1_efe_to_ce_complete():
     Path("tuning").mkdir(exist_ok=True)
 
     print("PHASE 1: TPE optimizing EFE (all parameters)")
+    phase1_study_name = f"case1_complete_phase1_efe_{SEARCH_SPACE_VERSION}"
+    phase1_storage = f"sqlite:///tuning/{phase1_study_name}.db"
     study_efe = optuna.create_study(
-        study_name="case1_complete_phase1_efe",
-        storage="sqlite:///tuning/case1_complete_phase1_efe.db",
+        study_name=phase1_study_name,
+        storage=phase1_storage,
         load_if_exists=True,
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=42, n_startup_trials=2),
-        pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15, reduction_factor=2)
+        pruner=optuna.pruners.NopPruner()
     )
 
     study_efe.optimize(run_single_trial_efe, n_trials=10, n_jobs= 1, show_progress_bar=False)
 
     if study_efe.best_trial:
         best_efe = study_efe.best_value
-        best_efe_ce = study_efe.best_trial.user_attrs.get("ce", "N/A")
+        best_efe_ce = study_efe.best_trial.user_attrs.get("train_ce", "N/A")
+        best_efe_ppl = study_efe.best_trial.user_attrs.get("train_ppl", "N/A")
         best_params = study_efe.best_trial.params
         
         print(f"\n{'='*60}")
         print("PHASE 1 COMPLETE")
         print(f"{'='*60}")
         print(f"Best EFE: {best_efe:.4f}")
-        print(f"Corresponding CE: {best_efe_ce}")
+        print(f"Corresponding Train CE: {best_efe_ce}")
+        print(f"Corresponding Train PPL: {best_efe_ppl}")
         print(f"\nBest Architecture Parameters (FIXED for Phase 2):")
         for key in ['n_layers', 'n_heads', 'n_embed', 'tau_m', 'n_iter', 
                    'batch_size', 'seq_len', 'pos_learnable', 'optim_type', 'act_fx']:
@@ -345,20 +404,22 @@ def case1_efe_to_ce_complete():
     print("Strategy: Keep architecture/discrete/categorical parameters FIXED")
     print("Only fine-tune: eta, dropout_rate, wub, wlb")
     
+    phase2_study_name = f"case1_complete_phase2_ce_{SEARCH_SPACE_VERSION}"
+    phase2_storage = f"sqlite:///tuning/{phase2_study_name}.db"
     study_ce = optuna.create_study(
-    study_name="case1_complete_phase2_ce",
-    storage="sqlite:///tuning/case1_complete_phase2_ce.db",
-    load_if_exists=True,
-    direction="minimize",
-    sampler=optuna.samplers.TPESampler(
-        seed=42,
-        n_startup_trials=5,
-        multivariate=True,    
-        group=True,          
-        prior_weight=1.0,     
-        consider_endpoints=True  
-    ),
-    pruner=optuna.pruners.HyperbandPruner(min_resource=10, max_resource=15)
+        study_name=phase2_study_name,
+        storage=phase2_storage,
+        load_if_exists=True,
+        direction="minimize",
+        sampler=optuna.samplers.TPESampler(
+            seed=42,
+            n_startup_trials=5,
+            multivariate=True,
+            group=True,
+            prior_weight=1.0,
+            consider_endpoints=True
+        ),
+        pruner=optuna.pruners.NopPruner()
     )
     
     print(f"Resuming with {len(study_ce.trials)} previous trials")
@@ -392,7 +453,8 @@ def case1_efe_to_ce_complete():
             f.write("PHASE 1 - BEST FOR EFE:\n")
             f.write("-"*40 + "\n")
             f.write(f"Best EFE: {best_efe:.6f}\n")
-            f.write(f"Corresponding CE: {best_efe_ce:.6f}\n")
+            f.write(f"Corresponding Train CE: {best_efe_ce:.6f}\n")
+            f.write(f"Corresponding Train PPL: {best_efe_ppl:.6f}\n")
             f.write("-"*40 + "\n")
             
             for key, value in best_params.items():
@@ -402,7 +464,7 @@ def case1_efe_to_ce_complete():
             
             f.write("PHASE 2 - BEST FOR CE:\n")
             f.write("-"*40 + "\n")
-            f.write(f"Best CE: {best_ce:.6f}\n")
+            f.write(f"Best Train CE: {best_ce:.6f}\n")
             f.write("-"*40 + "\n")
             
             for key, value in final_params.items():
@@ -413,6 +475,7 @@ def case1_efe_to_ce_complete():
         return {
             "phase1_best_efe": best_efe,
             "phase1_best_ce": best_efe_ce,
+            "phase1_best_ppl": best_efe_ppl,
             "phase2_best_ce": best_ce,
             "phase1_parameters": best_params,
             "phase2_parameters": final_params,
@@ -435,8 +498,9 @@ def main():
             print(f"{'='*60}")
             print(f"Final Results:")
             print(f"- Phase 1 Best EFE: {results['phase1_best_efe']:.4f}")
-            print(f"- Phase 1 Corresponding CE: {results['phase1_best_ce']:.4f}")
-            print(f"- Phase 2 Best CE: {results['phase2_best_ce']:.4f}")
+            print(f"- Phase 1 Corresponding Train CE: {results['phase1_best_ce']:.4f}")
+            print(f"- Phase 1 Corresponding Train PPL: {results['phase1_best_ppl']:.4f}")
+            print(f"- Phase 2 Best Train CE: {results['phase2_best_ce']:.4f}")
             if 'improvement_pct' in results:
                 print(f"- Improvement: {results['improvement_pct']:+.1f}%")
             print(f"\n Parameters saved to: tuning/best_hyperparameters.txt")
